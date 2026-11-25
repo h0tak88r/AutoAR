@@ -1,65 +1,26 @@
 package api
 
 import (
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base32"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/totp"
 )
 
 // generateTOTP returns the current 6-digit TOTP code for a base32 secret
-// (RFC 6238: HMAC-SHA1, 30-second step, 6 digits) — the same algorithm Google
-// Authenticator and YesWeHack 2FA use. The secret is the base32 "seed" shown when
-// setting up 2FA, NOT a one-time code.
-func generateTOTP(secret string) (string, error) { return totpAt(secret, time.Now()) }
+// (see internal/totp) — the same algorithm Google Authenticator and YesWeHack
+// 2FA use. The secret is the base32 "seed" shown when setting up 2FA, NOT a
+// one-time code.
+func generateTOTP(secret string) (string, error) { return totp.Code(secret, time.Now()) }
 
-// extractTOTPSecret returns the bare base32 seed from whatever the user pasted.
-// Users often paste the whole otpauth:// URI (or a "…secret=XXXX&…" query) from
-// the 2FA QR code instead of just the seed — pull the secret= value out of it.
-func extractTOTPSecret(raw string) string {
-	s := strings.TrimSpace(raw)
-	if i := strings.Index(strings.ToLower(s), "secret="); i >= 0 {
-		v := s[i+len("secret="):]
-		if j := strings.IndexAny(v, "&?#\r\n\t "); j >= 0 {
-			v = v[:j]
-		}
-		if dec, err := url.QueryUnescape(v); err == nil {
-			v = dec
-		}
-		return v
-	}
-	return s
-}
+func extractTOTPSecret(raw string) string { return totp.Secret(raw) }
 
-func totpAt(secret string, t time.Time) (string, error) {
-	s := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(extractTOTPSecret(secret)), " ", ""))
-	if s == "" {
-		return "", fmt.Errorf("empty TOTP secret")
-	}
-	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(s)
-	if err != nil {
-		if key, err = base32.StdEncoding.DecodeString(s); err != nil {
-			return "", fmt.Errorf("invalid base32 TOTP secret: %w", err)
-		}
-	}
-	counter := uint64(t.Unix() / 30)
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], counter)
-	mac := hmac.New(sha1.New, key)
-	mac.Write(buf[:])
-	sum := mac.Sum(nil)
-	off := sum[len(sum)-1] & 0x0f
-	code := (uint32(sum[off]&0x7f) << 24) | (uint32(sum[off+1]) << 16) | (uint32(sum[off+2]) << 8) | uint32(sum[off+3])
-	return fmt.Sprintf("%06d", code%1000000), nil
-}
+func totpAt(secret string, t time.Time) (string, error) { return totp.Code(secret, t) }
 
 // ywhReauthThrottle prevents a re-login storm: at most one login attempt per
 // email per window, so many concurrent/expired-token fetches don't hammer YWH's
@@ -94,7 +55,10 @@ func ywhReauth(email, password, totpSecret string) (string, error) {
 
 	// Step 1: POST /login.
 	loginBody := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
-	req, _ := http.NewRequest("POST", "https://api.yeswehack.com/login", strings.NewReader(loginBody))
+	req, err := http.NewRequest("POST", "https://api.yeswehack.com/login", strings.NewReader(loginBody))
+	if err != nil {
+		return "", fmt.Errorf("YWH login request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
@@ -129,7 +93,10 @@ func ywhReauth(email, password, totpSecret string) (string, error) {
 		return "", err
 	}
 	totpBody := fmt.Sprintf(`{"token":%q,"code":%q}`, lr.TOTPToken, code)
-	req2, _ := http.NewRequest("POST", "https://api.yeswehack.com/account/totp", strings.NewReader(totpBody))
+	req2, err := http.NewRequest("POST", "https://api.yeswehack.com/account/totp", strings.NewReader(totpBody))
+	if err != nil {
+		return "", fmt.Errorf("YWH 2FA request: %w", err)
+	}
 	req2.Header.Set("Content-Type", "application/json")
 	req2.Header.Set("Accept", "application/json")
 	resp2, err := client.Do(req2)

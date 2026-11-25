@@ -37,19 +37,19 @@ patterns:
       confidence: high
   - pattern:
       name: Facebook OAuth
-      regex: '[fF][aA][cC][eE][bB][oO][oO][kK].*[''|"][0-9a-f]{32}[''|"]'
+      regex: '[fF][aA][cC][eE][bB][oO][oO][kK].{0,40}[''|"][0-9a-f]{32}[''|"]'
       confidence: high
   - pattern:
       name: GitHub
-      regex: '[gG][iI][tT][hH][uU][bB].*[''|"][0-9a-zA-Z]{35,40}[''|"]'
+      regex: '[gG][iI][tT][hH][uU][bB].{0,40}[''|"][0-9a-zA-Z]{35,40}[''|"]'
       confidence: high
   - pattern:
       name: Generic API Key
-      regex: '[aA][pP][iI]_?[kK][eE][yY].*[''|"][0-9a-zA-Z]{32,45}[''|"]'
+      regex: '[aA][pP][iI]_?[kK][eE][yY].{0,40}[''|"][0-9a-zA-Z]{32,45}[''|"]'
       confidence: high
   - pattern:
       name: Generic Secret
-      regex: '[sS][eE][cC][rR][eE][tT].*[''|"][0-9a-zA-Z]{32,45}[''|"]'
+      regex: '[sS][eE][cC][rR][eE][tT].{0,40}[''|"][0-9a-zA-Z]{32,45}[''|"]'
       confidence: high
   - pattern:
       name: Google API Key
@@ -97,7 +97,7 @@ patterns:
       confidence: high
   - pattern:
       name: Heroku API Key
-      regex: "[hH][eE][rR][oO][kK][uU].*[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}"
+      regex: "[hH][eE][rR][oO][kK][uU].{0,40}[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}"
       confidence: high
   - pattern:
       name: MailChimp API Key
@@ -149,9 +149,9 @@ patterns:
       confidence: high
   - pattern:
       name: Twitter Access Token
-      regex: "[tT][wW][iI][tT][tT][eE][rR].*[1-9][0-9]+-[0-9a-zA-Z]{40}"
+      regex: "[tT][wW][iI][tT][tT][eE][rR].{0,40}[1-9][0-9]+-[0-9a-zA-Z]{40}"
       confidence: high
   - pattern:
       name: Twitter OAuth
-      regex: '[tT][wW][iI][tT][tT][eE][rR].*[''|"][0-9a-zA-Z]{35,44}[''|"]'
+      regex: '[tT][wW][iI][tT][tT][eE][rR].{0,40}[''|"][0-9a-zA-Z]{35,44}[''|"]'
       confidence: high

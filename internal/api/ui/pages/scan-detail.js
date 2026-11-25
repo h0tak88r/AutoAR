@@ -1,1456 +1,1553 @@
 (() => {
-  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
-  const apiFetch = (...args) => window.apiFetch(...args);
-  const navigateTo = (...args) => window.navigateTo(...args);
-  const showToast = (...args) => window.showToast(...args);
-  const API = '';
-  const apiPost = (...args) => window.apiPost(...args);
-  const fmtSize = (...args) => window.fmtSize(...args);
-  const getFileTypeFromName = (...args) => window.getFileTypeFromName(...args);
-  const getFileTypeIcon = (...args) => window.getFileTypeIcon(...args);
-  const detectModuleFromFileName = (...args) => window.detectModuleFromFileName(...args);
-  const getModuleDisplayInfo = (...args) => window.getModuleDisplayInfo(...args);
-  const scanNoArtifactsMessage = (...args) => window.scanNoArtifactsMessage(...args);
-  const escAttr = (...args) => window.escAttr(...args);
-  const copyToClipboard = (...args) => window.copyToClipboard(...args);
-
-  // showReportModal renders generated AI report text in a copyable overlay.
-  function showReportModal(title, text) {
-    document.getElementById('ai-report-modal')?.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'ai-report-modal';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(2px)';
-    overlay.innerHTML = `
-      <div style="background:var(--bg-card,#0b1220);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;max-width:860px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
-        <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border,rgba(255,255,255,.1))">
-          <div style="font-weight:600;font-size:14px;color:var(--text-primary,#fff);flex:1">${esc(title)}</div>
-          <button type="button" id="ai-report-copy" style="padding:6px 12px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:12px;cursor:pointer">Copy</button>
-          <button type="button" id="ai-report-close" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid var(--border,rgba(255,255,255,.15));border-radius:6px;color:var(--text-secondary,#cbd5e1);font-size:12px;cursor:pointer">Close</button>
-        </div>
-        <pre id="ai-report-body" style="margin:0;padding:18px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;color:var(--text-primary,#e2e8f0)"></pre>
-      </div>`;
-    overlay.querySelector('#ai-report-body').textContent = text;
-    const close = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector('#ai-report-close').addEventListener('click', close);
-    overlay.querySelector('#ai-report-copy').addEventListener('click', async () => {
-      try { await copyToClipboard(text); showToast('success', 'Copied', 'Report copied to clipboard'); }
-      catch (e) { showToast('error', 'Copy failed', e.message || String(e)); }
-    });
-    const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
-    document.addEventListener('keydown', onKey);
-    document.body.appendChild(overlay);
-  }
-
-  // ── State for Scan Detail Page ──────────────────────────────────────────
-  window._scanDetailKnownFiles = new Set();
-  window._scanDetailRefreshTimer = null;
-  window._scanDetailRefreshId = null;
-  let _assetsCache = null;
-  let _assetsLoading = false;
-
-  async function renderScanDetailView(scanId) {
-    _assetsCache = null;
-    _assetsLoading = false;
-    const container = document.getElementById('scan-detail-container');
-    const sub = document.getElementById('scan-detail-sub');
-    const apiA = document.getElementById('scan-detail-api');
-    if (!container) return;
-    const ui = window.state.scanDetailUI;
-
-    // Show modern loading skeleton
-    container.innerHTML = `
-      <div class="scan-detail-modern">
-        <div class="scan-summary-stats">
-          ${[1, 2, 3, 4].map(() => `
-            <div class="skeleton-card">
-              <div class="skeleton-line skeleton-title"></div>
-              <div class="skeleton-line skeleton-text"></div>
-            </div>
-          `).join('')}
-        </div>
-        <div class="skeleton-card">
-          <div class="skeleton-line skeleton-title"></div>
-          <div class="skeleton-line skeleton-text"></div>
-          <div class="skeleton-line skeleton-text"></div>
-        </div>
-      </div>`;
-
-    try {
-      const sum = await apiFetch(
-        `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=${ui.filesPage}&per_page=${ui.filesPerPage}`
-      );
-      const manifestResp = await fetchScanManifest(scanId);
-      const scan = sum.scan;
-      const target = scan.target || scan.Target || '';
-      const st = scan.scan_type || scan.ScanType || '';
-      const stat = scan.status || scan.Status || '';
-      const statLower = stat.toLowerCase();
-      const titleEl = document.getElementById('scan-detail-title');
-      if (titleEl) titleEl.textContent = target || 'Scan results';
-
-      // Render scan type + status with live badge if running
-      if (sub) {
-        const isActive = /running|starting|paused|cancelling/i.test(stat);
-        if (isActive) {
-          const isCancelling = /cancelling/i.test(stat);
-          const isPaused = /paused/i.test(stat);
-          const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
-            : isCancelling
-              ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
-              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
-          sub.innerHTML = `${esc(st)} · ${esc(statLower)}${liveBadge}`;
-        } else {
-          sub.textContent = `${st} · ${statLower}`;
-        }
-      }
-      if (apiA) apiA.style.display = 'none';
-      const r2DetailBtn = document.getElementById('scan-detail-r2-btn');
-      if (r2DetailBtn) {
-        if (st) {
-          r2DetailBtn.style.display = 'inline-flex';
-          if (target) {
-            r2DetailBtn.disabled = false;
-            r2DetailBtn.title = 'Browse scan artifacts in R2';
-            r2DetailBtn.onclick = () => window.browseR2ForScan(target, st);
-          } else {
-            r2DetailBtn.disabled = true;
-            r2DetailBtn.title = 'Target is unavailable for this scan record';
-            r2DetailBtn.onclick = null;
-          }
-        } else {
-          r2DetailBtn.style.display = 'none';
-          r2DetailBtn.disabled = false;
-          r2DetailBtn.title = '';
-          r2DetailBtn.onclick = null;
-        }
-      }
-
-      const rescanDetailBtn = document.getElementById('scan-detail-rescan-btn');
-      if (rescanDetailBtn) {
-        const isActive = /running|starting|paused|cancelling/i.test(stat);
-        if (!isActive) {
-          rescanDetailBtn.style.display = 'inline-flex';
-          rescanDetailBtn._rescan = () => window.rescanScan(scanId);
-        } else {
-          rescanDetailBtn.style.display = 'none';
-          rescanDetailBtn._rescan = null;
-        }
-      }
-      const deleteDetailBtn = document.getElementById('scan-detail-delete-btn');
-      if (deleteDetailBtn) {
-        deleteDetailBtn.onclick = async () => {
-          await window.deleteScan(scanId, target);
-          navigateTo('overview');
-        };
-      }
-
-      const files = sum.files || [];
-      const total = sum.total || 0;
-
-      const statNorm = String(stat || '').trim();
-      const finishedOk = /^(completed|done|success)$/i.test(statNorm);
-      const stillRunning = /^(running|pending|queued|active|in_progress|starting)$/i.test(statNorm);
-      const failedish = /fail|error|cancel/i.test(statNorm);
-
-      const zipURL = scan.result_url || scan.ResultURL || '';
-      const zipBanner = zipURL
-        ? `<div class="modern-card" style="padding:18px">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-              <div>
-                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px"> Full Scan Archive</div>
-                <div style="font-size:12px;color:var(--text-muted)">Download complete scan results as ZIP</div>
-              </div>
-              <a href="${esc(zipURL)}" target="_blank" rel="noopener" class="btn btn-primary">Download ZIP</a>
-            </div>
-          </div>`
-        : '';
-
-      const manifestCard = renderScanManifestCard(manifestResp?.manifest || null, scan);
-
-      let emptyBanner = '';
-      if (!files.length) {
-        let emptyMsg;
-        if (finishedOk) {
-          emptyMsg = `<div class="scan-no-results-banner">${esc(scanNoArtifactsMessage(st, target))}</div>
-            <p class="scan-asm-muted" style="margin-top:12px">No files were indexed for this scan. Confirm uploads and artifact indexing.</p>`;
-        } else if (stillRunning) {
-          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">...</div><div style="font-size:14px;color:var(--text-secondary)">Scan is still running or processing. Check back soon for results.</div></div>';
-        } else if (failedish) {
-          emptyMsg = `<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">X</div><div style="font-size:14px;color:var(--accent-red)">No result files indexed. Status: ${esc(statNorm)}</div></div>`;
-        } else {
-          emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px"></div><div style="font-size:14px;color:var(--text-muted)">No indexed artifacts for this scan yet.</div></div>';
-        }
-        emptyBanner = `<div class="modern-card" style="padding:20px">${emptyMsg}</div>`;
-      }
-
-      let html;
-      if (!files.length) {
-        html = `
-          <div class="scan-detail-modern">
-            ${zipBanner}
-            ${manifestCard}
-            ${emptyBanner}
-            <div class="modern-card" style="padding:20px">
-              <div style="text-align:center;color:var(--text-muted)">No files to preview.</div>
-            </div>
-          </div>`;
-      } else {
-        html = `
-          <div class="scan-detail-modern">
-            ${zipBanner}
-            ${manifestCard}
-            ${emptyBanner}
-            
-            <div class="modern-card">
-              <div class="card-header">
-                <div class="card-title"><span class="card-title-icon"></span>Results</div>
-                <span class="badge badge-running" id="unified-parsed-badge">${total} files</span>
-              </div>
-              <div id="unified-parsed-results" style="padding:16px">
-                <div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results...</div>
-              </div>
-            </div>
-          </div>`;
-      }
-
-      container.innerHTML = html;
-
-      // Wire manifest pipeline row clicks after DOM insertion.
-      const manifestCardEl = container.querySelector('.modern-card');
-      if (manifestCardEl) {
-        window.ScanDetailManifest.wireManifestRowClicks(manifestCardEl);
-      }
-
-      window.wireScanFileRows(container, scanId);
-      window.wireScanDetailFilters(scanId, files);
-      loadReconUnifiedTable(scanId, files, 'unified-parsed-results', scan);
-
-      if (files.length) {
-        window.loadScanDetailVulnerabilityInsights(scanId, files);
-      }
-
-      if (ui.selectedFileName) {
-        requestAnimationFrame(() => {
-          window.loadScanFilePreview(scanId, ui.selectedFileName, { retainPage: true });
-        });
-      }
-      if (stillRunning) {
-        scheduleScanDetailRefresh(scanId);
-      } else {
-        clearScanDetailRefreshTimer();
-      }
-
-    } catch (e) {
-      container.innerHTML = `<div class="modern-card" style="padding:20px;border-color:var(--accent-red)"><div style="color:var(--accent-red)">${esc(e.message || String(e))}</div></div>`;
-    }
-  }
-
-  function clearScanDetailRefreshTimer() {
-    if (window._scanDetailRefreshTimer) {
-      clearTimeout(window._scanDetailRefreshTimer);
-      window._scanDetailRefreshTimer = null;
-    }
-  }
-
-  function scheduleScanDetailRefresh(scanId, ms = 4000) {
-    clearScanDetailRefreshTimer();
-    window._scanDetailRefreshId = scanId;
-    window._scanDetailRefreshTimer = setTimeout(() => doScanDetailRefresh(scanId), ms);
-  }
-
-  async function doScanDetailRefresh(scanId) {
-    if (window.state.view !== 'scan-detail' || window.state.scanDetailId !== scanId) return;
-
-    try {
-      const sum = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
-      const scan = sum.scan || {};
-      const stat = String(scan.status || scan.Status || '').toLowerCase();
-      const files = sum.files || [];
-      const stillRunning = /^(running|pending|queued|active|in_progress|starting)$/.test(stat);
-
-      const sub = document.getElementById('scan-detail-sub');
-      if (sub) {
-        if (stillRunning) {
-          const isCancelling = /cancelling/.test(stat);
-          const isPaused = /paused/.test(stat);
-          const scanType = scan.scan_type || '';
-          const liveBadge = isPaused
-            ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
-            : isCancelling
-              ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
-              : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
-          sub.innerHTML = `${esc(scanType)} · ${esc(stat)}${liveBadge}`;
-        } else {
-          sub.textContent = `${scan.scan_type || ''} · ${stat}`;
-        }
-      }
-
-      refreshScanManifestCard(scanId, scan);
-
-      const badge = document.getElementById('unified-parsed-badge');
-      if (badge) {
-        const countStr = `${files.length} files`;
-        if (badge.textContent !== countStr) badge.textContent = countStr;
-      }
-
-      const newFiles = files.filter(f => !window._scanDetailKnownFiles.has(f.file_name));
-      if (newFiles.length) {
-        newFiles.forEach(f => window._scanDetailKnownFiles.add(f.file_name));
-        const unifiedRoot = document.getElementById('unified-parsed-results');
-        if (unifiedRoot) {
-          loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
-          _assetsCache = null;
-        }
-      }
-
-      if (stillRunning) {
-        scheduleScanDetailRefresh(scanId, 4500);
-      } else {
-        clearScanDetailRefreshTimer();
-        _assetsCache = null; // Reset cache on auto-refresh to pick up new assets
-        await renderScanDetailView(scanId);
-      }
-    } catch (e) {
-      scheduleScanDetailRefresh(scanId, 8000);
-    }
-  }
-
-  // ── Manifest helpers — delegated to scan-detail-manifest.js ──────────────
-  const fetchScanManifest = (id) => window.ScanDetailManifest.fetchScanManifest(id);
-  const renderScanManifestCard = (m, s) => window.ScanDetailManifest.renderScanManifestCard(m, s);
-  const refreshScanManifestCard = (id, s) => window.ScanDetailManifest.refreshScanManifestCard(id, s);
-  const manifestStatusBadge = (st) => window.ScanDetailManifest.manifestStatusBadge(st);
-  const manifestArtifactLabel = (e) => window.ScanDetailManifest.manifestArtifactLabel(e);
-  const manifestStartedLabel = (e) => window.ScanDetailManifest.manifestStartedLabel(e);
-
-  // ── Unified Findings Table Implementation ──────────────────────────────────
-  async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
-    const root = document.getElementById(containerId);
-    if (!root) return;
-    let wrap = null;
-    const stNorm = String(scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
-    const isAPKScan = stNorm.includes('apkx');
-    const badge = document.getElementById('unified-parsed-badge') || document.getElementById('recon-parsed-badge');
-
-    if (!allFiles || !allFiles.length) {
-      if (badge) badge.textContent = '0 artifacts';
-      root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No artifacts found.</div>';
-      return;
-    }
-
-    root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results…</div>';
-    let allRows = [];
-    try {
-      const parsed = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/parsed?section=all&limit=5000`);
-      if (Array.isArray(parsed.rows)) {
-        allRows = parsed.rows;
-      }
-    } catch (e) {
-      console.warn('[scan detail] parsed recon api fallback', e);
-    }
-
-    if (!allRows.length) {
-      for (const f of allFiles) {
-        try {
-          const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(f.file_name)}&page=1&per_page=500`);
-          const rows = window.previewDataToFlatRows(data, f).map((r) => ({
-            ...r,
-            kind: window.detectModuleFromFileName(r.file, r.module),
-            category: window.categorizeScanArtifactFile(r.file),
-          }));
-          allRows.push(...rows);
-        } catch (e) {
-          allRows.push({
-            file: f.file_name,
-            module: detectModuleFromFileName(f.file_name, f.module),
-            source: f.source || '—',
-            category: window.categorizeScanArtifactFile(f.file_name),
-            kind: window.detectModuleFromFileName(f.file_name, f.module),
-            severity: '—',
-            target: '—',
-            finding: `[Error reading file] ${e.message || e}`,
-          });
-        }
-      }
-    }
-
-    if (badge) {
-      badge.textContent = `${allRows.length} rows · ${allFiles.length} files`;
-    }
-
-    if (!allRows.length) {
-      root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No parseable findings.</div>';
-      return;
-    }
-
-    if (isAPKScan) {
-      const hasJsonRows = allRows.some((r) => String(r.file || '').toLowerCase().endsWith('.json'));
-      if (hasJsonRows) {
-        allRows = allRows.filter((r) => String(r.file || '').toLowerCase().endsWith('.json'));
-      }
-    }
-
-    allRows = allRows
-      .map((r) => {
-        let kind = String(r.kind || window.detectModuleFromFileName(r.file, r.module) || 'other').toLowerCase().trim();
-        const file = String(r.file || '').toLowerCase();
-        const target = String(r.target || r.host || '').toLowerCase();
-        const finding = String(r.title || r.finding || '').trim();
-        const moduleNorm = window.normalizeModuleKey(r.module);
-
-        if (kind === 'js-urls') kind = 'js_urls';
-        if (kind === 'unknown' || kind === 'unknowns') kind = 'other';
-
-        const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
-        const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
-        const looksLikeJSEndpoints = file.includes('js-endpoint') || moduleNorm === 'js-endpoints';
-        const looksLikeKatana = file.includes('katana') || moduleNorm === 'katana-crawler' || moduleNorm === 'katana';
-        const looksLikeGitHub = (file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'))) && !file.startsWith('js-');
-
-        if (looksLikeGitHub) kind = 'github-scan';
-        else if (looksLikeJSEndpoints) kind = 'js-endpoints';
-        else if (looksLikeKatana) kind = 'katana-crawler';
-        else if (looksLikeJSMatcher) kind = 'js-analysis';
-        else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
-        if (isAPKScan) kind = 'apkx';
-
-        // Do not treat GitHub/TruffleHog rows as JS just because the blob URL ends in .js
-        const isJS = kind !== 'github-scan' && kind !== 'js-endpoints' && kind !== 'katana-crawler' && (kind === 'js_urls' || looksLikeJSURL);
-        if (kind === 'js_urls') kind = 'urls';
-
-        let normalizedModule = isAPKScan ? 'apkx' : moduleNorm;
-        if (kind === 'github-scan') {
-          normalizedModule = 'github-scan';
-        } else if (kind === 'js-endpoints') {
-          normalizedModule = 'js-endpoints';
-        } else if (kind === 'katana-crawler') {
-          normalizedModule = 'katana-crawler';
-        } else if (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS)) {
-          normalizedModule = 'js-analysis';
-        }
-
-        return {
-          ...r,
-          kind,
-          module: normalizedModule,
-          is_js: isJS || r.is_js || false,
-        };
-      })
-      .filter((r) => {
-        const finding = String(r.title || r.finding || '').trim().toLowerCase();
-        const target = String(r.target || r.host || '').trim();
-        if (finding === 'no findings found' && (target === '' || target === '-' || target === '—')) {
-          return false;
-        }
-        if (isAPKScan) {
-          if ((target === '' || target === '-' || target === '—') && (finding === '' || finding === '—' || finding === 'autoar' || finding === 'apkx')) {
-            return false;
-          }
-        }
-        return true;
-      });
-
-    const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'sqlmap', 'aem-findings']);
-    const totalVuln = allRows.filter(r => VULN_KINDS.has(r.kind)).length;
-
-    const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run' || stNorm === 'domain_run';
-    const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
-    let activeKind = isReconScan ? 'assets' : 'urls';
-    if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
-    if (!isReconScan && isGitHubScan && allRows.some(r => window.normalizeModuleKey(r.module) === 'github-scan')) {
-      activeKind = 'mod:github-scan';
-    }
-    let searchHost = '';
-    let searchTitle = '';
-    let searchModule = 'all';
-    let filterSeverity = 'any';
-
-    const _kindCounts = {};
-    for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
-    const HIDDEN_KINDS = new Set(['logs', 'log']);
-    const TAB_LABELS = {
-      assets: ' Assets',
-      urls: ' Links',
-      'js-analysis': ' JS Secrets',
-      'js-endpoints': ' JS Endpoints',
-      'katana-crawler': ' Katana',
-      'gf-patterns': ' GF Patterns',
-      nuclei: ' Nuclei',
-      ffuf: ' FFUF',
-      buckets: ' S3 Buckets',
-      ports: ' Ports',
-      reflection: ' Reflection',
-      'xss-detection': ' XSS (Dalfox)',
-      'github-scan': ' GitHub Secrets',
-      other: ' Other',
-      github: ' GitHub Secrets',
-    };
-
-    const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
-    const DATASET_TABS = [];
-
-    if (isReconScan || allRows.some(r => r.kind === 'subdomains' || r.kind === 'assets')) {
-      DATASET_TABS.push(['assets', TAB_LABELS.assets]);
-    }
-
-    dynamicKinds.forEach(k => {
-      if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
-        if (['js-analysis', 'js-endpoints', 'katana-crawler', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'xss-detection', 'github-scan', 'github'].includes(k)) {
-          DATASET_TABS.push([k, TAB_LABELS[k] || k]);
-        }
-        return;
-      }
-      if (k === 'urls') {
-        DATASET_TABS.push(['urls', TAB_LABELS.urls]);
-        return;
-      }
-      if (!['logs', 'log', 'tech'].includes(k)) {
-        DATASET_TABS.push([k, TAB_LABELS[k] || k]);
-      }
-    });
-
-    const seenTabs = new Set();
-    let UNIQUE_TABS = DATASET_TABS.filter(t => {
-      if (seenTabs.has(t[0])) return false;
-      seenTabs.add(t[0]);
-      return true;
-    });
-
-    const preferredModuleOrder = [
-      'nuclei', 'gf-patterns', 'misconfig', 'ffuf-fuzzing', 'dns-takeover',
-      'backup-detection', 'js-analysis', 'js-endpoints', 'katana-crawler', 'xss-detection', 'sql-detection',
-      's3-scan', 'port-scan', 'zerodays', 'aem', 'github-scan'
-    ];
-    const usedModulesRaw = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)).filter(Boolean))];
-    const usedModules = usedModulesRaw.sort((a, b) => {
-      const ai = preferredModuleOrder.indexOf(a);
-      const bi = preferredModuleOrder.indexOf(b);
-      if (ai !== -1 && bi !== -1) return ai - bi;
-      if (ai !== -1) return -1;
-      if (bi !== -1) return 1;
-      return a.localeCompare(b);
-    });
-    const excludedModuleTabs = new Set(['autoar', 'unknown']);
-    const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
-    if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
-    const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
-    if (hasApkxDatasetTab) excludedModuleTabs.add('apkx');
-    // Build a set of kinds already covered by dataset tabs so we don't
-    // create duplicate mod: tabs for the same module.
-    // Also include normalized aliases — e.g. if the dataset has 'ffuf',
-    // 'ffuf-fuzzing' is covered too, and vice versa.
-    const coveredDatasetKinds = new Set(UNIQUE_TABS.map(t => t[0]));
-    for (const k of [...coveredDatasetKinds]) {
-      const norm = window.normalizeModuleKey(k);
-      if (norm !== k) coveredDatasetKinds.add(norm);
-    }
-
-    const moduleTabs = usedModules.filter((mod) => {
-      if (excludedModuleTabs.has(mod)) return false;
-      if (coveredDatasetKinds.has(mod)) return false;
-      if (coveredDatasetKinds.has(window.normalizeModuleKey(mod))) return false;
-      return true;
-    }).map((mod) => {
-      const info = getModuleDisplayInfo(mod);
-      return [`mod:${mod}`, `${info.icon} ${info.name}`];
-    });
-    UNIQUE_TABS = [...UNIQUE_TABS, ...moduleTabs].filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
-    const pinnedKinds = ['assets'];
-    UNIQUE_TABS = [
-      ...pinnedKinds.map((k) => UNIQUE_TABS.find((t) => t[0] === k)).filter(Boolean),
-      ...UNIQUE_TABS.filter((t) => !pinnedKinds.includes(t[0])),
-    ];
-    if (!UNIQUE_TABS.some((t) => t[0] === activeKind)) {
-      activeKind = UNIQUE_TABS[0]?.[0] || 'assets';
-    }
-
-    let _assetsLoading = false;
-    let _currentPage = 1;
-    const isGitHubTableKind = (k) => {
-      const kk = String(k || '').toLowerCase();
-      return kk === 'github-scan' || kk === 'mod:github-scan' || kk === 'github';
-    };
-    const pageSizeForKind = () => isGitHubTableKind(activeKind) ? 1200 : 250;
-
-    const parseStatusCode = (v) => {
-      const m = String(v || '').match(/\b([1-5][0-9]{2})\b/);
-      return m ? Number(m[1]) : null;
-    };
-    const attachRowIndex = (rowHtml, rowIdx) => {
-      if (!rowHtml) return rowHtml;
-      // Ensure every interactive findings row can be resolved back to source data.
-      if (/\bdata-row-index=/.test(rowHtml)) return rowHtml;
-      return rowHtml.replace(
-        /<tr class="findings-row([^"]*)"/,
-        `<tr class="findings-row$1" data-row-index="${rowIdx}"`
-      );
-    };
-    const parseTitle = (v) => {
-      const s = String(v || '').trim();
-      if (!s || s === '—') return '-';
-      return s.length > 120 ? `${s.slice(0, 117)}...` : s;
-    };
-    const rowToGrid = (r) => {
-      const host = String(r.target || '—');
-      const code = parseStatusCode(`${r.target || ''} ${r.finding || ''}`);
-      const status = code && code < 400 ? 'Alive' : (code ? 'Issue' : '-');
-      const title = parseTitle(r.finding);
-      const tech = String(r.module || '').replace(/-/g, ' ') || '-';
-      return { ...r, host, code, status, title, tech };
-    };
-
-    allRows = allRows.map(rowToGrid);
-    const trufflehogSource = (raw) => {
-      const r = raw && typeof raw === 'object' ? raw : {};
-      const meta = r.SourceMetadata || r.source_metadata || {};
-      const data = (meta && typeof meta === 'object') ? (meta.Data || meta.data || {}) : {};
-      const git = (data && typeof data === 'object') ? (data.Git || data.git || {}) : {};
-      const fs = (data && typeof data === 'object') ? (data.Filesystem || data.filesystem || {}) : {};
-      const link = String(data.Link || data.link || git.Link || git.link || '').trim();
-      const file = String(data.File || data.file || git.File || git.file || git.Path || git.path || fs.File || fs.file || fs.Path || fs.path || '').trim();
-      const line = String(data.Line || data.line || git.Line || git.line || fs.Line || fs.line || '').trim();
-      return { link, file, line };
-    };
-    const dynamicValue = (r, key) => {
-      const raw = r && r.raw && typeof r.raw === 'object' ? r.raw : {};
-      const lk = String(key || '').toLowerCase();
-      if (lk === 'source_file' || lk === 'file') {
-        return trufflehogSource(raw).file || '';
-      }
-      if (lk === 'source_line' || lk === 'line') {
-        return trufflehogSource(raw).line || '';
-      }
-      if (lk === 'source_link' || lk === 'link' || lk === 'url') {
-        return trufflehogSource(raw).link || '';
-      }
-      const direct = raw[key];
-      if (direct != null && direct !== '') return direct;
-      const keys = Object.keys(raw);
-      const matched = keys.find((k) => String(k).toLowerCase() === lk);
-      if (!matched) return '';
-      return raw[matched];
-    };
-    const toCellText = (v) => {
-      if (v == null) return '';
-      if (typeof v === 'string') {
-        const s = v.trim();
-        if (s === '' || s === '<nil>' || s === 'null') return '';
-        return s;
-      }
-      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-      try { return JSON.stringify(v); } catch (_) { return String(v); }
-    };
-    const titleCase = (s) => String(s || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-    const collectDynamicColumns = (rows) => {
-      const preferred = ['DetectorName', 'severity', 'Verified', 'Redacted', 'source_file', 'source_line', 'source_link'];
-      const discovered = [];
-      rows.forEach((r) => {
-        if (!r || !r.raw || typeof r.raw !== 'object') return;
-        Object.keys(r.raw).forEach((k) => {
-          if (!discovered.includes(k)) discovered.push(k);
-        });
-      });
-      const low = new Set(discovered.map((k) => String(k).toLowerCase()));
-      const out = [];
-      preferred.forEach((k) => {
-        if (k.startsWith('source_')) {
-          out.push(k);
-          return;
-        }
-        const m = discovered.find((x) => String(x).toLowerCase() === String(k).toLowerCase());
-        if (m) out.push(m);
-      });
-      discovered.forEach((k) => {
-        const lk = String(k).toLowerCase();
-        if (['sourcemetadata', 'source_metadata', 'raw'].includes(lk)) return;
-        if (!out.includes(k)) out.push(k);
-      });
-      return out.slice(0, 8);
-    };
-    const renderDynamicRawRow = (r, rowIdx, sevMeta, cols) => {
-      const cells = cols.map((k) => {
-        const val = toCellText(dynamicValue(r, k));
-        const short = val.length > 90 ? `${val.slice(0, 87)}...` : val;
-        const isLink = (String(k).toLowerCase().includes('link') || String(k).toLowerCase().includes('url')) && /^https?:\/\//i.test(val);
-        if (isLink) {
-          return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(val)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(short)}</a></td>`;
-        }
-        return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(val || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(short || '—')}</span></td>`;
-      }).join('');
-      return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
-        <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
-        <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
-        ${cells}
-      </tr>`;
-    };
-    const renderGitHubExpandedRow = (r, rowIdx, sevMeta) => {
-      const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
-      const detector = String(raw.DetectorName || raw.detector_name || raw.detector || r.finding || 'Unknown').replace(/\s+—\s+.*$/, '').trim();
-      const redacted = String(raw.Redacted || raw.redacted || '').trim();
-      const verified = String(raw.Verified ?? raw.verified ?? '').toLowerCase() === 'true';
-      const { link, file, line } = trufflehogSource(raw);
-      const sourceFile = file || '—';
-      const sourceLine = line || '—';
-      const sourceLink = link || '—';
-      const redactedShort = redacted.length > 80 ? `${redacted.slice(0, 77)}...` : redacted || '—';
-      const linkLabel = sourceLink.length > 70 ? `${sourceLink.slice(0, 67)}...` : sourceLink;
-      const fileLabel = sourceFile.length > 60 ? `${sourceFile.slice(0, 57)}...` : sourceFile;
-      return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
-        <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
-        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(detector)}" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);font-weight:600">${esc(detector || '—')}</span></td>
-        <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
-        <td style="padding:7px 10px;text-align:center"><span style="font-size:11px;font-family:var(--font-mono,monospace);color:${verified ? '#22c55e' : '#94a3b8'};font-weight:700">${verified ? 'true' : 'false'}</span></td>
-        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(redacted || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(redactedShort)}</span></td>
-        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(sourceFile)}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(fileLabel)}</span></td>
-        <td style="padding:7px 10px;text-align:center"><span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(sourceLine)}</span></td>
-        <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sourceLink !== '—' ? `<a href="${esc(sourceLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(linkLabel)}</a>` : `<span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-muted)">—</span>`}</td>
-      </tr>`;
-    };
-
-    const extractApkPackageInfo = (rows) => {
-      const info = {};
-      const consumed = new Set();
-      const aliases = {
-        package_name: 'package_name', package: 'package_name', packageid: 'package_name', package_id: 'package_name',
-        applicationid: 'package_name', application_id: 'package_name', appid: 'package_name',
-        app_name: 'app_name', appname: 'app_name', name: 'app_name',
-        version: 'version', version_name: 'version', versionname: 'version',
-        version_code: 'version_code', versioncode: 'version_code',
-        min_sdk: 'min_sdk', minsdk: 'min_sdk', minsdkversion: 'min_sdk',
-        target_sdk: 'target_sdk', targetsdk: 'target_sdk', targetsdkversion: 'target_sdk',
-        compile_sdk: 'compile_sdk', compilesdk: 'compile_sdk', compilesdkversion: 'compile_sdk',
-      };
-      const takeKV = (k, v) => {
-        const key = String(k || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-        const mapped = aliases[key];
-        if (!mapped) return;
-        const val = String(v ?? '').trim();
-        if (!val) return;
-        if (!info[mapped]) info[mapped] = val;
-      };
-
-      rows.forEach((r, idx) => {
-        const target = String(r.target || '');
-        const finding = String(r.finding || '').trim();
-        if (!/[{]/.test(finding) && !/(package|version|sdk|app_name|application_id)/i.test(`${target} ${finding}`)) return;
-
-        let consumedRow = false;
-        try {
-          const parsed = JSON.parse(finding);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            Object.entries(parsed).forEach(([k, v]) => takeKV(k, v));
-            consumedRow = Object.keys(parsed).length > 0;
-          }
-        } catch (_) { }
-        const kvs = finding.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/g) || [];
-        kvs.forEach((frag) => {
-          const m = frag.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/);
-          if (m) takeKV(m[1], m[2]);
-        });
-        if (kvs.length) consumedRow = true;
-        if (consumedRow) consumed.add(idx);
-      });
-
-      return { info, rows: rows.filter((_, idx) => !consumed.has(idx)) };
-    };
-
-    let apkPackageInfo = null;
-    if (isAPKScan) {
-      const extracted = extractApkPackageInfo(allRows);
-      allRows = extracted.rows;
-      apkPackageInfo = extracted.info;
-      if (!apkPackageInfo.package_name) {
-        const tgt = String(scanRecord?.target || scanRecord?.Target || '').trim();
-        if (tgt) apkPackageInfo.package_name = tgt;
-      }
-      apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/apk-meta`)
-        .then((meta) => {
-          if (!meta) return;
-          if (meta.package_name) apkPackageInfo.package_name = meta.package_name;
-          if (meta.version) apkPackageInfo.version = meta.version;
-          if (meta.version_code) apkPackageInfo.version_code = meta.version_code;
-          if (meta.min_sdk) apkPackageInfo.min_sdk = meta.min_sdk;
-          if (meta.target_sdk) apkPackageInfo.target_sdk = meta.target_sdk;
-          if (meta.task_hijacking_risk) apkPackageInfo.task_hijacking_risk = meta.task_hijacking_risk;
-          if (apkMetaBar && isAPKScan) renderAPKMetaBar();
-        }).catch(() => { });
-    }
-
-    const apkCategoryKey = (r) => {
-      const explicit = String(r.category_name || r.apk_category || '').trim();
-      if (explicit) return explicit;
-      const t = String(r.target || '').trim();
-      if (t && t !== '-' && t !== '—') return t;
-      const f = String(r.finding || '').trim();
-      const idx = f.indexOf(':');
-      if (idx > 0) return f.slice(0, idx).trim();
-      return '';
-    };
-    const slugifyApkCategory = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-    const apkCategoryCounts = {};
-    if (isAPKScan) {
-      allRows = allRows.map((r) => {
-        const cat = apkCategoryKey(r);
-        const slug = slugifyApkCategory(cat);
-        if (slug) {
-          apkCategoryCounts[slug] = apkCategoryCounts[slug] || { label: cat, count: 0 };
-          apkCategoryCounts[slug].count += 1;
-        }
-        return { ...r, apk_category: cat, apk_category_slug: slug };
-      });
-      const apkCategoryTabs = Object.entries(apkCategoryCounts)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 30)
-        .map(([slug, meta]) => [`apkcat:${slug}`, ` ${meta.label}`]);
-      if (apkCategoryTabs.length) {
-        const baseTabs = UNIQUE_TABS.filter(([k]) => k !== 'apkx');
-        UNIQUE_TABS = [['apkx', TAB_LABELS.apkx], ...apkCategoryTabs, ...baseTabs]
-          .filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
-      }
-    }
-
-    const kindCounts = {};
-    for (const r of allRows) kindCounts[r.kind || 'other'] = (kindCounts[r.kind || 'other'] || 0) + 1;
-    const datasetCount = (k) => (k === 'all' ? allRows.length : (kindCounts[k] || 0));
-
-    let searchJsOnly = false;
-    let presetMode = 'smart';
-    let railSearch = '';
-    let currentRenderedRows = [];
-    let _virtualScrollTop = 0;
-    // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
-    const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
-    const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
-    const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, searchModule, searchJsOnly, })); } catch (_) { } };
-    const loadUIState = () => { try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; } };
-    const persistColumnWidths = () => {
-      const cg = root.querySelector('#recon-colgroup');
-      if (!cg) return;
-      const cols = Array.from(cg.querySelectorAll('col')).map((c) => c.style.width || '');
-      try { localStorage.setItem(colStateKey, JSON.stringify(cols)); } catch (_) { }
-    };
-    const applyColumnWidths = () => {
-      const cg = root.querySelector('#recon-colgroup');
-      if (!cg) return;
-      let widths = null;
-      try { widths = JSON.parse(localStorage.getItem(colStateKey) || 'null'); } catch { widths = null; }
-      if (!Array.isArray(widths) || widths.length < 5) return;
-      const cols = Array.from(cg.querySelectorAll('col'));
-      cols.forEach((c, i) => { if (widths[i]) c.style.width = widths[i]; });
-    };
-
-    const rowMatch = (r) => {
-      const k = r.kind || 'other';
-      if (String(activeKind || '').startsWith('mod:')) {
-        const moduleKind = String(activeKind).slice(4);
-        if (window.normalizeModuleKey(r.module) !== moduleKind) return false;
-      } else if (String(activeKind || '').startsWith('apkcat:')) {
-        const categorySlug = String(activeKind).slice(7);
-        if (String(r.apk_category_slug || '') !== categorySlug) return false;
-      } else if (activeKind === 'vuln') {
-        if (!VULN_KINDS.has(k)) return false;
-        if (searchModule !== 'all' && window.normalizeModuleKey(r.module) !== searchModule) return false;
-      } else if (k !== activeKind) return false;
-
-      // Optional module narrow (all standard tabs except per-module rails, already constrained above)
-      if (searchModule !== 'all' && !String(activeKind || '').startsWith('mod:') && activeKind !== 'vuln') {
-        if (window.normalizeModuleKey(r.module) !== searchModule) return false;
-      }
-
-      if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
-      if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
-      if (searchTitle && !String(r.title || r.finding || '').toLowerCase().includes(searchTitle)) return false;
-      if (filterSeverity !== 'any') {
-        const sev = String(r.severity || 'info').toLowerCase();
-        if (sev !== filterSeverity) return false;
-      }
-      const sev = String(r.severity || 'info').toLowerCase();
-      const targetStr = String(r.target || '').toLowerCase();
-      const findingStr = String(r.finding || '').toLowerCase();
-      return true;
-    };
-
-    root.innerHTML = `
-      <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
-        <div style="display:grid;grid-template-columns:240px 1fr;min-height:720px">
-          <aside style="border-right:1px solid var(--border);background:rgba(2,6,23,.55);display:flex;flex-direction:column;min-width:0">
-            <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Findings Views</div>
-            <div style="padding:8px;border-bottom:1px solid var(--border)">
-              <input id="recon-rail-search" type="search" placeholder="Search views..." style="width:100%;padding:7px 9px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
-            </div>
-            <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
-          </aside>
-          <section style="min-width:0;position:relative">
-            <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
-            <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.5)">
-              <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-              <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
-                <option value="any">Any Severity</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-                <option value="info">Info</option>
-              </select>
-              <select id="recon-filter-module" title="Module (optional narrow)" style="flex:1 1 140px;min-width:140px;max-width:240px;display:none;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
-                <option value="all">All modules</option>
-              </select>
-              <input id="recon-filter-title" type="search" placeholder=" Finding / title…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-              <span style="flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--text-muted);white-space:nowrap"><span id="recon-unified-shown">0</span> rows</span>
-            </div>
-            <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:rgba(2,6,23,.38)">
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
-                <button type="button" id="recon-report-selected-ai" title="Generate an AI vulnerability report for the checked rows" style="padding:6px 10px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:11px;cursor:pointer;white-space:nowrap"> Report selected (AI)</button>
-                <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
-              </div>
-              <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
-                  <option value="smart">Smart columns</option>
-                  <option value="raw">Raw columns</option>
-                </select>
-              </div>
-            </div>
-            <div id="recon-standard-view">
-              <div class="result-table-wrap" style="max-height:640px;overflow-x:auto;overflow-y:auto">
-                <table id="recon-main-table" class="dashboard-table" style="margin:0;table-layout:auto;min-width:100%">
-                  <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:8%"><col style="width:50%"><col style="width:20%"></colgroup>
-                  <thead style="position:sticky;top:0;z-index:2;background:rgba(2,6,23,.97);backdrop-filter:blur(4px)">
-                    <tr id="recon-unified-headrow">
-                      <th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>
-                      <th style="position:relative">TARGET<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
-                      <th style="text-align:center;position:relative">SEV<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
-                      <th style="position:relative">VULNERABILITY TYPE<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
-                      <th style="width:16%">MODULE</th>
-                    </tr>
-                  </thead>
-                  <tbody id="recon-unified-tbody"></tbody>
-                </table>
-              </div>
-              <div id="recon-unified-cap" style="display:none;padding:10px 12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)"></div>
-              <div id="recon-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
-            </div>
-            <div id="recon-assets-view" style="display:none">
-              <div id="recon-assets-content" style="padding:16px;min-height:200px;max-height:680px;overflow:auto">
-                <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading assets…</div>
-              </div>
-            </div>
-            <div id="recon-urls-view" style="display:none">
-              <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(2,6,23,.5)">
-                <input id="recon-urls-search" type="search" placeholder=" Search URLs…" style="flex:1;min-width:180px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
-                <select id="recon-urls-type" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"><option value="all">All URLs</option><option value="js">JS Only</option><option value="interesting">Interesting Only</option></select>
-                <span id="recon-urls-count" style="color:var(--text-muted);font-size:12px;white-space:nowrap"></span>
-                <button id="recon-urls-copy" type="button" style="padding:6px 12px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#a78bfa;font-size:11px;cursor:pointer"> Copy</button>
-                <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer"> Export</button>
-              </div>
-              <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading URLs…</div></div>
-              <div id="recon-urls-pagination" style="padding:10px 12px;background:rgba(2,6,23,0.3);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
-            </div>
-          </section>
-        </div>
-      </div>`;
-
-    const tabsEl = root.querySelector('#recon-left-rail');
-    const railSearchInput = root.querySelector('#recon-rail-search');
-    const apkMetaBar = root.querySelector('#recon-apk-meta');
-    const filterBar = root.querySelector('#recon-filter-bar');
-    const viewModeSel = root.querySelector('#recon-view-mode');
-    const standardView = root.querySelector('#recon-standard-view');
-    const assetsView = root.querySelector('#recon-assets-view');
-    const assetsContent = root.querySelector('#recon-assets-content');
-    const urlsView = root.querySelector('#recon-urls-view');
-    const urlsContent = root.querySelector('#recon-urls-content');
-    const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
-
-
-    const renderAPKMetaBar = () => {
-      if (!apkMetaBar || !isAPKScan || !apkPackageInfo) { if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; } return; }
-      const riskFromBackend = String(apkPackageInfo.task_hijacking_risk || '').toLowerCase();
-      let hijackLabel, hijackColor;
-      if (riskFromBackend === 'possible') { hijackLabel = ' Possible (minSdk ≤ 28)'; hijackColor = '#f97316'; }
-      else if (riskFromBackend === 'mitigated') { hijackLabel = ' Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
-      else if (riskFromBackend === 'unlikely') { hijackLabel = ' Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
-      else { hijackLabel = '? Unknown'; hijackColor = '#94a3b8'; }
-
-      const fields = [['package_name', 'Package ID'], ['app_name', 'App Name'], ['version', 'Version'], ['version_code', 'Version Code'], ['min_sdk', 'Min SDK'], ['target_sdk', 'Target SDK'], ['compile_sdk', 'Compile SDK']].filter(([k]) => apkPackageInfo[k]);
-      if (!fields.length && hijackLabel === '? Unknown') { apkMetaBar.style.display = 'none'; return; }
-      apkMetaBar.style.display = 'flex';
-      apkMetaBar.innerHTML = [...fields.map(([k, label]) => `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:rgba(2,6,23,.45)"><span style="font-size:11px;color:#67e8f9">${esc(label)}:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span></div>`), `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:rgba(2,6,23,.45)"><span style="font-size:11px;color:${hijackColor}">Task Hijack Risk:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)}</span></div>`].join('');
-    };
-
-    const modSelect = root.querySelector('#recon-filter-module');
-    if (modSelect) {
-      const usedModules = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)))].filter(m => m && m !== 'unknown').sort();
-      modSelect.innerHTML = '<option value="all">All Modules</option>' + usedModules.map(m => `<option value="${esc(m)}">${esc(getModuleDisplayInfo(m).name)}</option>`).join('');
-      modSelect.addEventListener('change', () => { searchModule = modSelect.value; renderBody(); });
-    }
-
-    const renderTabs = () => {
-      if (!tabsEl) return;
-      tabsEl.innerHTML = UNIQUE_TABS.filter(([, label]) => !railSearch || String(label || '').toLowerCase().includes(railSearch)).map(([kind, label]) => {
-        const isActive = activeKind === kind, isModuleTab = String(kind).startsWith('mod:'), isApkCategoryTab = String(kind).startsWith('apkcat:'), moduleKind = isModuleTab ? String(kind).slice(4) : '';
-        const count = isModuleTab ? allRows.filter(r => window.normalizeModuleKey(r.module) === moduleKind).length : isApkCategoryTab ? (apkCategoryCounts[String(kind).slice(7)]?.count || 0) : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
-        const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
-        const labelText = `${label}`.trim();
-        return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" title="${escAttr(labelText)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-radius:8px;padding:8px 10px;background:${isActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px;text-align:left;cursor:pointer"><span style="display:inline-block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(labelText)}</span> ${cntDisplay}</button>`;
-      }).join('');
-    };
-
-    const renderBody = () => {
-      const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
-      // Dynamic raw table is intentionally limited to GitHub/TruffleHog views.
-      // Other modules (e.g. nuclei) have dedicated renderers with stable UX.
-      const dynamicRawMode = filtered.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
-        isGitHubTableKind(activeKind) &&
-        !/nuclei/.test(String(activeKind || '').toLowerCase());
-      const dynamicCols = dynamicRawMode ? collectDynamicColumns(filtered) : [];
-      const _pageSize = pageSizeForKind();
-      const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
-      if (_currentPage > totalPages) _currentPage = totalPages;
-      const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
-      const tbody = root.querySelector('#recon-unified-tbody'), headRow = root.querySelector('#recon-unified-headrow'), shown = root.querySelector('#recon-unified-shown');
-      wrap = root.querySelector('.result-table-wrap');
-      if (shown) shown.textContent = String(filtered.length);
-      if (headRow) {
-        const colgroup = root.querySelector('#recon-colgroup');
-        if (dynamicRawMode) {
-          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:7%">${dynamicCols.map(() => '<col style="width:18%">').join('')}`;
-          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="text-align:center">SEV</th>${dynamicCols.map((k) => `<th>${esc(titleCase(k))}</th>`).join('')}`;
-        } else if (isGitHubTableKind(activeKind)) {
-          if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:16%"><col style="width:19%"><col style="width:6%"><col style="width:24%">`;
-          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th>DETECTORNAME</th><th style="text-align:center">SEV</th><th style="text-align:center">VERIFIED</th><th>REDACTED</th><th>SOURCE FILE</th><th style="text-align:center">LINE</th><th>SOURCE LINK</th>`;
-        } else {
-          // Build header dynamically from the module registry — handles any column count.
-          const cols = presetMode === 'raw'
-            ? ['SEV', 'VULNERABILITY TYPE', 'MODULE']
-            : window.getUnifiedTableColumns(activeKind);
-          // colgroup: checkbox col + one col per data col
-          if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
-          const thCells = cols.map((label, i) => {
-            const align = (label === 'STATUS' || label === 'SEV') ? 'text-align:center;' : '';
-            return `<th style="${align}position:relative">${esc(label)}<span class="col-resizer" data-col-index="${i + 1}" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>`;
-          }).join('');
-          headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>${thCells}`;
-        }
-      }
-      if (tbody) {
-        // Adjust table min-width so wide modules (ffuf: 6 cols, github: 8 cols) can scroll horizontally
-        const mainTable = root.querySelector('#recon-main-table');
-        const activeCols = presetMode === 'raw' ? 4 : (window.ModuleRegistry?.get(activeKind)?.columns?.length || 4);
-        const totalCols = dynamicRawMode ? (2 + dynamicCols.length) : isGitHubTableKind(activeKind) ? 8 : activeCols;
-        if (mainTable) {
-          // For ≤5 data cols stay at 100%; wider tables get an explicit min-width to trigger scroll
-          mainTable.style.minWidth = totalCols <= 5 ? '100%' : (totalCols * 160 + 'px');
-        }
-        currentRenderedRows = slice;
-        const virtualEnabled = slice.length > 150, rowHeight = 34, overscan = 12, viewportH = Math.max(320, Math.round((wrap?.clientHeight || 640)));
-        const visibleRows = Math.ceil(viewportH / rowHeight) + overscan * 2;
-        const vStart = virtualEnabled ? Math.max(0, Math.floor(_virtualScrollTop / rowHeight) - overscan) : 0;
-        const vEnd = virtualEnabled ? Math.min(slice.length, vStart + visibleRows) : slice.length;
-        const renderSlice = slice.slice(vStart, vEnd), topPad = virtualEnabled ? vStart * rowHeight : 0, bottomPad = virtualEnabled ? Math.max(0, (slice.length - vEnd) * rowHeight) : 0;
-        const rowsHtml = renderSlice.map((r, idx) => {
-          const rowIdx = vStart + idx, sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
-          const sevMeta = { critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' }, high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' }, medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' }, low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' }, info: { color: '#68d391', bg: '#68d39120', label: 'INFO' }, warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' }, }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
-          const modInfo = getModuleDisplayInfo(r.module);
-          if (dynamicRawMode) {
-            return renderDynamicRawRow(r, rowIdx, sevMeta, dynamicCols);
-          }
-          if (isGitHubTableKind(activeKind)) {
-            return renderGitHubExpandedRow(r, rowIdx, sevMeta);
-          }
-          if (presetMode === 'raw') {
-            return attachRowIndex(window.renderDefaultRow(r, rowIdx, modInfo, sevMeta), rowIdx);
-          }
-          return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
-        }).join('');
-        const colSpan = dynamicRawMode ? (2 + dynamicCols.length) : (isGitHubTableKind(activeKind) ? 8 : (totalCols + 1)); // +1 for checkbox col
-        tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="${colSpan}" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="${colSpan}" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : `<tr><td colspan="${colSpan}" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>`;
-      }
-      const pag = root.querySelector('#recon-pagination');
-      if (pag) { if (totalPages <= 1) pag.style.display = 'none'; else { pag.style.display = 'flex'; pag.innerHTML = `<button id="recon-prev" class="btn btn-sm" ${_currentPage === 1 ? 'disabled' : ''}>← Prev</button> <span style="color:var(--text-secondary);font-weight:600">Page ${_currentPage} of ${totalPages}</span> <button id="recon-next" class="btn btn-sm" ${_currentPage === totalPages ? 'disabled' : ''}>Next →</button> <span style="color:var(--text-muted);margin-left:auto">${filtered.length} total rows</span>`; pag.querySelector('#recon-prev').onclick = () => { if (_currentPage > 1) { _currentPage--; renderBody(); wrap.scrollTop = 0; } }; pag.querySelector('#recon-next').onclick = () => { if (_currentPage < totalPages) { _currentPage++; renderBody(); wrap.scrollTop = 0; } }; } }
-
-      refreshModuleFilterVisibility();
-      bindFindingsSelectAllCheckbox();
-    };
-
-    const refreshModuleFilterVisibility = () => {
-      const m = root.querySelector('#recon-filter-module');
-      if (!m) return;
-      const hideRail = activeKind === 'assets' || activeKind === 'urls';
-      const ak = String(activeKind || '');
-      const pinnedMod = ak.startsWith('mod:') || ak.startsWith('apkcat:');
-      const showModule = !hideRail && !pinnedMod && usedModulesRaw.length > 1;
-      m.style.display = showModule ? '' : 'none';
-      if (!showModule || hideRail || pinnedMod) {
-        if (pinnedMod || hideRail) {
-          searchModule = 'all';
-          m.value = 'all';
-        }
-      }
-    };
-
-    function bindFindingsSelectAllCheckbox() {
-      const theadBox = root.querySelector('#findings-select-all');
-      const tbodyEl = root.querySelector('#recon-unified-tbody');
-      if (!theadBox || !tbodyEl || standardView.style.display === 'none') return;
-      const syncHeader = () => {
-        const cbs = Array.from(tbodyEl.querySelectorAll('.finding-chk'));
-        const n = cbs.filter((c) => c.checked).length;
-        theadBox.indeterminate = n > 0 && n < cbs.length;
-        theadBox.checked = cbs.length > 0 && n === cbs.length;
-      };
-      theadBox.onclick = () => {
-        tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
-          cb.checked = theadBox.checked;
-        });
-        theadBox.indeterminate = false;
-      };
-      tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
-        cb.onchange = syncHeader;
-      });
-      syncHeader();
-    }
-
-    const findingRowPlainLine = (r) => {
-      const target = String(r.target || r.host || '—').replace(/\t/g, ' ');
-      const sev = String(r.severity || '').replace(/\t/g, ' ');
-      const finding = String(r.finding || r.title || '—').replace(/\t|\n/g, ' ');
-      const mod = String(r.module || '').replace(/\t/g, ' ');
-      return `${target}\t${sev}\t${finding}\t${mod}`;
-    };
-
-    const switchReconView = (kind) => {
-      activeKind = kind; persistUIState(); renderTabs();
-      refreshModuleFilterVisibility();
-      if (activeKind === 'assets') { standardView.style.display = 'none'; assetsView.style.display = 'block'; urlsView.style.display = 'none'; showAssetsView(); }
-      else if (activeKind === 'urls') { assetsView.style.display = 'none'; showURLsView(); }
-      else { standardView.style.display = 'block'; assetsView.style.display = 'none'; urlsView.style.display = 'none'; _currentPage = 1; renderBody(); }
-    };
-
-    const showAssetsView = async () => { if (_assetsCache) { renderAssetsGrid(assetsContent, _assetsCache); return; } if (_assetsLoading) return; _assetsLoading = true; assetsContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Building asset inventory…</div>'; try { const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/assets`); _assetsCache = data.assets || []; renderAssetsGrid(assetsContent, _assetsCache); } catch (e) { assetsContent.innerHTML = `<div style="padding:24px;color:var(--accent-red)">Failed: ${esc(e.message)}</div>`; } finally { _assetsLoading = false; } };
-    let _urlsCache = [];
-    const getUrlValue = (entry) => String(entry?.url || entry?.target || entry?.value || '').trim();
-    const isLikelyJSURL = (u) => /\.m?jsx?(\?|$)/i.test(u) || /\/js(?:\/|$)|javascript/i.test(u);
-    const isLikelyInterestingURL = (u) => /(admin|login|signin|auth|oauth|token|api|graphql|debug|internal|config|backup|secret|key|panel|wp-admin|\.env|\.git|redirect|callback|upload|download|execute|cmd|console)/i.test(u);
-
-    const showURLsView = () => {
-      standardView.style.display = 'none';
-      assetsView.style.display = 'none';
-      urlsView.style.display = 'block';
-      loadURLsView();
-    };
-    const loadURLsView = async () => {
-      try {
-        const qs = new URLSearchParams({ page: 1, limit: 5000, type: 'all', q: '' }).toString();
-        const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
-        _urlsCache = Array.isArray(data.urls) ? data.urls : [];
-        renderURLsTable(_urlsCache);
-      } catch (e) { }
-    };
-    const renderURLsTable = (urls) => {
-      const countEl = root.querySelector('#recon-urls-count');
-      if (countEl) countEl.textContent = `${urls.length} URL${urls.length === 1 ? '' : 's'}`;
-      if (!urls.length) {
-        urlsContent.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);font-size:12px">No URLs match the current filters.</div>';
-        return;
-      }
-      urlsContent.innerHTML = `<table style="width:100%"><tbody>${urls.map((e) => {
-        const url = getUrlValue(e);
-        return `<tr><td style="padding:5px 12px;font-size:11px"><a href="${esc(url)}" target="_blank" style="color:var(--accent-cyan);text-decoration:none">${esc(url)}</a></td></tr>`;
-      }).join('')}</tbody></table>`;
-    };
-    const applyURLsFilters = () => {
-      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
-      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
-      const filtered = _urlsCache.filter((entry) => {
-        const url = getUrlValue(entry);
-        if (!url) return false;
-        if (q && !url.toLowerCase().includes(q)) return false;
-        if (mode === 'js' && !isLikelyJSURL(url)) return false;
-        if (mode === 'interesting' && !isLikelyInterestingURL(url)) return false;
-        return true;
-      });
-      renderURLsTable(filtered);
-    };
-
-    // Initial setup
-    const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode;
-    switchReconView(activeKind); applyColumnWidths();
-
-    // Event listeners
-    root.addEventListener('click', e => { const b = e.target.closest('[data-recon-kind]'); if (b) switchReconView(b.getAttribute('data-recon-kind')); });
-    if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
-
-    const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
-    const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };
-    if (hostI) hostI.addEventListener('input', applyF); if (titleI) titleI.addEventListener('input', applyF); if (sevS) sevS.addEventListener('change', applyF);
-
-    const collectCheckedFindingRows = () => {
-      const tbodyEl = root.querySelector('#recon-unified-tbody');
-      if (!tbodyEl) return [];
-      const out = [];
-      tbodyEl.querySelectorAll('.finding-chk:checked').forEach((cb) => {
-        const tr = cb.closest('tr');
-        if (!tr || tr.classList.contains('virtual-pad-top') || tr.classList.contains('virtual-pad-bottom')) return;
-        const i = Number(tr.dataset.rowIndex);
-        if (!Number.isNaN(i) && currentRenderedRows[i]) out.push(currentRenderedRows[i]);
-      });
-      return out;
-    };
-    const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
-    const exportJsonBtn = root.querySelector('#recon-export-all-json');
-    const reportAiBtn = root.querySelector('#recon-report-selected-ai');
-    const exportCsvBtn = document.getElementById('scan-detail-export-csv-btn');
-    if (copyTsvBtn) {
-      copyTsvBtn.addEventListener('click', async () => {
-        const rows = collectCheckedFindingRows();
-        if (!rows.length) { showToast('info', 'Nothing selected', 'Select one or more rows on this page, then copy.'); return; }
-        const text = ['TARGET\tSEVERITY\tFINDING\tMODULE', ...rows.map(findingRowPlainLine)].join('\n');
-        try {
-          await copyToClipboard(text);
-          showToast('success', 'Copied', `${rows.length} row(s) as TSV`);
-        } catch (e) {
-          showToast('error', 'Copy failed', e.message || String(e));
-        }
-      });
-    }
-    if (reportAiBtn) {
-      reportAiBtn.addEventListener('click', async () => {
-        const rows = collectCheckedFindingRows();
-        if (!rows.length) { showToast('info', 'Nothing selected', 'Check one or more findings, then generate a report.'); return; }
-        const MAX = 25;
-        const picked = rows.slice(0, MAX);
-        if (rows.length > MAX) showToast('info', 'Trimmed', `Reporting the first ${MAX} of ${rows.length} selected findings.`);
-        const findings = picked.map((r) => {
-          const info = (r.raw && r.raw.info) || {};
-          const detailParts = [];
-          if (r.file) detailParts.push(`file: ${r.file}`);
-          if (info.line) detailParts.push(`line: ${info.line}`);
-          if (info.url) detailParts.push(`url: ${info.url}`);
-          if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
-          if (!detailParts.length && r.raw) {
-            try { detailParts.push(JSON.stringify(r.raw).slice(0, 400)); } catch (_) { /* ignore */ }
-          }
-          return {
-            target: String(r.target || r.host || ''),
-            finding_type: String(r.finding || r.title || ''),
-            severity: String(r.severity || ''),
-            module: String(r.module || ''),
-            detail: detailParts.join(' | '),
-          };
-        });
-        const orig = reportAiBtn.textContent;
-        reportAiBtn.disabled = true; reportAiBtn.textContent = ' Generating…';
-        try {
-          const res = await apiPost('/api/findings/report-batch', { findings });
-          showReportModal(`AI Report — ${picked.length} finding(s)`, String(res.report || '').trim() || '(empty response)');
-        } catch (e) {
-          showToast('error', 'Report failed', e.message || String(e));
-        } finally {
-          reportAiBtn.disabled = false; reportAiBtn.textContent = orig;
-        }
-      });
-    }
-    if (exportCsvBtn) {
-      exportCsvBtn.onclick = () => {
-        // Page-level export: the whole scan's findings across every tab/module,
-        // not just whatever tab happens to be active (which defaults to "assets"
-        // and can legitimately have zero unified-table rows).
-        const exportedRows = allRows.filter(r => !HIDDEN_KINDS.has(r.kind));
-        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings for this scan to export.'); return; }
-
-        const headers = ['MODULE', 'KIND', 'SEVERITY', 'TARGET', 'FINDING', 'DETAIL'];
-        const rows = exportedRows.map(r => {
-          const info = (r.raw && r.raw.info) || {};
-          const detailParts = [];
-          if (r.file) detailParts.push(`file: ${r.file}`);
-          if (info.line) detailParts.push(`line: ${info.line}`);
-          if (info.url) detailParts.push(`url: ${info.url}`);
-          if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
-          // Several bulk-discovery kinds (urls, tech, dns-takeover, ...) carry no
-          // real per-row description — finding/title is just an echo of the module
-          // name (e.g. "autoar"/"tech-detect"). Repeating that placeholder makes
-          // otherwise-distinct rows (they always have a different TARGET) look like
-          // duplicates. Drop it there; TARGET already carries the real content.
-          const rawFinding = r.finding || r.title || '';
-          const finding = (rawFinding && rawFinding !== r.module && rawFinding !== r.kind) ? rawFinding : '';
-          return [
-            r.module || '',
-            r.kind || '',
-            r.severity || '',
-            r.target || r.host || '',
-            finding,
-            detailParts.join(' | '),
-          ];
-        });
-
-        const csvEscape = (v) => {
-          const s = String(v ?? '');
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-        const csv = [headers, ...rows].map(row => row.map(csvEscape).join(',')).join('\r\n');
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const target = String(scanRecord?.target || scanRecord?.Target || scanId).replace(/[^a-z0-9._-]+/gi, '_');
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `findings-${target}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-
-        showToast('success', 'Exported', `Exported ${exportedRows.length} finding(s) as CSV`);
-      };
-    }
-    if (exportJsonBtn) {
-      exportJsonBtn.addEventListener('click', async () => {
-        const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
-        if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
-        
-        const dynamicRawMode = exportedRows.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
-          isGitHubTableKind(activeKind) &&
-          !/nuclei/.test(String(activeKind || '').toLowerCase());
-        const dynamicCols = dynamicRawMode ? collectDynamicColumns(exportedRows) : [];
-
-        let markdown = '';
-        if (dynamicRawMode) {
-            const headers = ['DETECTORNAME', 'SEV', ...dynamicCols];
-            markdown += `| ${headers.join(' | ')} |\n`;
-            markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
-            exportedRows.forEach(r => {
-                const info = (r.raw && r.raw.info) || {};
-                const cols = [
-                    r.title || info.detector_name || '—',
-                    r.severity || 'info',
-                    ...dynamicCols.map(k => {
-                       const v = r.raw[k];
-                       return v !== undefined && v !== null ? String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ') : '—';
-                    })
-                ];
-                markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
-            });
-        } else if (isGitHubTableKind(activeKind)) {
-            const headers = ['DETECTORNAME', 'SEV', 'VERIFIED', 'REDACTED', 'SOURCE FILE', 'LINE', 'SOURCE LINK'];
-            markdown += `| ${headers.join(' | ')} |\n`;
-            markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
-            exportedRows.forEach(r => {
-                const info = (r.raw && r.raw.info) || {};
-                const cols = [
-                    r.title || info.detector_name || '—',
-                    r.severity || 'info',
-                    info.verified ? 'Yes' : 'No',
-                    info.redacted ? 'Yes' : 'No',
-                    r.file || r.module || '—',
-                    info.line || '—',
-                    info.url ? `[Link](${info.url})` : '—'
-                ];
-                markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
-            });
-        } else {
-            const schema = window.ModuleRegistry?.get ? window.ModuleRegistry.get(activeKind) : null;
-            if (presetMode !== 'raw' && schema && schema.columns) {
-                const schemaCols = schema.columns;
-                markdown += `| ${schemaCols.map(c => c.label).join(' | ')} |\n`;
-                markdown += `| ${schemaCols.map(() => '---').join(' | ')} |\n`;
-                
-                exportedRows.forEach(r => {
-                    const extracted = schema.extract ? schema.extract(r, window.getModuleDisplayInfo(r.module)) : r;
-                    const rowStr = schemaCols.map(c => {
-                        let val = extracted[c.id];
-                        if (val && typeof val === 'object') {
-                            if (val.href && val.label) return `[${val.label}](${val.href})`;
-                            if (val.label) return val.label;
-                            return JSON.stringify(val);
-                        }
-                        return val !== undefined && val !== null ? String(val) : '—';
-                    });
-                    markdown += `| ${rowStr.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
-                });
-            } else {
-                const headers = ['TARGET', 'SEV', 'FINDING', 'MODULE'];
-                markdown += `| ${headers.join(' | ')} |\n`;
-                markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
-                exportedRows.forEach(r => {
-                   const cols = [
-                      r.target || r.host || '—',
-                      r.severity || '',
-                      r.finding || r.title || '—',
-                      r.module || ''
-                   ];
-                   markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
-                });
-            }
-        }
-        
-        try {
-          await copyToClipboard(markdown);
-          showToast('success', 'Exported', `Copied ${exportedRows.length} finding(s) as Markdown`);
-        } catch (e) {
-          showToast('error', 'Export failed', e.message || String(e));
-        }
-      });
-    }
-
-    if (wrap) wrap.addEventListener('scroll', () => { _virtualScrollTop = wrap.scrollTop; if (currentRenderedRows.length > 150) renderBody(); });
-
-    root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { /* drawer removed */ } });
-    const urlsSearchInput = root.querySelector('#recon-urls-search');
-    const urlsTypeSel = root.querySelector('#recon-urls-type');
-    const urlsCopyBtn = root.querySelector('#recon-urls-copy');
-    const urlsExportBtn = root.querySelector('#recon-urls-export');
-    if (urlsSearchInput) urlsSearchInput.addEventListener('input', applyURLsFilters);
-    if (urlsTypeSel) urlsTypeSel.addEventListener('change', applyURLsFilters);
-    if (urlsCopyBtn) urlsCopyBtn.addEventListener('click', async () => {
-      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
-      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
-      const lines = _urlsCache
-        .map(getUrlValue)
-        .filter(Boolean)
-        .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
-      if (!lines.length) return;
-      try { await copyToClipboard(lines.join('\n')); } catch (_) { }
-    });
-    if (urlsExportBtn) urlsExportBtn.addEventListener('click', () => {
-      const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
-      const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
-      const lines = _urlsCache
-        .map(getUrlValue)
-        .filter(Boolean)
-        .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
-      if (!lines.length) return;
-      const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' });
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = `scan-${scanId}-urls.txt`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(href);
-    });
-
-  }
-
-  // ── Assets & file-filter helpers — delegated to scan-detail-assets.js ────
-  const renderAssetsGrid = (c, a) => window.ScanDetailAssets.renderAssetsGrid(c, a);
-  const wireScanDetailFilters = (id, fs) => window.ScanDetailAssets.wireScanDetailFilters(id, fs);
-
-  window.ScanDetailPage = {
-    renderScanDetailView,
-    clearScanDetailRefreshTimer,
-    scheduleScanDetailRefresh,
-    doScanDetailRefresh,
-    loadReconUnifiedTable,
-    wireScanDetailFilters,
-    // Manifest helpers re-exported for back-compat
-    renderScanManifestCard,
-    manifestArtifactLabel,
-    manifestStartedLabel,
-    manifestStatusBadge,
-  };
+ const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+ const apiFetch = (...args) => window.apiFetch(...args);
+ const navigateTo = (...args) => window.navigateTo(...args);
+ const showToast = (...args) => window.showToast(...args);
+ const API = '';
+ const apiPost = (...args) => window.apiPost(...args);
+ const fmtSize = (...args) => window.fmtSize(...args);
+ const getFileTypeFromName = (...args) => window.getFileTypeFromName(...args);
+ const getFileTypeIcon = (...args) => window.getFileTypeIcon(...args);
+ const detectModuleFromFileName = (...args) => window.detectModuleFromFileName(...args);
+ const getModuleDisplayInfo = (...args) => window.getModuleDisplayInfo(...args);
+ const scanNoArtifactsMessage = (...args) => window.scanNoArtifactsMessage(...args);
+ const escAttr = (...args) => window.escAttr(...args);
+ const copyToClipboard = (...args) => window.copyToClipboard(...args);
+
+ // showReportModal renders generated AI report text in a copyable overlay.
+ function showReportModal(title, text) {
+ document.getElementById('ai-report-modal')?.remove();
+ const overlay = document.createElement('div');
+ overlay.id = 'ai-report-modal';
+ overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:var(--bg-sunken);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(2px)';
+ overlay.innerHTML = `
+ <div style="background:var(--bg-card,#0b1220);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;max-width:860px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+ <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border,rgba(255,255,255,.1))">
+ <div style="font-weight:600;font-size:14px;color:var(--text-primary,#fff);flex:1">${esc(title)}</div>
+ <button type="button" id="ai-report-copy" style="padding:6px 12px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:12px;cursor:pointer">Copy</button>
+ <button type="button" id="ai-report-close" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid var(--border,rgba(255,255,255,.15));border-radius:6px;color:var(--text-secondary,#cbd5e1);font-size:12px;cursor:pointer">Close</button>
+ </div>
+ <pre id="ai-report-body" style="margin:0;padding:18px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;color:var(--text-primary,#e2e8f0)"></pre>
+ </div>`;
+ overlay.querySelector('#ai-report-body').textContent = text;
+ const close = () => overlay.remove();
+ overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+ overlay.querySelector('#ai-report-close').addEventListener('click', close);
+ overlay.querySelector('#ai-report-copy').addEventListener('click', async () => {
+ try { await copyToClipboard(text); showToast('success', 'Copied', 'Report copied to clipboard'); }
+ catch (e) { showToast('error', 'Copy failed', e.message || String(e)); }
+ });
+ const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+ document.addEventListener('keydown', onKey);
+ document.body.appendChild(overlay);
+ }
+
+ // csvCell quotes a CSV cell and neutralises spreadsheet formulas: scan findings
+ // are attacker-controlled, and Excel/Sheets evaluate a cell that starts with
+ // = + - @ (or a leading tab/CR) as a formula, so those get an apostrophe prefix.
+ function csvCell(v) {
+ let s = String(v ?? '');
+ if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+ return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+ }
+
+ // The header "Export CSV" button lives outside the per-scan container, so its
+ // handler must be reset whenever a scan (re)renders. Otherwise an early return
+ // (no files / no rows / fetch error) or a slow load for a scan the user already
+ // left would keep — or bind — a closure over a different scan's findings.
+ function resetScanDetailExportCsv(message) {
+ const btn = document.getElementById('scan-detail-export-csv-btn');
+ if (!btn) return;
+ const msg = message || 'Findings for this scan are still loading.';
+ btn.onclick = () => showToast('info', 'No findings', msg);
+ }
+
+ // isCurrentScanDetail reports whether scanId is still the scan on screen; async
+ // loaders re-check it after every await before touching the DOM.
+ function isCurrentScanDetail(scanId) {
+ return window.state.scanDetailId === scanId;
+ }
+
+ // ── State for Scan Detail Page ──────────────────────────────────────────
+ window._scanDetailKnownFiles = new Set();
+ window._scanDetailRefreshTimer = null;
+ window._scanDetailRefreshId = null;
+ let _assetsCache = null;
+ let _assetsLoading = false;
+
+ async function renderScanDetailView(scanId) {
+ _assetsCache = null;
+ _assetsLoading = false;
+ const container = document.getElementById('scan-detail-container');
+ const sub = document.getElementById('scan-detail-sub');
+ const apiA = document.getElementById('scan-detail-api');
+ if (!container) return;
+ const ui = window.state.scanDetailUI;
+ resetScanDetailExportCsv();
+
+ // Show modern loading skeleton
+ container.innerHTML = `
+ <div class="scan-detail-modern">
+ <div class="scan-summary-stats">
+ ${[1, 2, 3, 4].map(() => `
+ <div class="skeleton-card">
+ <div class="skeleton-line skeleton-title"></div>
+ <div class="skeleton-line skeleton-text"></div>
+ </div>
+ `).join('')}
+ </div>
+ <div class="skeleton-card">
+ <div class="skeleton-line skeleton-title"></div>
+ <div class="skeleton-line skeleton-text"></div>
+ <div class="skeleton-line skeleton-text"></div>
+ </div>
+ </div>`;
+
+ try {
+ const sum = await apiFetch(
+ `/api/scans/${encodeURIComponent(scanId)}/results/summary?page=${ui.filesPage}&per_page=${ui.filesPerPage}`
+ );
+ const manifestResp = await fetchScanManifest(scanId);
+ // The user may have opened another scan while these were in flight.
+ if (!isCurrentScanDetail(scanId)) return;
+ const scan = sum.scan;
+ const target = scan.target || scan.Target || '';
+ const st = scan.scan_type || scan.ScanType || '';
+ const stat = scan.status || scan.Status || '';
+ const statLower = stat.toLowerCase();
+ const titleEl = document.getElementById('scan-detail-title');
+ if (titleEl) titleEl.textContent = window.scanTitle ? window.scanTitle(scan) : (target || 'Scan results');
+ const descEl = document.getElementById('scan-detail-desc');
+ const desc = window.scanDescription ? window.scanDescription(scan) : '';
+ if (descEl) { descEl.textContent = desc; descEl.hidden = !desc; }
+
+ // Render scan type + status with live badge if running
+ if (sub) {
+ const isActive = /running|starting|paused|cancelling/i.test(stat);
+ if (isActive) {
+ const isCancelling = /cancelling/i.test(stat);
+ const isPaused = /paused/i.test(stat);
+ const liveBadge = isPaused
+ ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
+ : isCancelling
+ ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
+ : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
+ sub.innerHTML = `${esc(st)} · ${esc(statLower)}${liveBadge}`;
+ } else {
+ sub.textContent = `${st} · ${statLower}`;
+ }
+ }
+ if (apiA) apiA.style.display = 'none';
+ const r2DetailBtn = document.getElementById('scan-detail-r2-btn');
+ if (r2DetailBtn) {
+ if (st) {
+ r2DetailBtn.style.display = 'inline-flex';
+ if (target) {
+ r2DetailBtn.disabled = false;
+ r2DetailBtn.title = 'Browse scan artifacts in R2';
+ r2DetailBtn.onclick = () => window.browseR2ForScan(target, st);
+ } else {
+ r2DetailBtn.disabled = true;
+ r2DetailBtn.title = 'Target is unavailable for this scan record';
+ r2DetailBtn.onclick = null;
+ }
+ } else {
+ r2DetailBtn.style.display = 'none';
+ r2DetailBtn.disabled = false;
+ r2DetailBtn.title = '';
+ r2DetailBtn.onclick = null;
+ }
+ }
+
+ const rescanDetailBtn = document.getElementById('scan-detail-rescan-btn');
+ if (rescanDetailBtn) {
+ const isActive = /running|starting|paused|cancelling/i.test(stat);
+ if (!isActive) {
+ rescanDetailBtn.style.display = 'inline-flex';
+ rescanDetailBtn._rescan = () => window.rescanScan(scanId);
+ } else {
+ rescanDetailBtn.style.display = 'none';
+ rescanDetailBtn._rescan = null;
+ }
+ }
+ // Title/description edit: admins (members are read-only server-side).
+ const editDetailBtn = document.getElementById('scan-detail-edit-btn');
+ if (editDetailBtn) {
+ const me = window.state && window.state._me;
+ const admin = !me || me.role === 'admin';
+ editDetailBtn.style.display = admin && typeof window.editScanMeta === 'function' ? 'inline-flex' : 'none';
+ editDetailBtn.onclick = () => window.editScanMeta(scan, (u) => {
+ scan.name = u.name;
+ scan.description = u.description;
+ if (titleEl) titleEl.textContent = window.scanTitle(scan);
+ if (descEl) { descEl.textContent = u.description || ''; descEl.hidden = !u.description; }
+ });
+ }
+ // AI Triage: admin-only (the endpoint is requireAdmin) and only once the scan
+ // has stopped, so the model never reviews a half-written result set.
+ const triageDetailBtn = document.getElementById('scan-detail-triage-btn');
+ if (triageDetailBtn) {
+ const isActive = /running|starting|paused|cancelling/i.test(stat);
+ const me = window.state && window.state._me;
+ const admin = !me || me.role === 'admin';
+ if (admin && !isActive && typeof window.triageScan === 'function') {
+ triageDetailBtn.style.display = 'inline-flex';
+ triageDetailBtn.onclick = () => window.triageScan(scanId);
+ } else {
+ triageDetailBtn.style.display = 'none';
+ triageDetailBtn.onclick = null;
+ }
+ }
+ const deleteDetailBtn = document.getElementById('scan-detail-delete-btn');
+ if (deleteDetailBtn) {
+ deleteDetailBtn.onclick = async () => {
+ await window.deleteScan(scanId, target);
+ navigateTo('overview');
+ };
+ }
+
+ const files = sum.files || [];
+ const total = sum.total || 0;
+
+ const statNorm = String(stat || '').trim();
+ const finishedOk = /^(completed|done|success)$/i.test(statNorm);
+ const stillRunning = /^(running|pending|queued|active|in_progress|starting)$/i.test(statNorm);
+ const failedish = /fail|error|cancel/i.test(statNorm);
+
+ const zipURL = scan.result_url || scan.ResultURL || '';
+ const zipBanner = zipURL
+ ? `<div class="modern-card" style="padding:18px">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+ <div>
+ <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px"> Full Scan Archive</div>
+ <div style="font-size:12px;color:var(--text-muted)">Download complete scan results as ZIP</div>
+ </div>
+ <a href="${esc(zipURL)}" target="_blank" rel="noopener" class="btn btn-primary">Download ZIP</a>
+ </div>
+ </div>`
+ : '';
+
+ const manifestCard = renderScanManifestCard(manifestResp?.manifest || null, scan);
+
+ let emptyBanner = '';
+ if (!files.length) {
+ let emptyMsg;
+ if (finishedOk) {
+ emptyMsg = `<div class="scan-no-results-banner">${esc(scanNoArtifactsMessage(st, target))}</div>
+ <p class="scan-asm-muted" style="margin-top:12px">No files were indexed for this scan. Confirm uploads and artifact indexing.</p>`;
+ } else if (stillRunning) {
+ emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">...</div><div style="font-size:14px;color:var(--text-secondary)">Scan is still running or processing. Check back soon for results.</div></div>';
+ } else if (failedish) {
+ emptyMsg = `<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px">X</div><div style="font-size:14px;color:var(--accent-red)">No result files indexed. Status: ${esc(statNorm)}</div></div>`;
+ } else {
+ emptyMsg = '<div style="text-align:center;padding:20px"><div style="font-size:40px;margin-bottom:12px"></div><div style="font-size:14px;color:var(--text-muted)">No indexed artifacts for this scan yet.</div></div>';
+ }
+ emptyBanner = `<div class="modern-card" style="padding:20px">${emptyMsg}</div>`;
+ }
+
+ let html;
+ if (!files.length) {
+ html = `
+ <div class="scan-detail-modern">
+ ${zipBanner}
+ ${manifestCard}
+ ${emptyBanner}
+ <div class="modern-card" style="padding:20px">
+ <div style="text-align:center;color:var(--text-muted)">No files to preview.</div>
+ </div>
+ </div>`;
+ } else {
+ html = `
+ <div class="scan-detail-modern">
+ ${zipBanner}
+ ${manifestCard}
+ ${emptyBanner}
+
+ <div class="modern-card">
+ <div class="card-header">
+ <div class="card-title"><span class="card-title-icon"></span>Results</div>
+ <span class="badge badge-running" id="unified-parsed-badge">${total} files</span>
+ </div>
+ <div id="unified-parsed-results" style="padding:16px">
+ <div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results...</div>
+ </div>
+ </div>
+ </div>`;
+ }
+
+ container.innerHTML = html;
+
+ // Wire manifest pipeline row clicks after DOM insertion.
+ const manifestCardEl = container.querySelector('.modern-card');
+ if (manifestCardEl) {
+ window.ScanDetailManifest.wireManifestRowClicks(manifestCardEl);
+ }
+
+ window.wireScanFileRows(container, scanId);
+ window.wireScanDetailFilters(scanId, files);
+ loadReconUnifiedTable(scanId, files, 'unified-parsed-results', scan);
+
+ if (files.length) {
+ window.loadScanDetailVulnerabilityInsights(scanId, files);
+ }
+
+ if (ui.selectedFileName) {
+ requestAnimationFrame(() => {
+ window.loadScanFilePreview(scanId, ui.selectedFileName, { retainPage: true });
+ });
+ }
+ if (stillRunning) {
+ scheduleScanDetailRefresh(scanId);
+ } else {
+ clearScanDetailRefreshTimer();
+ }
+
+ } catch (e) {
+ if (!isCurrentScanDetail(scanId)) return;
+ resetScanDetailExportCsv('This scan could not be loaded, so there is nothing to export.');
+ container.innerHTML = `<div class="modern-card" style="padding:20px;border-color:var(--accent-red)"><div style="color:var(--accent-red)">${esc(e.message || String(e))}</div></div>`;
+ }
+ }
+
+ function clearScanDetailRefreshTimer() {
+ if (window._scanDetailRefreshTimer) {
+ clearTimeout(window._scanDetailRefreshTimer);
+ window._scanDetailRefreshTimer = null;
+ }
+ }
+
+ function scheduleScanDetailRefresh(scanId, ms = 4000) {
+ clearScanDetailRefreshTimer();
+ window._scanDetailRefreshId = scanId;
+ window._scanDetailRefreshTimer = setTimeout(() => doScanDetailRefresh(scanId), ms);
+ }
+
+ async function doScanDetailRefresh(scanId) {
+ if (window.state.view !== 'scan-detail' || window.state.scanDetailId !== scanId) return;
+
+ try {
+ const sum = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/summary?page=1&per_page=200`);
+ if (window.state.view !== 'scan-detail' || !isCurrentScanDetail(scanId)) return;
+ const scan = sum.scan || {};
+ const stat = String(scan.status || scan.Status || '').toLowerCase();
+ const files = sum.files || [];
+ const stillRunning = /^(running|pending|queued|active|in_progress|starting)$/.test(stat);
+
+ const sub = document.getElementById('scan-detail-sub');
+ if (sub) {
+ if (stillRunning) {
+ const isCancelling = /cancelling/.test(stat);
+ const isPaused = /paused/.test(stat);
+ const scanType = scan.scan_type || '';
+ const liveBadge = isPaused
+ ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px"> paused</span>`
+ : isCancelling
+ ? `<span class="badge badge-starting" style="font-size:10px;padding:2px 8px;margin-left:8px">⋯ stopping</span>`
+ : `<span class="badge badge-running" style="font-size:10px;padding:2px 8px;margin-left:8px;animation:pulse 1.4s ease-in-out infinite">* live</span>`;
+ sub.innerHTML = `${esc(scanType)} · ${esc(stat)}${liveBadge}`;
+ } else {
+ sub.textContent = `${scan.scan_type || ''} · ${stat}`;
+ }
+ }
+
+ refreshScanManifestCard(scanId, scan);
+
+ const badge = document.getElementById('unified-parsed-badge');
+ if (badge) {
+ const countStr = `${files.length} files`;
+ if (badge.textContent !== countStr) badge.textContent = countStr;
+ }
+
+ const newFiles = files.filter(f => !window._scanDetailKnownFiles.has(f.file_name));
+ if (newFiles.length) {
+ newFiles.forEach(f => window._scanDetailKnownFiles.add(f.file_name));
+ const unifiedRoot = document.getElementById('unified-parsed-results');
+ if (unifiedRoot) {
+ loadReconUnifiedTable(scanId, files, 'unified-parsed-results');
+ _assetsCache = null;
+ }
+ }
+
+ if (stillRunning) {
+ scheduleScanDetailRefresh(scanId, 4500);
+ } else {
+ clearScanDetailRefreshTimer();
+ _assetsCache = null; // Reset cache on auto-refresh to pick up new assets
+ await renderScanDetailView(scanId);
+ }
+ } catch (e) {
+ scheduleScanDetailRefresh(scanId, 8000);
+ }
+ }
+
+ // ── Manifest helpers — delegated to scan-detail-manifest.js ──────────────
+ const fetchScanManifest = (id) => window.ScanDetailManifest.fetchScanManifest(id);
+ const renderScanManifestCard = (m, s) => window.ScanDetailManifest.renderScanManifestCard(m, s);
+ const refreshScanManifestCard = (id, s) => window.ScanDetailManifest.refreshScanManifestCard(id, s);
+ const manifestStatusBadge = (st) => window.ScanDetailManifest.manifestStatusBadge(st);
+ const manifestArtifactLabel = (e) => window.ScanDetailManifest.manifestArtifactLabel(e);
+ const manifestStartedLabel = (e) => window.ScanDetailManifest.manifestStartedLabel(e);
+
+ // ── Unified Findings Table Implementation ──────────────────────────────────
+ async function loadReconUnifiedTable(scanId, allFiles, containerId, scanRecord) {
+ // A stale caller (another scan is on screen now) must not touch the shared
+ // header button or the DOM.
+ if (!isCurrentScanDetail(scanId)) return;
+ const root = document.getElementById(containerId);
+ if (!root) {
+ resetScanDetailExportCsv('There are no findings for this scan to export.');
+ return;
+ }
+ let wrap = null;
+ const stNorm = String(scanRecord?.scan_type || scanRecord?.ScanType || '').toLowerCase();
+ const isAPKScan = stNorm.includes('apkx');
+ const badge = document.getElementById('unified-parsed-badge') || document.getElementById('recon-parsed-badge');
+ resetScanDetailExportCsv();
+
+ if (!allFiles || !allFiles.length) {
+ resetScanDetailExportCsv('There are no findings for this scan to export.');
+ if (badge) badge.textContent = '0 artifacts';
+ root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No artifacts found.</div>';
+ return;
+ }
+
+ root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Loading all results…</div>';
+ let allRows = [];
+ try {
+ const parsed = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/parsed?section=all&limit=5000`);
+ if (Array.isArray(parsed.rows)) {
+ allRows = parsed.rows;
+ }
+ } catch (e) {
+ console.warn('[scan detail] parsed recon api fallback', e);
+ }
+ if (!isCurrentScanDetail(scanId)) return;
+
+ if (!allRows.length) {
+ for (const f of allFiles) {
+ try {
+ const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/file?file_name=${encodeURIComponent(f.file_name)}&page=1&per_page=500`);
+ if (!isCurrentScanDetail(scanId)) return;
+ const rows = window.previewDataToFlatRows(data, f).map((r) => ({
+ ...r,
+ kind: window.detectModuleFromFileName(r.file, r.module),
+ category: window.categorizeScanArtifactFile(r.file),
+ }));
+ allRows.push(...rows);
+ } catch (e) {
+ allRows.push({
+ file: f.file_name,
+ module: detectModuleFromFileName(f.file_name, f.module),
+ source: f.source || '—',
+ category: window.categorizeScanArtifactFile(f.file_name),
+ kind: window.detectModuleFromFileName(f.file_name, f.module),
+ severity: '—',
+ target: '—',
+ finding: `[Error reading file] ${e.message || e}`,
+ });
+ }
+ }
+ }
+ if (!isCurrentScanDetail(scanId) || !root.isConnected) return;
+
+ if (badge) {
+ badge.textContent = `${allRows.length} rows · ${allFiles.length} files`;
+ }
+
+ if (!allRows.length) {
+ resetScanDetailExportCsv('There are no findings for this scan to export.');
+ root.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">No parseable findings.</div>';
+ return;
+ }
+
+ if (isAPKScan) {
+ const hasJsonRows = allRows.some((r) => String(r.file || '').toLowerCase().endsWith('.json'));
+ if (hasJsonRows) {
+ allRows = allRows.filter((r) => String(r.file || '').toLowerCase().endsWith('.json'));
+ }
+ }
+
+ allRows = allRows
+ .map((r) => {
+ let kind = String(r.kind || window.detectModuleFromFileName(r.file, r.module) || 'other').toLowerCase().trim();
+ const file = String(r.file || '').toLowerCase();
+ const target = String(r.target || r.host || '').toLowerCase();
+ const finding = String(r.title || r.finding || '').trim();
+ const moduleNorm = window.normalizeModuleKey(r.module);
+
+ if (kind === 'js-urls') kind = 'js_urls';
+ if (kind === 'unknown' || kind === 'unknowns') kind = 'other';
+
+ const looksLikeJSMatcher = (/^\s*\[[^\]]+\].*->/i.test(finding) || (file.includes('js-') && !file.includes('trufflehog') && !file.includes('github'))) && !file.includes('trufflehog') && !file.includes('github-secrets');
+ const looksLikeJSURL = file.includes('js-url') || /\.m?jsx?(\?|$)/i.test(target);
+ const looksLikeJSEndpoints = file.includes('js-endpoint') || moduleNorm === 'js-endpoints';
+ const looksLikeKatana = file.includes('katana') || moduleNorm === 'katana-crawler' || moduleNorm === 'katana';
+ const looksLikeGitHub = (file.includes('github') || file.includes('trufflehog') || file.includes('secrets_table') || file.includes('github-secrets') || (file.includes('secrets') && file.endsWith('.json'))) && !file.startsWith('js-');
+
+ if (looksLikeGitHub) kind = 'github-scan';
+ else if (looksLikeJSEndpoints) kind = 'js-endpoints';
+ else if (looksLikeKatana) kind = 'katana-crawler';
+ else if (looksLikeJSMatcher) kind = 'js-analysis';
+ else if (looksLikeJSURL && kind === 'other') kind = 'js_urls';
+ // jsscan emits two distinct artifact types — split them into their own
+ // views (secrets vs client-side candidates) instead of mixing both
+ // under the secrets-styled js-analysis view.
+ if (file.includes('js-clientside')) kind = 'js-clientside';
+ if (isAPKScan) kind = 'apkx';
+
+ // Do not treat GitHub/TruffleHog rows as JS just because the blob URL ends in .js
+ const isJS = kind !== 'github-scan' && kind !== 'js-endpoints' && kind !== 'katana-crawler' && (kind === 'js_urls' || looksLikeJSURL);
+ if (kind === 'js_urls') kind = 'urls';
+
+ let normalizedModule = isAPKScan ? 'apkx' : moduleNorm;
+ if (kind === 'github-scan') {
+ normalizedModule = 'github-scan';
+ } else if (kind === 'js-endpoints') {
+ normalizedModule = 'js-endpoints';
+ } else if (kind === 'katana-crawler') {
+ normalizedModule = 'katana-crawler';
+ } else if (moduleNorm === 'unknown' && (kind === 'js-analysis' || isJS)) {
+ normalizedModule = 'js-analysis';
+ }
+
+ return {
+ ...r,
+ kind,
+ module: normalizedModule,
+ is_js: isJS || r.is_js || false,
+ };
+ })
+ .filter((r) => {
+ const finding = String(r.title || r.finding || '').trim().toLowerCase();
+ const target = String(r.target || r.host || '').trim();
+ if (finding === 'no findings found' && (target === '' || target === '-' || target === '—')) {
+ return false;
+ }
+ if (isAPKScan) {
+ if ((target === '' || target === '-' || target === '—') && (finding === '' || finding === '—' || finding === 'autoar' || finding === 'apkx')) {
+ return false;
+ }
+ }
+ return true;
+ });
+
+ const VULN_KINDS = new Set(['vuln', 'nuclei', 'reflection', 'ports', 'buckets', 'backup', 'zerodays', 'aem', 'misconfig', 's3', 'gf', 'ffuf', 'dns', 'github-scan', 'github', 'sqlmap', 'aem-findings']);
+ const totalVuln = allRows.filter(r => VULN_KINDS.has(r.kind)).length;
+
+ const isReconScan = stNorm === 'recon' || stNorm === 'lite' || stNorm === 'domain_scan' || stNorm === 'subdomain_scan' || stNorm === 'subdomain_run' || stNorm === 'domain_run';
+ const isGitHubScan = /github/.test(stNorm) || allRows.some(r => r.module === 'github-scan' || r.module === 'github');
+ let activeKind = isReconScan ? 'assets' : 'urls';
+ if (totalVuln === 0 && !isReconScan && (allRows.some(r => r.kind === 'urls'))) activeKind = 'urls';
+ if (!isReconScan && isGitHubScan && allRows.some(r => window.normalizeModuleKey(r.module) === 'github-scan')) {
+ activeKind = 'mod:github-scan';
+ }
+ let searchHost = '';
+ let searchTitle = '';
+ let searchModule = 'all';
+ let filterSeverity = 'any';
+
+ const _kindCounts = {};
+ for (const r of allRows) _kindCounts[r.kind || 'other'] = (_kindCounts[r.kind || 'other'] || 0) + 1;
+ const HIDDEN_KINDS = new Set(['logs', 'log']);
+ const TAB_LABELS = {
+ assets: ' Assets',
+ urls: ' Links',
+ 'js-analysis': ' JS Secrets',
+ 'js-clientside': ' JS Client-Side',
+ 'js-endpoints': ' JS Endpoints',
+ 'katana-crawler': ' Katana',
+ 'gf-patterns': ' GF Patterns',
+ nuclei: ' Nuclei',
+ ffuf: ' FFUF',
+ buckets: ' S3 Buckets',
+ ports: ' Ports',
+ reflection: ' Reflection',
+ 'xss-detection': ' XSS (Dalfox)',
+ 'github-scan': ' GitHub Secrets',
+ other: ' Other',
+ github: ' GitHub Secrets',
+ };
+
+ const dynamicKinds = [...new Set(allRows.map(r => r.kind || 'other'))];
+ const DATASET_TABS = [];
+
+ if (isReconScan || allRows.some(r => r.kind === 'subdomains' || r.kind === 'assets')) {
+ DATASET_TABS.push(['assets', TAB_LABELS.assets]);
+ }
+
+ dynamicKinds.forEach(k => {
+ if (k === 'subdomains' || k === 'assets' || k === 'vuln' || VULN_KINDS.has(k) || k === 'github-scan') {
+ if (['js-analysis', 'js-clientside', 'js-endpoints', 'katana-crawler', 'gf-patterns', 'nuclei', 'ffuf', 'reflection', 'xss-detection', 'github-scan', 'github'].includes(k)) {
+ DATASET_TABS.push([k, TAB_LABELS[k] || k]);
+ }
+ return;
+ }
+ if (k === 'urls') {
+ DATASET_TABS.push(['urls', TAB_LABELS.urls]);
+ return;
+ }
+ if (!['logs', 'log', 'tech'].includes(k)) {
+ DATASET_TABS.push([k, TAB_LABELS[k] || k]);
+ }
+ });
+
+ const seenTabs = new Set();
+ let UNIQUE_TABS = DATASET_TABS.filter(t => {
+ if (seenTabs.has(t[0])) return false;
+ seenTabs.add(t[0]);
+ return true;
+ });
+
+ const preferredModuleOrder = [
+ 'nuclei', 'gf-patterns', 'misconfig', 'ffuf-fuzzing', 'dns-takeover',
+ 'backup-detection', 'js-analysis', 'js-endpoints', 'katana-crawler', 'xss-detection', 'sql-detection',
+ 's3-scan', 'port-scan', 'zerodays', 'aem', 'github-scan'
+ ];
+ const usedModulesRaw = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)).filter(Boolean))];
+ const usedModules = usedModulesRaw.sort((a, b) => {
+ const ai = preferredModuleOrder.indexOf(a);
+ const bi = preferredModuleOrder.indexOf(b);
+ if (ai !== -1 && bi !== -1) return ai - bi;
+ if (ai !== -1) return -1;
+ if (bi !== -1) return 1;
+ return a.localeCompare(b);
+ });
+ const excludedModuleTabs = new Set(['autoar', 'unknown']);
+ const hasUrlsDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'urls');
+ if (hasUrlsDatasetTab) excludedModuleTabs.add('url-collection');
+ const hasApkxDatasetTab = UNIQUE_TABS.some((t) => t[0] === 'apkx');
+ if (hasApkxDatasetTab) excludedModuleTabs.add('apkx');
+ // Build a set of kinds already covered by dataset tabs so we don't
+ // create duplicate mod: tabs for the same module.
+ // Also include normalized aliases — e.g. if the dataset has 'ffuf',
+ // 'ffuf-fuzzing' is covered too, and vice versa.
+ const coveredDatasetKinds = new Set(UNIQUE_TABS.map(t => t[0]));
+ for (const k of [...coveredDatasetKinds]) {
+ const norm = window.normalizeModuleKey(k);
+ if (norm !== k) coveredDatasetKinds.add(norm);
+ }
+ // js-secrets and js-clientside artifacts both index under module
+ // js-analysis — either dataset tab covers that module, so the module rail
+ // shouldn't add a duplicate mod:js-analysis tab when only one has rows.
+ if (coveredDatasetKinds.has('js-clientside') || coveredDatasetKinds.has('js-analysis')) {
+ coveredDatasetKinds.add('js-analysis');
+ }
+
+ const moduleTabs = usedModules.filter((mod) => {
+ if (excludedModuleTabs.has(mod)) return false;
+ if (coveredDatasetKinds.has(mod)) return false;
+ if (coveredDatasetKinds.has(window.normalizeModuleKey(mod))) return false;
+ return true;
+ }).map((mod) => {
+ const info = getModuleDisplayInfo(mod);
+ return [`mod:${mod}`, `${info.icon} ${info.name}`];
+ });
+ UNIQUE_TABS = [...UNIQUE_TABS, ...moduleTabs].filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
+ const pinnedKinds = ['assets'];
+ UNIQUE_TABS = [
+ ...pinnedKinds.map((k) => UNIQUE_TABS.find((t) => t[0] === k)).filter(Boolean),
+ ...UNIQUE_TABS.filter((t) => !pinnedKinds.includes(t[0])),
+ ];
+ if (!UNIQUE_TABS.some((t) => t[0] === activeKind)) {
+ activeKind = UNIQUE_TABS[0]?.[0] || 'assets';
+ }
+
+ let _assetsLoading = false;
+ let _currentPage = 1;
+ const isGitHubTableKind = (k) => {
+ const kk = String(k || '').toLowerCase();
+ return kk === 'github-scan' || kk === 'mod:github-scan' || kk === 'github';
+ };
+ const pageSizeForKind = () => isGitHubTableKind(activeKind) ? 1200 : 250;
+
+ const parseStatusCode = (v) => {
+ const m = String(v || '').match(/\b([1-5][0-9]{2})\b/);
+ return m ? Number(m[1]) : null;
+ };
+ const attachRowIndex = (rowHtml, rowIdx) => {
+ if (!rowHtml) return rowHtml;
+ // Ensure every interactive findings row can be resolved back to source data.
+ if (/\bdata-row-index=/.test(rowHtml)) return rowHtml;
+ return rowHtml.replace(
+ /<tr class="findings-row([^"]*)"/,
+ `<tr class="findings-row$1" data-row-index="${rowIdx}"`
+ );
+ };
+ const parseTitle = (v) => {
+ const s = String(v || '').trim();
+ if (!s || s === '—') return '-';
+ return s.length > 120 ? `${s.slice(0, 117)}...` : s;
+ };
+ const rowToGrid = (r) => {
+ const host = String(r.target || '—');
+ const code = parseStatusCode(`${r.target || ''} ${r.finding || ''}`);
+ const status = code && code < 400 ? 'Alive' : (code ? 'Issue' : '-');
+ const title = parseTitle(r.finding);
+ const tech = String(r.module || '').replace(/-/g, ' ') || '-';
+ return { ...r, host, code, status, title, tech };
+ };
+
+ allRows = allRows.map(rowToGrid);
+ const trufflehogSource = (raw) => {
+ const r = raw && typeof raw === 'object' ? raw : {};
+ const meta = r.SourceMetadata || r.source_metadata || {};
+ const data = (meta && typeof meta === 'object') ? (meta.Data || meta.data || {}) : {};
+ const git = (data && typeof data === 'object') ? (data.Git || data.git || {}) : {};
+ const fs = (data && typeof data === 'object') ? (data.Filesystem || data.filesystem || {}) : {};
+ const link = String(data.Link || data.link || git.Link || git.link || '').trim();
+ const file = String(data.File || data.file || git.File || git.file || git.Path || git.path || fs.File || fs.file || fs.Path || fs.path || '').trim();
+ const line = String(data.Line || data.line || git.Line || git.line || fs.Line || fs.line || '').trim();
+ return { link, file, line };
+ };
+ const dynamicValue = (r, key) => {
+ const raw = r && r.raw && typeof r.raw === 'object' ? r.raw : {};
+ const lk = String(key || '').toLowerCase();
+ if (lk === 'source_file' || lk === 'file') {
+ return trufflehogSource(raw).file || '';
+ }
+ if (lk === 'source_line' || lk === 'line') {
+ return trufflehogSource(raw).line || '';
+ }
+ if (lk === 'source_link' || lk === 'link' || lk === 'url') {
+ return trufflehogSource(raw).link || '';
+ }
+ const direct = raw[key];
+ if (direct != null && direct !== '') return direct;
+ const keys = Object.keys(raw);
+ const matched = keys.find((k) => String(k).toLowerCase() === lk);
+ if (!matched) return '';
+ return raw[matched];
+ };
+ const toCellText = (v) => {
+ if (v == null) return '';
+ if (typeof v === 'string') {
+ const s = v.trim();
+ if (s === '' || s === '<nil>' || s === 'null') return '';
+ return s;
+ }
+ if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+ try { return JSON.stringify(v); } catch (_) { return String(v); }
+ };
+ const titleCase = (s) => String(s || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+ const collectDynamicColumns = (rows) => {
+ const preferred = ['DetectorName', 'severity', 'Verified', 'Redacted', 'source_file', 'source_line', 'source_link'];
+ const discovered = [];
+ rows.forEach((r) => {
+ if (!r || !r.raw || typeof r.raw !== 'object') return;
+ Object.keys(r.raw).forEach((k) => {
+ if (!discovered.includes(k)) discovered.push(k);
+ });
+ });
+ const low = new Set(discovered.map((k) => String(k).toLowerCase()));
+ const out = [];
+ preferred.forEach((k) => {
+ if (k.startsWith('source_')) {
+ out.push(k);
+ return;
+ }
+ const m = discovered.find((x) => String(x).toLowerCase() === String(k).toLowerCase());
+ if (m) out.push(m);
+ });
+ discovered.forEach((k) => {
+ const lk = String(k).toLowerCase();
+ if (['sourcemetadata', 'source_metadata', 'raw'].includes(lk)) return;
+ if (!out.includes(k)) out.push(k);
+ });
+ return out.slice(0, 8);
+ };
+ const renderDynamicRawRow = (r, rowIdx, sevMeta, cols) => {
+ const cells = cols.map((k) => {
+ const val = toCellText(dynamicValue(r, k));
+ const short = val.length > 90 ? `${val.slice(0, 87)}...` : val;
+ const isLink = (String(k).toLowerCase().includes('link') || String(k).toLowerCase().includes('url')) && /^https?:\/\//i.test(val);
+ if (isLink) {
+ return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="${esc(val)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(short)}</a></td>`;
+ }
+ return `<td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(val || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(short || '—')}</span></td>`;
+ }).join('');
+ return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+ <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
+ <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
+ ${cells}
+ </tr>`;
+ };
+ const renderGitHubExpandedRow = (r, rowIdx, sevMeta) => {
+ const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
+ const detector = String(raw.DetectorName || raw.detector_name || raw.detector || r.finding || 'Unknown').replace(/\s+—\s+.*$/, '').trim();
+ const redacted = String(raw.Redacted || raw.redacted || '').trim();
+ const verified = String(raw.Verified ?? raw.verified ?? '').toLowerCase() === 'true';
+ const { link, file, line } = trufflehogSource(raw);
+ const sourceFile = file || '—';
+ const sourceLine = line || '—';
+ const sourceLink = link || '—';
+ const redactedShort = redacted.length > 80 ? `${redacted.slice(0, 77)}...` : redacted || '—';
+ const linkLabel = sourceLink.length > 70 ? `${sourceLink.slice(0, 67)}...` : sourceLink;
+ const fileLabel = sourceFile.length > 60 ? `${sourceFile.slice(0, 57)}...` : sourceFile;
+ return `<tr class="findings-row" data-row-index="${rowIdx}" style="cursor:pointer;${rowIdx % 2 ? 'background:rgba(255,255,255,.012)' : ''}">
+ <td style="padding:7px 10px;width:36px;text-align:center"><input type="checkbox" class="finding-chk" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer" onclick="event.stopPropagation()"></td>
+ <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(detector)}" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--text-primary);font-weight:600">${esc(detector || '—')}</span></td>
+ <td style="padding:7px 8px;text-align:center;white-space:nowrap"><span style="display:inline-block;background:${sevMeta.bg};border:1px solid ${sevMeta.color}44;color:${sevMeta.color};font-size:9px;font-weight:800;letter-spacing:.7px;padding:2px 7px;border-radius:4px;min-width:34px;">${esc(sevMeta.label)}</span></td>
+ <td style="padding:7px 10px;text-align:center"><span style="font-size:11px;font-family:var(--font-mono,monospace);color:${verified ? '#22c55e' : '#a3a3a3'};font-weight:700">${verified ? 'true' : 'false'}</span></td>
+ <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(redacted || '—')}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(redactedShort)}</span></td>
+ <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${esc(sourceFile)}" style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(fileLabel)}</span></td>
+ <td style="padding:7px 10px;text-align:center"><span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-secondary)">${esc(sourceLine)}</span></td>
+ <td style="padding:7px 10px;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sourceLink !== '—' ? `<a href="${esc(sourceLink)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent-cyan);font-family:var(--font-mono,monospace);font-size:11px">${esc(linkLabel)}</a>` : `<span style="font-family:var(--font-mono,monospace);font-size:11px;color:var(--text-muted)">—</span>`}</td>
+ </tr>`;
+ };
+
+ const extractApkPackageInfo = (rows) => {
+ const info = {};
+ const consumed = new Set();
+ const aliases = {
+ package_name: 'package_name', package: 'package_name', packageid: 'package_name', package_id: 'package_name',
+ applicationid: 'package_name', application_id: 'package_name', appid: 'package_name',
+ app_name: 'app_name', appname: 'app_name', name: 'app_name',
+ version: 'version', version_name: 'version', versionname: 'version',
+ version_code: 'version_code', versioncode: 'version_code',
+ min_sdk: 'min_sdk', minsdk: 'min_sdk', minsdkversion: 'min_sdk',
+ target_sdk: 'target_sdk', targetsdk: 'target_sdk', targetsdkversion: 'target_sdk',
+ compile_sdk: 'compile_sdk', compilesdk: 'compile_sdk', compilesdkversion: 'compile_sdk',
+ };
+ const takeKV = (k, v) => {
+ const key = String(k || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+ const mapped = aliases[key];
+ if (!mapped) return;
+ const val = String(v ?? '').trim();
+ if (!val) return;
+ if (!info[mapped]) info[mapped] = val;
+ };
+
+ rows.forEach((r, idx) => {
+ const target = String(r.target || '');
+ const finding = String(r.finding || '').trim();
+ if (!/[{]/.test(finding) && !/(package|version|sdk|app_name|application_id)/i.test(`${target} ${finding}`)) return;
+
+ let consumedRow = false;
+ try {
+ const parsed = JSON.parse(finding);
+ if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+ Object.entries(parsed).forEach(([k, v]) => takeKV(k, v));
+ consumedRow = Object.keys(parsed).length > 0;
+ }
+ } catch (_) { }
+ const kvs = finding.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/g) || [];
+ kvs.forEach((frag) => {
+ const m = frag.match(/"?([A-Za-z_][A-Za-z0-9_ ]*)"?\s*:\s*"?([^,"}]+)"?/);
+ if (m) takeKV(m[1], m[2]);
+ });
+ if (kvs.length) consumedRow = true;
+ if (consumedRow) consumed.add(idx);
+ });
+
+ return { info, rows: rows.filter((_, idx) => !consumed.has(idx)) };
+ };
+
+ let apkPackageInfo = null;
+ if (isAPKScan) {
+ const extracted = extractApkPackageInfo(allRows);
+ allRows = extracted.rows;
+ apkPackageInfo = extracted.info;
+ if (!apkPackageInfo.package_name) {
+ const tgt = String(scanRecord?.target || scanRecord?.Target || '').trim();
+ if (tgt) apkPackageInfo.package_name = tgt;
+ }
+ apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/apk-meta`)
+ .then((meta) => {
+ if (!meta) return;
+ if (meta.package_name) apkPackageInfo.package_name = meta.package_name;
+ if (meta.version) apkPackageInfo.version = meta.version;
+ if (meta.version_code) apkPackageInfo.version_code = meta.version_code;
+ if (meta.min_sdk) apkPackageInfo.min_sdk = meta.min_sdk;
+ if (meta.target_sdk) apkPackageInfo.target_sdk = meta.target_sdk;
+ if (meta.task_hijacking_risk) apkPackageInfo.task_hijacking_risk = meta.task_hijacking_risk;
+ if (apkMetaBar && isAPKScan) renderAPKMetaBar();
+ }).catch(() => { });
+ }
+
+ const apkCategoryKey = (r) => {
+ const explicit = String(r.category_name || r.apk_category || '').trim();
+ if (explicit) return explicit;
+ const t = String(r.target || '').trim();
+ if (t && t !== '-' && t !== '—') return t;
+ const f = String(r.finding || '').trim();
+ const idx = f.indexOf(':');
+ if (idx > 0) return f.slice(0, idx).trim();
+ return '';
+ };
+ const slugifyApkCategory = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+ const apkCategoryCounts = {};
+ if (isAPKScan) {
+ allRows = allRows.map((r) => {
+ const cat = apkCategoryKey(r);
+ const slug = slugifyApkCategory(cat);
+ if (slug) {
+ apkCategoryCounts[slug] = apkCategoryCounts[slug] || { label: cat, count: 0 };
+ apkCategoryCounts[slug].count += 1;
+ }
+ return { ...r, apk_category: cat, apk_category_slug: slug };
+ });
+ const apkCategoryTabs = Object.entries(apkCategoryCounts)
+ .sort((a, b) => b[1].count - a[1].count)
+ .slice(0, 30)
+ .map(([slug, meta]) => [`apkcat:${slug}`, ` ${meta.label}`]);
+ if (apkCategoryTabs.length) {
+ const baseTabs = UNIQUE_TABS.filter(([k]) => k !== 'apkx');
+ UNIQUE_TABS = [['apkx', TAB_LABELS.apkx], ...apkCategoryTabs, ...baseTabs]
+ .filter((t, i, arr) => arr.findIndex(x => x[0] === t[0]) === i);
+ }
+ }
+
+ const kindCounts = {};
+ for (const r of allRows) kindCounts[r.kind || 'other'] = (kindCounts[r.kind || 'other'] || 0) + 1;
+ const datasetCount = (k) => (k === 'all' ? allRows.length : (kindCounts[k] || 0));
+
+ let searchJsOnly = false;
+ let presetMode = 'smart';
+ let railSearch = '';
+ let currentRenderedRows = [];
+ let _virtualScrollTop = 0;
+ // Per-scan id so a saved "Assets" tab from a domain recon does not blank GitHub / other scans.
+ const uiStateKey = `autoar.recon.uistate.${encodeURIComponent(scanId)}`;
+ const colStateKey = `autoar.recon.colwidths.${stNorm || 'generic'}`;
+ const persistUIState = () => { try { localStorage.setItem(uiStateKey, JSON.stringify({ activeKind, presetMode, searchModule, searchJsOnly, })); } catch (_) { } };
+ const loadUIState = () => { try { return JSON.parse(localStorage.getItem(uiStateKey) || '{}') || {}; } catch { return {}; } };
+ const persistColumnWidths = () => {
+ const cg = root.querySelector('#recon-colgroup');
+ if (!cg) return;
+ const cols = Array.from(cg.querySelectorAll('col')).map((c) => c.style.width || '');
+ try { localStorage.setItem(colStateKey, JSON.stringify(cols)); } catch (_) { }
+ };
+ const applyColumnWidths = () => {
+ const cg = root.querySelector('#recon-colgroup');
+ if (!cg) return;
+ let widths = null;
+ try { widths = JSON.parse(localStorage.getItem(colStateKey) || 'null'); } catch { widths = null; }
+ if (!Array.isArray(widths) || widths.length < 5) return;
+ const cols = Array.from(cg.querySelectorAll('col'));
+ cols.forEach((c, i) => { if (widths[i]) c.style.width = widths[i]; });
+ };
+
+ const rowMatch = (r) => {
+ const k = r.kind || 'other';
+ if (String(activeKind || '').startsWith('mod:')) {
+ const moduleKind = String(activeKind).slice(4);
+ if (window.normalizeModuleKey(r.module) !== moduleKind) return false;
+ } else if (String(activeKind || '').startsWith('apkcat:')) {
+ const categorySlug = String(activeKind).slice(7);
+ if (String(r.apk_category_slug || '') !== categorySlug) return false;
+ } else if (activeKind === 'vuln') {
+ if (!VULN_KINDS.has(k)) return false;
+ if (searchModule !== 'all' && window.normalizeModuleKey(r.module) !== searchModule) return false;
+ } else if (k !== activeKind) return false;
+
+ // Optional module narrow (all standard tabs except per-module rails, already constrained above)
+ if (searchModule !== 'all' && !String(activeKind || '').startsWith('mod:') && activeKind !== 'vuln') {
+ if (window.normalizeModuleKey(r.module) !== searchModule) return false;
+ }
+
+ if (activeKind === 'urls' && searchJsOnly && !r.is_js) return false;
+ if (searchHost && !String(r.host || r.target || '').toLowerCase().includes(searchHost)) return false;
+ if (searchTitle && !String(r.title || r.finding || '').toLowerCase().includes(searchTitle)) return false;
+ if (filterSeverity !== 'any') {
+ const sev = String(r.severity || 'info').toLowerCase();
+ if (sev !== filterSeverity) return false;
+ }
+ const sev = String(r.severity || 'info').toLowerCase();
+ const targetStr = String(r.target || '').toLowerCase();
+ const findingStr = String(r.finding || '').toLowerCase();
+ return true;
+ };
+
+ root.innerHTML = `
+ <div style="border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);overflow:hidden">
+ <div style="display:grid;grid-template-columns:240px 1fr;min-height:720px">
+ <aside style="border-right:1px solid var(--border);background:var(--bg-sunken);display:flex;flex-direction:column;min-width:0">
+ <div style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);letter-spacing:.6px;text-transform:uppercase">Findings Views</div>
+ <div style="padding:8px;border-bottom:1px solid var(--border)">
+ <input id="recon-rail-search" type="search" placeholder="Search views..." style="width:100%;padding:7px 9px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px"/>
+ </div>
+ <div id="recon-left-rail" style="display:flex;flex-direction:column;gap:6px;padding:8px;overflow-y:auto;overflow-x:hidden;max-height:780px;scrollbar-width:thin"></div>
+ </aside>
+ <section style="min-width:0;position:relative">
+ <div id="recon-apk-meta" style="display:none;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(34,211,238,.06)"></div>
+ <div id="recon-filter-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--border);background:var(--bg-sunken)">
+ <input id="recon-filter-host" type="search" placeholder=" Target / URL…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+ <select id="recon-filter-severity" title="Severity" style="flex:0 0 auto;min-width:132px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+ <option value="any">Any Severity</option>
+ <option value="critical">Critical</option>
+ <option value="high">High</option>
+ <option value="medium">Medium</option>
+ <option value="low">Low</option>
+ <option value="info">Info</option>
+ </select>
+ <select id="recon-filter-module" title="Module (optional narrow)" style="flex:1 1 140px;min-width:140px;max-width:240px;display:none;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px">
+ <option value="all">All modules</option>
+ </select>
+ <input id="recon-filter-title" type="search" placeholder=" Finding / title…" style="flex:1 1 200px;min-width:160px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+ <span style="flex:0 0 auto;margin-left:auto;font-size:11px;color:var(--text-muted);white-space:nowrap"><span id="recon-unified-shown">0</span> rows</span>
+ </div>
+ <div id="recon-quick-tools" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--bg-sunken)">
+ <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+ <button type="button" id="recon-copy-selected-tsv" title="Copy checked rows from the current page" style="padding:6px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer;white-space:nowrap"> Copy selected</button>
+ <button type="button" id="recon-report-selected-ai" title="Generate an AI vulnerability report for the checked rows" style="padding:6px 10px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.4);border-radius:6px;color:#34d399;font-size:11px;cursor:pointer;white-space:nowrap"> Report selected (AI)</button>
+ <button type="button" id="recon-export-all-json" title="Export all findings in the current view as Markdown" style="padding:6px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:var(--text-accent);font-size:11px;cursor:pointer;white-space:nowrap"> Export Markdown</button>
+ </div>
+ <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+ <select id="recon-view-mode" style="padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:11px">
+ <option value="smart">Smart columns</option>
+ <option value="raw">Raw columns</option>
+ </select>
+ </div>
+ </div>
+ <div id="recon-standard-view">
+ <div class="result-table-wrap" style="max-height:640px;overflow-x:auto;overflow-y:auto">
+ <table id="recon-main-table" class="dashboard-table" style="margin:0;table-layout:auto;min-width:100%">
+ <colgroup id="recon-colgroup"><col style="width:36px"><col style="width:8%"><col style="width:50%"><col style="width:20%"></colgroup>
+ <thead style="position:sticky;top:0;z-index:2;background:var(--bg-surface);backdrop-filter:blur(4px)">
+ <tr id="recon-unified-headrow">
+ <th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>
+ <th style="position:relative">TARGET<span class="col-resizer" data-col-index="1" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+ <th style="text-align:center;position:relative">SEV<span class="col-resizer" data-col-index="2" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+ <th style="position:relative">VULNERABILITY TYPE<span class="col-resizer" data-col-index="3" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>
+ <th style="width:16%">MODULE</th>
+ </tr>
+ </thead>
+ <tbody id="recon-unified-tbody"></tbody>
+ </table>
+ </div>
+ <div id="recon-unified-cap" style="display:none;padding:10px 12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)"></div>
+ <div id="recon-pagination" style="padding:10px 12px;background:var(--bg-sunken);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
+ </div>
+ <div id="recon-assets-view" style="display:none">
+ <div id="recon-assets-content" style="padding:16px;min-height:200px;max-height:680px;overflow:auto">
+ <div style="text-align:center;padding:40px;color:var(--text-muted)">Loading assets…</div>
+ </div>
+ </div>
+ <div id="recon-urls-view" style="display:none">
+ <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg-sunken)">
+ <input id="recon-urls-search" type="search" placeholder=" Search URLs…" style="flex:1;min-width:180px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"/>
+ <select id="recon-urls-type" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px"><option value="all">All URLs</option><option value="js">JS Only</option><option value="interesting">Interesting Only</option></select>
+ <span id="recon-urls-count" style="color:var(--text-muted);font-size:12px;white-space:nowrap"></span>
+ <button id="recon-urls-copy" type="button" style="padding:6px 12px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:6px;color:#a78bfa;font-size:11px;cursor:pointer"> Copy</button>
+ <button id="recon-urls-export" type="button" style="padding:6px 12px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.3);border-radius:6px;color:var(--accent-cyan);font-size:11px;cursor:pointer"> Export</button>
+ </div>
+ <div id="recon-urls-content" style="min-height:200px;max-height:580px;overflow:auto;font-family:var(--font-mono);font-size:12px"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading URLs…</div></div>
+ <div id="recon-urls-pagination" style="padding:10px 12px;background:var(--bg-sunken);border-top:1px solid var(--border);display:flex;justify-content:center;align-items:center;gap:15px;font-size:12px"></div>
+ </div>
+ </section>
+ </div>
+ </div>`;
+
+ const tabsEl = root.querySelector('#recon-left-rail');
+ const railSearchInput = root.querySelector('#recon-rail-search');
+ const apkMetaBar = root.querySelector('#recon-apk-meta');
+ const filterBar = root.querySelector('#recon-filter-bar');
+ const viewModeSel = root.querySelector('#recon-view-mode');
+ const standardView = root.querySelector('#recon-standard-view');
+ const assetsView = root.querySelector('#recon-assets-view');
+ const assetsContent = root.querySelector('#recon-assets-content');
+ const urlsView = root.querySelector('#recon-urls-view');
+ const urlsContent = root.querySelector('#recon-urls-content');
+ const standardTable = root.querySelector('#recon-standard-view table.dashboard-table');
+
+
+ const renderAPKMetaBar = () => {
+ if (!apkMetaBar || !isAPKScan || !apkPackageInfo) { if (apkMetaBar) { apkMetaBar.style.display = 'none'; apkMetaBar.innerHTML = ''; } return; }
+ const riskFromBackend = String(apkPackageInfo.task_hijacking_risk || '').toLowerCase();
+ let hijackLabel, hijackColor;
+ if (riskFromBackend === 'possible') { hijackLabel = ' Possible (minSdk ≤ 28)'; hijackColor = '#f97316'; }
+ else if (riskFromBackend === 'mitigated') { hijackLabel = ' Partially mitigated (minSdk 29–30)'; hijackColor = '#f59e0b'; }
+ else if (riskFromBackend === 'unlikely') { hijackLabel = ' Unlikely (minSdk ≥ 31)'; hijackColor = '#22c55e'; }
+ else { hijackLabel = '? Unknown'; hijackColor = '#a3a3a3'; }
+
+ const fields = [['package_name', 'Package ID'], ['app_name', 'App Name'], ['version', 'Version'], ['version_code', 'Version Code'], ['min_sdk', 'Min SDK'], ['target_sdk', 'Target SDK'], ['compile_sdk', 'Compile SDK']].filter(([k]) => apkPackageInfo[k]);
+ if (!fields.length && hijackLabel === '? Unknown') { apkMetaBar.style.display = 'none'; return; }
+ apkMetaBar.style.display = 'flex';
+ apkMetaBar.innerHTML = [...fields.map(([k, label]) => `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(34,211,238,.28);border-radius:8px;background:var(--bg-sunken)"><span style="font-size:11px;color:var(--text-accent)">${esc(label)}:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(apkPackageInfo[k])}</span></div>`), `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid ${hijackColor}55;border-radius:8px;background:var(--bg-sunken)"><span style="font-size:11px;color:${hijackColor}">Task Hijack Risk:</span><span style="font-size:11px;color:var(--text-primary);font-family:var(--font-mono,monospace)">${esc(hijackLabel)}</span></div>`].join('');
+ };
+
+ const modSelect = root.querySelector('#recon-filter-module');
+ if (modSelect) {
+ const usedModules = [...new Set(allRows.map(r => window.normalizeModuleKey(r.module)))].filter(m => m && m !== 'unknown').sort();
+ modSelect.innerHTML = '<option value="all">All Modules</option>' + usedModules.map(m => `<option value="${esc(m)}">${esc(getModuleDisplayInfo(m).name)}</option>`).join('');
+ modSelect.addEventListener('change', () => { searchModule = modSelect.value; renderBody(); });
+ }
+
+ const renderTabs = () => {
+ if (!tabsEl) return;
+ tabsEl.innerHTML = UNIQUE_TABS.filter(([, label]) => !railSearch || String(label || '').toLowerCase().includes(railSearch)).map(([kind, label]) => {
+ const isActive = activeKind === kind, isModuleTab = String(kind).startsWith('mod:'), isApkCategoryTab = String(kind).startsWith('apkcat:'), moduleKind = isModuleTab ? String(kind).slice(4) : '';
+ const count = isModuleTab ? allRows.filter(r => window.normalizeModuleKey(r.module) === moduleKind).length : isApkCategoryTab ? (apkCategoryCounts[String(kind).slice(7)]?.count || 0) : ((kind === 'assets' || kind === 'vuln') ? datasetCount(kind) : (kindCounts[kind] || 0));
+ const cntDisplay = count > 0 ? `<span class="tab-count">${count}</span>` : '';
+ const labelText = `${label}`.trim();
+ return `<button class="tab-pill${isActive ? ' active' : ''}" data-recon-kind="${escAttr(kind)}" title="${escAttr(labelText)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid ${isActive ? 'rgba(34,211,238,.45)' : 'var(--border)'};border-radius:8px;padding:8px 10px;background:${isActive ? 'rgba(34,211,238,.1)' : 'rgba(255,255,255,.02)'};color:${isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)'};font-size:12px;text-align:left;cursor:pointer"><span style="display:inline-block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle">${esc(labelText)}</span> ${cntDisplay}</button>`;
+ }).join('');
+ };
+
+ const renderBody = () => {
+ const filtered = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+ // Dynamic raw table is intentionally limited to GitHub/TruffleHog views.
+ // Other modules (e.g. nuclei) have dedicated renderers with stable UX.
+ const dynamicRawMode = filtered.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
+ isGitHubTableKind(activeKind) &&
+ !/nuclei/.test(String(activeKind || '').toLowerCase());
+ const dynamicCols = dynamicRawMode ? collectDynamicColumns(filtered) : [];
+ const _pageSize = pageSizeForKind();
+ const totalPages = Math.ceil(filtered.length / _pageSize) || 1;
+ if (_currentPage > totalPages) _currentPage = totalPages;
+ const slice = filtered.slice((_currentPage - 1) * _pageSize, _currentPage * _pageSize);
+ const tbody = root.querySelector('#recon-unified-tbody'), headRow = root.querySelector('#recon-unified-headrow'), shown = root.querySelector('#recon-unified-shown');
+ wrap = root.querySelector('.result-table-wrap');
+ if (shown) shown.textContent = String(filtered.length);
+ if (headRow) {
+ const colgroup = root.querySelector('#recon-colgroup');
+ if (dynamicRawMode) {
+ if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:7%">${dynamicCols.map(() => '<col style="width:18%">').join('')}`;
+ headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th style="text-align:center">SEV</th>${dynamicCols.map((k) => `<th>${esc(titleCase(k))}</th>`).join('')}`;
+ } else if (isGitHubTableKind(activeKind)) {
+ if (colgroup) colgroup.innerHTML = `<col style="width:36px"><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:16%"><col style="width:19%"><col style="width:6%"><col style="width:24%">`;
+ headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th><th>DETECTORNAME</th><th style="text-align:center">SEV</th><th style="text-align:center">VERIFIED</th><th>REDACTED</th><th>SOURCE FILE</th><th style="text-align:center">LINE</th><th>SOURCE LINK</th>`;
+ } else {
+ // Build header dynamically from the module registry — handles any column count.
+ const cols = presetMode === 'raw'
+ ? ['SEV', 'VULNERABILITY TYPE', 'MODULE']
+ : window.getUnifiedTableColumns(activeKind);
+ // colgroup: checkbox col + one col per data col
+ if (colgroup) colgroup.innerHTML = `<col style="width:36px">` + cols.map(() => `<col>`).join('');
+ const thCells = cols.map((label, i) => {
+ const align = (label === 'STATUS' || label === 'SEV') ? 'text-align:center;' : '';
+ return `<th style="${align}position:relative">${esc(label)}<span class="col-resizer" data-col-index="${i + 1}" style="position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;user-select:none"></span></th>`;
+ }).join('');
+ headRow.innerHTML = `<th style="width:36px;text-align:center;padding-left:10px"><input type="checkbox" id="findings-select-all" title="Select all" style="width:14px;height:14px;accent-color:var(--accent-cyan);cursor:pointer"></th>${thCells}`;
+ }
+ }
+ if (tbody) {
+ // Adjust table min-width so wide modules (ffuf: 6 cols, github: 8 cols) can scroll horizontally
+ const mainTable = root.querySelector('#recon-main-table');
+ const activeCols = presetMode === 'raw' ? 4 : (window.ModuleRegistry?.get(activeKind)?.columns?.length || 4);
+ const totalCols = dynamicRawMode ? (2 + dynamicCols.length) : isGitHubTableKind(activeKind) ? 8 : activeCols;
+ if (mainTable) {
+ // For ≤5 data cols stay at 100%; wider tables get an explicit min-width to trigger scroll
+ mainTable.style.minWidth = totalCols <= 5 ? '100%' : (totalCols * 160 + 'px');
+ }
+ currentRenderedRows = slice;
+ const virtualEnabled = slice.length > 150, rowHeight = 34, overscan = 12, viewportH = Math.max(320, Math.round((wrap?.clientHeight || 640)));
+ const visibleRows = Math.ceil(viewportH / rowHeight) + overscan * 2;
+ const vStart = virtualEnabled ? Math.max(0, Math.floor(_virtualScrollTop / rowHeight) - overscan) : 0;
+ const vEnd = virtualEnabled ? Math.min(slice.length, vStart + visibleRows) : slice.length;
+ const renderSlice = slice.slice(vStart, vEnd), topPad = virtualEnabled ? vStart * rowHeight : 0, bottomPad = virtualEnabled ? Math.max(0, (slice.length - vEnd) * rowHeight) : 0;
+ const rowsHtml = renderSlice.map((r, idx) => {
+ const rowIdx = vStart + idx, sev = String(r.severity || '').toLowerCase().replace(/[—\-]/g, '').trim();
+ const sevMeta = { critical: { color: '#fc8181', bg: '#fc818120', label: 'CRIT' }, high: { color: '#f6ad55', bg: '#f6ad5520', label: 'HIGH' }, medium: { color: '#f6e05e', bg: '#f6e05e20', label: 'MED' }, low: { color: '#63b3ed', bg: '#63b3ed20', label: 'LOW' }, info: { color: '#68d391', bg: '#68d39120', label: 'INFO' }, warning: { color: '#f6ad55', bg: '#f6ad5520', label: 'WARN' }, }[sev] || { color: '#718096', bg: '#71809615', label: '—' };
+ const modInfo = getModuleDisplayInfo(r.module);
+ if (dynamicRawMode) {
+ return renderDynamicRawRow(r, rowIdx, sevMeta, dynamicCols);
+ }
+ if (isGitHubTableKind(activeKind)) {
+ return renderGitHubExpandedRow(r, rowIdx, sevMeta);
+ }
+ if (presetMode === 'raw') {
+ return attachRowIndex(window.renderDefaultRow(r, rowIdx, modInfo, sevMeta), rowIdx);
+ }
+ return attachRowIndex(window.renderRowForUnifiedTab(r, rowIdx, activeKind, modInfo, sevMeta), rowIdx);
+ }).join('');
+ const colSpan = dynamicRawMode ? (2 + dynamicCols.length) : (isGitHubTableKind(activeKind) ? 8 : (totalCols + 1)); // +1 for checkbox col
+ tbody.innerHTML = slice.length ? `${topPad ? `<tr class="virtual-pad-top"><td colspan="${colSpan}" style="padding:0;border:none;height:${topPad}px"></td></tr>` : ''}${rowsHtml}${bottomPad ? `<tr class="virtual-pad-bottom"><td colspan="${colSpan}" style="padding:0;border:none;height:${bottomPad}px"></td></tr>` : ''}` : `<tr><td colspan="${colSpan}" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">No findings match the current filter.</td></tr>`;
+ }
+ const pag = root.querySelector('#recon-pagination');
+ if (pag) { if (totalPages <= 1) pag.style.display = 'none'; else { pag.style.display = 'flex'; pag.innerHTML = `<button id="recon-prev" class="btn btn-sm" ${_currentPage === 1 ? 'disabled' : ''}> Prev</button> <span style="color:var(--text-secondary);font-weight:600">Page ${_currentPage} of ${totalPages}</span> <button id="recon-next" class="btn btn-sm" ${_currentPage === totalPages ? 'disabled' : ''}>Next </button> <span style="color:var(--text-muted);margin-left:auto">${filtered.length} total rows</span>`; pag.querySelector('#recon-prev').onclick = () => { if (_currentPage > 1) { _currentPage--; renderBody(); wrap.scrollTop = 0; } }; pag.querySelector('#recon-next').onclick = () => { if (_currentPage < totalPages) { _currentPage++; renderBody(); wrap.scrollTop = 0; } }; } }
+
+ refreshModuleFilterVisibility();
+ bindFindingsSelectAllCheckbox();
+ };
+
+ const refreshModuleFilterVisibility = () => {
+ const m = root.querySelector('#recon-filter-module');
+ if (!m) return;
+ const hideRail = activeKind === 'assets' || activeKind === 'urls';
+ const ak = String(activeKind || '');
+ const pinnedMod = ak.startsWith('mod:') || ak.startsWith('apkcat:');
+ const showModule = !hideRail && !pinnedMod && usedModulesRaw.length > 1;
+ m.style.display = showModule ? '' : 'none';
+ if (!showModule || hideRail || pinnedMod) {
+ if (pinnedMod || hideRail) {
+ searchModule = 'all';
+ m.value = 'all';
+ }
+ }
+ };
+
+ function bindFindingsSelectAllCheckbox() {
+ const theadBox = root.querySelector('#findings-select-all');
+ const tbodyEl = root.querySelector('#recon-unified-tbody');
+ if (!theadBox || !tbodyEl || standardView.style.display === 'none') return;
+ const syncHeader = () => {
+ const cbs = Array.from(tbodyEl.querySelectorAll('.finding-chk'));
+ const n = cbs.filter((c) => c.checked).length;
+ theadBox.indeterminate = n > 0 && n < cbs.length;
+ theadBox.checked = cbs.length > 0 && n === cbs.length;
+ };
+ theadBox.onclick = () => {
+ tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
+ cb.checked = theadBox.checked;
+ });
+ theadBox.indeterminate = false;
+ };
+ tbodyEl.querySelectorAll('.finding-chk').forEach((cb) => {
+ cb.onchange = syncHeader;
+ });
+ syncHeader();
+ }
+
+ const findingRowPlainLine = (r) => {
+ const target = String(r.target || r.host || '—').replace(/\t/g, ' ');
+ const sev = String(r.severity || '').replace(/\t/g, ' ');
+ const finding = String(r.finding || r.title || '—').replace(/\t|\n/g, ' ');
+ const mod = String(r.module || '').replace(/\t/g, ' ');
+ return `${target}\t${sev}\t${finding}\t${mod}`;
+ };
+
+ const switchReconView = (kind) => {
+ activeKind = kind; persistUIState(); renderTabs();
+ refreshModuleFilterVisibility();
+ if (activeKind === 'assets') { standardView.style.display = 'none'; assetsView.style.display = 'block'; urlsView.style.display = 'none'; showAssetsView(); }
+ else if (activeKind === 'urls') { assetsView.style.display = 'none'; showURLsView(); }
+ else { standardView.style.display = 'block'; assetsView.style.display = 'none'; urlsView.style.display = 'none'; _currentPage = 1; renderBody(); }
+ };
+
+ const showAssetsView = async () => { if (_assetsCache) { renderAssetsGrid(assetsContent, _assetsCache); return; } if (_assetsLoading) return; _assetsLoading = true; assetsContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Building asset inventory…</div>'; try { const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/assets`); _assetsCache = data.assets || []; renderAssetsGrid(assetsContent, _assetsCache); } catch (e) { assetsContent.innerHTML = `<div style="padding:24px;color:var(--accent-red)">Failed: ${esc(e.message)}</div>`; } finally { _assetsLoading = false; } };
+ let _urlsCache = [];
+ const getUrlValue = (entry) => String(entry?.url || entry?.target || entry?.value || '').trim();
+ const isLikelyJSURL = (u) => /\.m?jsx?(\?|$)/i.test(u) || /\/js(?:\/|$)|javascript/i.test(u);
+ const isLikelyInterestingURL = (u) => /(admin|login|signin|auth|oauth|token|api|graphql|debug|internal|config|backup|secret|key|panel|wp-admin|\.env|\.git|redirect|callback|upload|download|execute|cmd|console)/i.test(u);
+
+ const showURLsView = () => {
+ standardView.style.display = 'none';
+ assetsView.style.display = 'none';
+ urlsView.style.display = 'block';
+ loadURLsView();
+ };
+ const loadURLsView = async () => {
+ try {
+ const qs = new URLSearchParams({ page: 1, limit: 5000, type: 'all', q: '' }).toString();
+ const data = await apiFetch(`/api/scans/${encodeURIComponent(scanId)}/results/urls?${qs}`);
+ _urlsCache = Array.isArray(data.urls) ? data.urls : [];
+ renderURLsTable(_urlsCache);
+ } catch (e) { }
+ };
+ const renderURLsTable = (urls) => {
+ const countEl = root.querySelector('#recon-urls-count');
+ if (countEl) countEl.textContent = `${urls.length} URL${urls.length === 1 ? '' : 's'}`;
+ if (!urls.length) {
+ urlsContent.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);font-size:12px">No URLs match the current filters.</div>';
+ return;
+ }
+ urlsContent.innerHTML = `<table style="width:100%"><tbody>${urls.map((e) => {
+ const url = getUrlValue(e);
+ return `<tr><td style="padding:5px 12px;font-size:11px"><a href="${esc(url)}" target="_blank" style="color:var(--accent-cyan);text-decoration:none">${esc(url)}</a></td></tr>`;
+ }).join('')}</tbody></table>`;
+ };
+ const applyURLsFilters = () => {
+ const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+ const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+ const filtered = _urlsCache.filter((entry) => {
+ const url = getUrlValue(entry);
+ if (!url) return false;
+ if (q && !url.toLowerCase().includes(q)) return false;
+ if (mode === 'js' && !isLikelyJSURL(url)) return false;
+ if (mode === 'interesting' && !isLikelyInterestingURL(url)) return false;
+ return true;
+ });
+ renderURLsTable(filtered);
+ };
+
+ // Initial setup
+ const uiS = loadUIState(); if (uiS.activeKind && UNIQUE_TABS.some(t => t[0] === uiS.activeKind)) activeKind = uiS.activeKind; if (uiS.presetMode) presetMode = uiS.presetMode;
+ switchReconView(activeKind); applyColumnWidths();
+
+ // Event listeners
+ root.addEventListener('click', e => { const b = e.target.closest('[data-recon-kind]'); if (b) switchReconView(b.getAttribute('data-recon-kind')); });
+ if (viewModeSel) viewModeSel.addEventListener('change', () => { presetMode = viewModeSel.value; persistUIState(); _currentPage = 1; renderBody(); });
+
+ const hostI = root.querySelector('#recon-filter-host'), titleI = root.querySelector('#recon-filter-title'), sevS = root.querySelector('#recon-filter-severity');
+ const applyF = () => { searchHost = hostI?.value.toLowerCase().trim(); searchTitle = titleI?.value.toLowerCase().trim(); filterSeverity = sevS?.value; _currentPage = 1; renderBody(); };
+ if (hostI) hostI.addEventListener('input', applyF); if (titleI) titleI.addEventListener('input', applyF); if (sevS) sevS.addEventListener('change', applyF);
+
+ const collectCheckedFindingRows = () => {
+ const tbodyEl = root.querySelector('#recon-unified-tbody');
+ if (!tbodyEl) return [];
+ const out = [];
+ tbodyEl.querySelectorAll('.finding-chk:checked').forEach((cb) => {
+ const tr = cb.closest('tr');
+ if (!tr || tr.classList.contains('virtual-pad-top') || tr.classList.contains('virtual-pad-bottom')) return;
+ const i = Number(tr.dataset.rowIndex);
+ if (!Number.isNaN(i) && currentRenderedRows[i]) out.push(currentRenderedRows[i]);
+ });
+ return out;
+ };
+ const copyTsvBtn = root.querySelector('#recon-copy-selected-tsv');
+ const exportJsonBtn = root.querySelector('#recon-export-all-json');
+ const reportAiBtn = root.querySelector('#recon-report-selected-ai');
+ const exportCsvBtn = document.getElementById('scan-detail-export-csv-btn');
+ if (copyTsvBtn) {
+ copyTsvBtn.addEventListener('click', async () => {
+ const rows = collectCheckedFindingRows();
+ if (!rows.length) { showToast('info', 'Nothing selected', 'Select one or more rows on this page, then copy.'); return; }
+ const text = ['TARGET\tSEVERITY\tFINDING\tMODULE', ...rows.map(findingRowPlainLine)].join('\n');
+ try {
+ await copyToClipboard(text);
+ showToast('success', 'Copied', `${rows.length} row(s) as TSV`);
+ } catch (e) {
+ showToast('error', 'Copy failed', e.message || String(e));
+ }
+ });
+ }
+ if (reportAiBtn) {
+ reportAiBtn.addEventListener('click', async () => {
+ const rows = collectCheckedFindingRows();
+ if (!rows.length) { showToast('info', 'Nothing selected', 'Check one or more findings, then generate a report.'); return; }
+ const MAX = 25;
+ const picked = rows.slice(0, MAX);
+ if (rows.length > MAX) showToast('info', 'Trimmed', `Reporting the first ${MAX} of ${rows.length} selected findings.`);
+ const findings = picked.map((r) => {
+ const raw = (r.raw && typeof r.raw === 'object') ? r.raw : {};
+ const info = raw.info || {};
+ const pick = (...keys) => { for (const k of keys) { if (raw[k] != null && raw[k] !== '') return raw[k]; } return ''; };
+ const detailParts = [];
+ // Real evidence first (nuclei keys arrive underscored from the parser):
+ // without matched-at / extracted values the model only sees a title.
+ const tpl = pick('template_id', 'template-id');
+ const matchedAt = pick('matched_at', 'matched-at', 'url');
+ const matcher = pick('matcher_name', 'matcher-name');
+ const extracted = pick('extracted_results', 'extracted-results');
+ const curl = pick('curl_command', 'curl-command');
+ if (tpl) detailParts.push(`template: ${tpl}`);
+ if (matchedAt) detailParts.push(`matched-at: ${matchedAt}`);
+ if (matcher) detailParts.push(`matcher: ${matcher}`);
+ if (Array.isArray(extracted) && extracted.length) detailParts.push(`extracted: ${extracted.slice(0, 5).join(', ')}`);
+ if (info.description) detailParts.push(`template description: ${String(info.description).slice(0, 300)}`);
+ if (curl) detailParts.push(`curl: ${String(curl).slice(0, 400)}`);
+ if (r.file) detailParts.push(`file: ${r.file}`);
+ if (info.line) detailParts.push(`line: ${info.line}`);
+ if (info.url) detailParts.push(`url: ${info.url}`);
+ if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
+ if (detailParts.length <= 1 && r.raw) {
+ try { detailParts.push(JSON.stringify(r.raw).slice(0, 1200)); } catch (_) { /* ignore */ }
+ }
+ return {
+ target: String(r.target || r.host || ''),
+ finding_type: String(r.finding || r.title || ''),
+ severity: String(r.severity || ''),
+ module: String(r.module || ''),
+ detail: detailParts.join(' | '),
+ };
+ });
+ const orig = reportAiBtn.textContent;
+ reportAiBtn.disabled = true; reportAiBtn.textContent = ' Generating…';
+ try {
+ const res = await apiPost('/api/findings/report-batch', { findings });
+ showReportModal(`AI Report — ${picked.length} finding(s)`, String(res.report || '').trim() || '(empty response)');
+ } catch (e) {
+ showToast('error', 'Report failed', e.message || String(e));
+ } finally {
+ reportAiBtn.disabled = false; reportAiBtn.textContent = orig;
+ }
+ });
+ }
+ if (exportCsvBtn) {
+ exportCsvBtn.onclick = () => {
+ // Page-level export: the whole scan's findings across every tab/module,
+ // not just whatever tab happens to be active (which defaults to "assets"
+ // and can legitimately have zero unified-table rows).
+ const exportedRows = allRows.filter(r => !HIDDEN_KINDS.has(r.kind));
+ if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings for this scan to export.'); return; }
+
+ const headers = ['MODULE', 'KIND', 'SEVERITY', 'TARGET', 'FINDING', 'DETAIL'];
+ const rows = exportedRows.map(r => {
+ const info = (r.raw && r.raw.info) || {};
+ const detailParts = [];
+ if (r.file) detailParts.push(`file: ${r.file}`);
+ if (info.line) detailParts.push(`line: ${info.line}`);
+ if (info.url) detailParts.push(`url: ${info.url}`);
+ if (info.matched || info.match) detailParts.push(`match: ${info.matched || info.match}`);
+ // Several bulk-discovery kinds (urls, tech, dns-takeover, ...) carry no
+ // real per-row description — finding/title is just an echo of the module
+ // name (e.g. "autoar"/"tech-detect"). Repeating that placeholder makes
+ // otherwise-distinct rows (they always have a different TARGET) look like
+ // duplicates. Drop it there; TARGET already carries the real content.
+ const rawFinding = r.finding || r.title || '';
+ const finding = (rawFinding && rawFinding !== r.module && rawFinding !== r.kind) ? rawFinding : '';
+ return [
+ r.module || '',
+ r.kind || '',
+ r.severity || '',
+ r.target || r.host || '',
+ finding,
+ detailParts.join(' | '),
+ ];
+ });
+
+ const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+
+ const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+ const url = URL.createObjectURL(blob);
+ const target = String(scanRecord?.target || scanRecord?.Target || scanId).replace(/[^a-z0-9._-]+/gi, '_');
+ const a = document.createElement('a');
+ a.href = url;
+ a.download = `findings-${target}.csv`;
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ URL.revokeObjectURL(url);
+
+ showToast('success', 'Exported', `Exported ${exportedRows.length} finding(s) as CSV`);
+ };
+ }
+ if (exportJsonBtn) {
+ exportJsonBtn.addEventListener('click', async () => {
+ const exportedRows = allRows.filter(r => rowMatch(r) && !HIDDEN_KINDS.has(r.kind));
+ if (!exportedRows.length) { showToast('info', 'No findings', 'There are no findings in the current view to export.'); return; }
+
+ const dynamicRawMode = exportedRows.some((r) => r && r.raw && typeof r.raw === 'object' && Object.keys(r.raw).length > 0) &&
+ isGitHubTableKind(activeKind) &&
+ !/nuclei/.test(String(activeKind || '').toLowerCase());
+ const dynamicCols = dynamicRawMode ? collectDynamicColumns(exportedRows) : [];
+
+ let markdown = '';
+ if (dynamicRawMode) {
+ const headers = ['DETECTORNAME', 'SEV', ...dynamicCols];
+ markdown += `| ${headers.join(' | ')} |\n`;
+ markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+ exportedRows.forEach(r => {
+ const info = (r.raw && r.raw.info) || {};
+ const cols = [
+ r.title || info.detector_name || '—',
+ r.severity || 'info',
+ ...dynamicCols.map(k => {
+ const v = r.raw[k];
+ return v !== undefined && v !== null ? String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ') : '—';
+ })
+ ];
+ markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+ });
+ } else if (isGitHubTableKind(activeKind)) {
+ const headers = ['DETECTORNAME', 'SEV', 'VERIFIED', 'REDACTED', 'SOURCE FILE', 'LINE', 'SOURCE LINK'];
+ markdown += `| ${headers.join(' | ')} |\n`;
+ markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+ exportedRows.forEach(r => {
+ const info = (r.raw && r.raw.info) || {};
+ const cols = [
+ r.title || info.detector_name || '—',
+ r.severity || 'info',
+ info.verified ? 'Yes' : 'No',
+ info.redacted ? 'Yes' : 'No',
+ r.file || r.module || '—',
+ info.line || '—',
+ info.url ? `[Link](${info.url})` : '—'
+ ];
+ markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+ });
+ } else {
+ const schema = window.ModuleRegistry?.get ? window.ModuleRegistry.get(activeKind) : null;
+ if (presetMode !== 'raw' && schema && schema.columns) {
+ const schemaCols = schema.columns;
+ markdown += `| ${schemaCols.map(c => c.label).join(' | ')} |\n`;
+ markdown += `| ${schemaCols.map(() => '---').join(' | ')} |\n`;
+
+ exportedRows.forEach(r => {
+ const extracted = schema.extract ? schema.extract(r, window.getModuleDisplayInfo(r.module)) : r;
+ const rowStr = schemaCols.map(c => {
+ let val = extracted[c.id];
+ if (val && typeof val === 'object') {
+ if (val.href && val.label) return `[${val.label}](${val.href})`;
+ if (val.label) return val.label;
+ return JSON.stringify(val);
+ }
+ return val !== undefined && val !== null ? String(val) : '—';
+ });
+ markdown += `| ${rowStr.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+ });
+ } else {
+ const headers = ['TARGET', 'SEV', 'FINDING', 'MODULE'];
+ markdown += `| ${headers.join(' | ')} |\n`;
+ markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
+ exportedRows.forEach(r => {
+ const cols = [
+ r.target || r.host || '—',
+ r.severity || '',
+ r.finding || r.title || '—',
+ r.module || ''
+ ];
+ markdown += `| ${cols.map(c => String(c).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |\n`;
+ });
+ }
+ }
+
+ try {
+ await copyToClipboard(markdown);
+ showToast('success', 'Exported', `Copied ${exportedRows.length} finding(s) as Markdown`);
+ } catch (e) {
+ showToast('error', 'Export failed', e.message || String(e));
+ }
+ });
+ }
+
+ if (wrap) wrap.addEventListener('scroll', () => { _virtualScrollTop = wrap.scrollTop; if (currentRenderedRows.length > 150) renderBody(); });
+
+ root.addEventListener('click', e => { const r = e.target.closest('.findings-row'); if (r && !e.target.closest('input,a,button')) { /* drawer removed */ } });
+ const urlsSearchInput = root.querySelector('#recon-urls-search');
+ const urlsTypeSel = root.querySelector('#recon-urls-type');
+ const urlsCopyBtn = root.querySelector('#recon-urls-copy');
+ const urlsExportBtn = root.querySelector('#recon-urls-export');
+ if (urlsSearchInput) urlsSearchInput.addEventListener('input', applyURLsFilters);
+ if (urlsTypeSel) urlsTypeSel.addEventListener('change', applyURLsFilters);
+ if (urlsCopyBtn) urlsCopyBtn.addEventListener('click', async () => {
+ const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+ const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+ const lines = _urlsCache
+ .map(getUrlValue)
+ .filter(Boolean)
+ .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
+ if (!lines.length) return;
+ try { await copyToClipboard(lines.join('\n')); } catch (_) { }
+ });
+ if (urlsExportBtn) urlsExportBtn.addEventListener('click', () => {
+ const q = String(root.querySelector('#recon-urls-search')?.value || '').toLowerCase().trim();
+ const mode = String(root.querySelector('#recon-urls-type')?.value || 'all');
+ const lines = _urlsCache
+ .map(getUrlValue)
+ .filter(Boolean)
+ .filter((url) => (!q || url.toLowerCase().includes(q)) && (mode !== 'js' || isLikelyJSURL(url)) && (mode !== 'interesting' || isLikelyInterestingURL(url)));
+ if (!lines.length) return;
+ const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' });
+ const href = URL.createObjectURL(blob);
+ const a = document.createElement('a');
+ a.href = href;
+ a.download = `scan-${scanId}-urls.txt`;
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ URL.revokeObjectURL(href);
+ });
+
+ }
+
+ // ── Assets & file-filter helpers — delegated to scan-detail-assets.js ────
+ const renderAssetsGrid = (c, a) => window.ScanDetailAssets.renderAssetsGrid(c, a);
+ const wireScanDetailFilters = (id, fs) => window.ScanDetailAssets.wireScanDetailFilters(id, fs);
+
+ window.ScanDetailPage = {
+ renderScanDetailView,
+ clearScanDetailRefreshTimer,
+ scheduleScanDetailRefresh,
+ doScanDetailRefresh,
+ loadReconUnifiedTable,
+ wireScanDetailFilters,
+ // Manifest helpers re-exported for back-compat
+ renderScanManifestCard,
+ manifestArtifactLabel,
+ manifestStartedLabel,
+ manifestStatusBadge,
+ };
 })();

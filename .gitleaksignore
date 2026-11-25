@@ -1,0 +1,8 @@
+# Exact gitleaks fingerprints of known-fake test fixtures (fake Stripe/GitHub
+# tokens and a dummy Discord webhook used to test masking/redaction).
+# Add entries only for verified fakes; never for real credentials.
+ae04786e42704ea13d99c4773a23f5cb378044e3:internal/scanner/jsmonitor/jsmonitor_test.go:stripe-access-token:13
+ae04786e42704ea13d99c4773a23f5cb378044e3:internal/scanner/jsscan/jsscan_test.go:stripe-access-token:11
+ae04786e42704ea13d99c4773a23f5cb378044e3:internal/utils/pattern_matcher_test.go:github-pat:224
+ae04786e42704ea13d99c4773a23f5cb378044e3:internal/utils/pattern_matcher_test.go:stripe-access-token:215
+f46207f6ab1e887dcee02a101b5eda2ea6eb771e:internal/utils/webhook_test.go:discord-webhook:89

@@ -2453,11 +2453,17 @@
             }
         }
 
+        // These override the helpers in ipa-analyzer.js (same global names), so
+        // they carry the same hardening: IPA contents are attacker-controlled and
+        // escapeHtml is also used inside quoted attributes, so it escapes quotes.
         function escapeHtml(text) {
             if (text == null) return '';
-            const div = document.createElement('div');
-            div.textContent = String(text);
-            return div.innerHTML;
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         function escapeAttr(text) {
@@ -2473,16 +2479,15 @@
                 .replace(/\r/g, '\\r');
         }
 
+        // Body of a single-quoted JS string literal that is also safe inside a
+        // double-quoted onclick="…" attribute: the attribute is HTML-decoded before
+        // the JS runs, so & " ' < > (and \ / line breaks) become \xHH escapes.
         function escapeJs(text) {
             if (text == null) return '';
-            return String(text)
-                .replace(/\\/g, '\\\\')
-                .replace(/'/g, "\\'")
-                .replace(/"/g, '\\"')
-                .replace(/\n/g, '\\n')
-                .replace(/\r/g, '\\r')
-                .replace(/</g, '\\x3c')
-                .replace(/>/g, '\\x3e');
+            return String(text).replace(/[\\'"&<>\n\r\u2028\u2029]/g, (c) => {
+                const code = c.charCodeAt(0);
+                return code > 0xff ? '\\u' + code.toString(16).padStart(4, '0') : '\\x' + code.toString(16).padStart(2, '0');
+            });
         }
 
         function formatSize(bytes) {

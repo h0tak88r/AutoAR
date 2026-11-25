@@ -13,12 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # NOTE: httpx and nuclei are used as Go packages (go.mod), no binary needed.
 # NOTE: interlace was removed — replaced by native Go concurrency.
 # TruffleHog is called as a CLI binary by githubscan.go, so it must be installed here.
-RUN git clone --depth 1 https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
+# Pinned to release tags (not HEAD / @latest) so a compromised or broken upstream
+# commit can't silently land in the image. Bump deliberately.
+ARG TRUFFLEHOG_VERSION=v3.98.1
+ARG PUREDNS_VERSION=v2.1.1
+RUN git clone --depth 1 --branch ${TRUFFLEHOG_VERSION} https://github.com/trufflesecurity/trufflehog.git /tmp/trufflehog && \
     cd /tmp/trufflehog && \
     go build -o /go/bin/trufflehog . && \
     cd /app && \
     rm -rf /tmp/trufflehog && \
-    go install -v github.com/d3mondev/puredns/v2@latest
+    go install -v github.com/d3mondev/puredns/v2@${PUREDNS_VERSION}
 
 # Build AutoAR main CLI and entrypoint
 WORKDIR /app
@@ -69,6 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy minimal application configuration and assets (source not required at runtime)
 COPY regexes/ ./regexes/
+COPY skills/ ./skills/
 COPY templates/ ./templates/
 COPY web/static/data/ ./web/static/data/
 COPY autoar.sample.yaml ./

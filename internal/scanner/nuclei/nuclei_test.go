@@ -1,10 +1,18 @@
 package nuclei
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	nucleiSDK "github.com/projectdiscovery/nuclei/v3/lib"
+	nucleiOutput "github.com/projectdiscovery/nuclei/v3/pkg/output"
 )
 
 func TestSanitizeNucleiTarget(t *testing.T) {
@@ -196,5 +204,97 @@ func TestMaxHelper(t *testing.T) {
 		if got := max(tc.a, tc.b); got != tc.want {
 			t.Errorf("max(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
+	}
+}
+
+func TestBuildEngineReleasesInitLockOnPanic(t *testing.T) {
+	orig := newNucleiEngine
+	t.Cleanup(func() { newNucleiEngine = orig })
+	newNucleiEngine = func(context.Context, ...nucleiSDK.NucleiSDKOptions) (*nucleiSDK.NucleiEngine, error) {
+		panic("sdk constructor blew up")
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = buildEngine(context.Background(), "x")
+	}()
+	if !nucleiEngineInitMu.TryLock() {
+		t.Fatal("nucleiEngineInitMu still held after a constructor panic — every later nuclei run would hang")
+	}
+	nucleiEngineInitMu.Unlock()
+}
+
+func TestBuildEngineFailsWhenNothingCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a real nuclei engine")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("id: broken\nthis is: [not a template\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := buildEngine(context.Background(), dir,
+		nucleiSDK.DisableUpdateCheck(),
+		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{Templates: []string{dir}}),
+		nucleiSDK.WithSandboxOptions(false, true),
+	)
+	if err == nil {
+		engine.Close()
+		t.Fatal("want an error for a template dir that compiles to zero templates")
+	}
+	if !nucleiEngineInitMu.TryLock() {
+		t.Fatal("init lock held after a failed build")
+	}
+	nucleiEngineInitMu.Unlock()
+}
+
+// TestRunGlobalTemplateSandboxBlocksLocalNetwork runs a trivial template
+// against a loopback server: unsandboxed it matches, sandboxed (auto-run
+// mode) the engine must refuse the local address.
+func TestRunGlobalTemplateSandboxBlocksLocalNetwork(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a real nuclei engine")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("autoar-sandbox-marker"))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	tpl := filepath.Join(dir, "marker.yaml")
+	if err := os.WriteFile(tpl, []byte(`id: autoar-sandbox-test
+info:
+  name: sandbox test
+  author: autoar
+  severity: low
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: word
+        words:
+          - "autoar-sandbox-marker"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	targets := filepath.Join(dir, "targets.txt")
+	if err := os.WriteFile(targets, []byte(srv.URL+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(sandbox bool) int {
+		var hits int
+		var mu sync.Mutex
+		out := filepath.Join(dir, fmt.Sprintf("out-%v.json", sandbox))
+		err := RunGlobalTemplateWithOptions(context.Background(), targets, tpl, out, 5, RunOptions{Sandbox: sandbox},
+			func(*nucleiOutput.ResultEvent) { mu.Lock(); hits++; mu.Unlock() })
+		if err != nil {
+			t.Fatalf("RunGlobalTemplateWithOptions(sandbox=%v): %v", sandbox, err)
+		}
+		return hits
+	}
+	if got := run(false); got != 1 {
+		t.Fatalf("unsandboxed run: %d hits, want 1 (template/target wiring broken)", got)
+	}
+	if got := run(true); got != 0 {
+		t.Fatalf("sandboxed run reached a loopback target (%d hits) — local network not restricted", got)
 	}
 }

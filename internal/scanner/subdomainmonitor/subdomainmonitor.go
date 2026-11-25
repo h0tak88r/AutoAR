@@ -52,6 +52,11 @@ type MonitorResult struct {
 	BecameDead    []SubdomainChange
 	NewEndpoints  []EndpointChange
 	Errors        []string
+	// ReenumOK / JSDiffOK report that the re-enumeration / JS-diff step ran to
+	// completion with usable data — only then may it count as that feature's
+	// baseline (a failed baseline run must not arm alerting for the next run).
+	ReenumOK bool
+	JSDiffOK bool
 }
 
 // MonitorOptions contains options for monitoring
@@ -65,6 +70,12 @@ type MonitorOptions struct {
 	// first run so the initial discovery establishes a baseline instead of spamming.
 	SuppressBaseline bool
 	Notify           bool // Send webhook notifications on change
+
+	// SuppressEnumBaseline / SuppressJSBaseline do the same per feature (the
+	// daemon tracks a baseline per feature, so enabling monitor_js/check_new on
+	// an existing target baselines that feature instead of flooding).
+	SuppressEnumBaseline bool
+	SuppressJSBaseline   bool
 }
 
 // MonitorSubdomains monitors subdomains for a domain and detects changes
@@ -112,10 +123,14 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 	// discovery". New rows are persisted (is_live=false) so the next cycle's liveness
 	// pass picks them up; the new_subdomain alert is suppressed on the baseline run.
 	if opts.Reenumerate {
+		suppressEnum := opts.SuppressBaseline || opts.SuppressEnumBaseline
 		discovered, derr := subdomains.EnumerateFresh(opts.Domain, opts.Threads)
 		if derr != nil {
 			logger.GetLogger().Infof("[WARN] Monitor re-enumeration failed for %s: %v", opts.Domain, derr)
 		} else {
+			// An empty result is more likely every source failing than a domain
+			// with no subdomains: don't let it complete a baseline.
+			result.ReenumOK = len(discovered) > 0
 			var newNames []string
 			for _, d := range discovered {
 				dn := strings.ToLower(strings.TrimSpace(d))
@@ -128,8 +143,9 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 			if len(newNames) > 0 {
 				if ierr := db.BatchInsertSubdomains(opts.Domain, newNames, false); ierr != nil {
 					logger.GetLogger().Infof("[WARN] Failed to persist %d newly-enumerated subdomains for %s: %v", len(newNames), opts.Domain, ierr)
+					result.ReenumOK = false // not recorded: the next run must still be silent for them
 				}
-				if opts.SuppressBaseline {
+				if suppressEnum {
 					logger.GetLogger().Infof("[INFO] Monitor baseline for %s: recorded %d subdomains (alerts suppressed)", opts.Domain, len(newNames))
 				} else {
 					for _, n := range newNames {
@@ -146,7 +162,7 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 
 	// ── JS endpoint diff: surface NEW endpoints shipped in the live hosts' bundles ──
 	if opts.MonitorJS {
-		diffJSEndpoints(opts.Domain, opts.Threads, opts.SuppressBaseline, result)
+		result.JSDiffOK = diffJSEndpoints(opts.Domain, opts.Threads, opts.SuppressBaseline || opts.SuppressJSBaseline, result)
 	}
 
 	if len(existingSubs) == 0 {
@@ -393,14 +409,17 @@ func MonitorSubdomains(opts MonitorOptions) (*MonitorResult, error) {
 // endpoints, and diffs them against the js_endpoints table. Newly-appearing endpoints
 // (e.g. shipped in a fresh deploy) are persisted and appended to result.NewEndpoints —
 // unless this is the target's baseline run, where they are only recorded silently.
-func diffJSEndpoints(domain string, threads int, suppressBaseline bool, result *MonitorResult) {
+// It returns true only when endpoints were collected AND persisted — the
+// condition for the run to count as the JS-diff baseline (no live hosts yet,
+// every fetch failing, or a DB error must leave the baseline pending).
+func diffJSEndpoints(domain string, threads int, suppressBaseline bool, result *MonitorResult) bool {
 	liveSubs, err := db.ListLiveSubdomains(domain)
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] JS diff: failed to list live subdomains for %s: %v", domain, err)
-		return
+		return false
 	}
 	if len(liveSubs) == 0 {
-		return
+		return false
 	}
 
 	hosts := make([]string, 0, len(liveSubs))
@@ -418,16 +437,16 @@ func diffJSEndpoints(domain string, threads int, suppressBaseline bool, result *
 	eps, err := jsendpoints.CollectEndpointsForHosts(hosts, threads)
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] JS diff: endpoint extraction failed for %s: %v", domain, err)
-		return
+		return false
 	}
 	if len(eps) == 0 {
-		return
+		return false
 	}
 
 	existing, err := db.ListJSEndpoints(domain)
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] JS diff: failed to list stored endpoints for %s: %v", domain, err)
-		return
+		return false
 	}
 	seen := make(map[string]bool, len(existing))
 	for _, e := range existing {
@@ -444,15 +463,18 @@ func diffJSEndpoints(domain string, threads int, suppressBaseline bool, result *
 		}
 	}
 
+	stored := true
 	if err := db.InsertJSEndpoints(domain, toStore); err != nil {
 		logger.GetLogger().Infof("[WARN] JS diff: failed to persist endpoints for %s: %v", domain, err)
+		stored = false
 	}
 
 	if suppressBaseline {
 		logger.GetLogger().Infof("[INFO] Monitor baseline for %s: recorded %d JS endpoints (alerts suppressed)", domain, len(toStore))
-		return
+		return stored
 	}
 	result.NewEndpoints = append(result.NewEndpoints, fresh...)
+	return stored
 }
 
 // SubdomainStatus is a helper struct for tracking current status during monitoring

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -105,7 +106,7 @@ func Run(opts Options) (*Result, error) {
 		logger.GetLogger().Infof("[INFO] JS scan: js-urls.txt not found or empty: %v", err)
 	}
 
-	if allFileExists && jsFileExists {
+	if allFileExists && jsFileExists && urls.URLsCacheFresh(urlsDir) {
 		// Files already exist, read them instead of re-collecting
 		logger.GetLogger().Infof("[INFO] JS scan: Using existing URL files (skipping collection)")
 		allURLs, _ := readLines(allFile)
@@ -180,64 +181,37 @@ func Run(opts Options) (*Result, error) {
 		}
 	}
 
-	// Perform actual secret scanning on JS files
-	logger.GetLogger().Infof("[INFO] JS scan: Starting secret scanning on %d JS URLs...", totalJS)
+	// Narrow the list to real JS files, one per path, capped (archives return
+	// tens of thousands for a large root domain).
+	if n, kept, err := selectJSURLsFile(targetJS, maxJSDownloads()); err == nil && n != kept {
+		logger.GetLogger().Infof("[INFO] JS scan: %d JS URL(s) → %d to fetch (JS files only, one per path, cap %d)", n, kept, maxJSDownloads())
+		totalJS = kept
+	}
+
+	// Perform pattern scanning on JS files: secrets + client-side bug candidates.
+	// Both pattern sets run in a single download pass over the JS files.
+	logger.GetLogger().Infof("[INFO] JS scan: Starting pattern scanning on %d JS URLs...", totalJS)
+	secretPatterns, err := utils.LoadSecretPatterns("regexes")
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Failed to load secret patterns: %v", err)
+	}
+	clientSidePatterns, err := utils.LoadPatternFile("regexes", "client-side-patterns.yaml")
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Failed to load client-side patterns: %v", err)
+	}
+
 	secretsFile := filepath.Join(jsVulnDir, "js-secrets.txt")
-	if err := scanJSForSecrets(targetJS, secretsFile, opts.Threads); err != nil {
-		logger.GetLogger().Infof("[WARN] JS scan: Secret scanning failed: %v", err)
+	clientSideFile := filepath.Join(jsVulnDir, "js-clientside.txt")
+	scanErr := scanJSFiles(targetJS, []jsScanTarget{
+		{name: "secrets", patterns: secretPatterns, outputFile: secretsFile},
+		{name: "client-side", patterns: clientSidePatterns, outputFile: clientSideFile},
+	}, min(opts.Threads, jsDownloadConcurrency))
+	if scanErr != nil {
+		logger.GetLogger().Infof("[WARN] JS scan: Pattern scanning failed: %v", scanErr)
 	} else {
 		scanID := utils.GetCurrentScanID()
-		if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
-			logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
-
-			if scanID != "" {
-				data, readErr := os.ReadFile(secretsFile)
-				if readErr == nil {
-					type secretFinding struct {
-						TemplateID string `json:"template-id"`
-						MatchedAt  string `json:"matched-at"`
-						Severity   string `json:"severity"`
-						Finding    string `json:"finding"`
-						Module     string `json:"module"`
-						SecretType string `json:"secret_type,omitempty"`
-						Secret     string `json:"secret,omitempty"`
-					}
-					var findings []secretFinding
-					seen := make(map[string]struct{})
-					for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-						if strings.TrimSpace(line) == "" {
-							continue
-						}
-						target, secretType, secretValue := parseSecretLine(line)
-						if target == "" {
-							continue
-						}
-						key := target + "|" + secretType + "|" + secretValue
-						if _, ok := seen[key]; ok {
-							continue
-						}
-						seen[key] = struct{}{}
-						findings = append(findings, secretFinding{
-							TemplateID: "JS Secret Exposure" + ternary(secretType != "", " ("+secretType+")", ""),
-							MatchedAt:  target,
-							Severity:   "high",
-							Finding:    line,
-							Module:     "js-secrets",
-							SecretType: secretType,
-							Secret:     secretValue,
-						})
-					}
-					if len(findings) > 0 {
-						_ = utils.WriteJSONToScanDir(scanID, "js-secrets-vulnerabilities.json", findings)
-					}
-				}
-			}
-		} else {
-			logger.GetLogger().Infof("[INFO] JS scan: No secrets found in JS files")
-			if scanID != "" {
-				_ = utils.WriteNoFindingsJSON(scanID, opts.Domain, "js-scan", "js-secrets-vulnerabilities.json")
-			}
-		}
+		emitSecretFindings(scanID, opts.Domain, secretsFile)
+		emitClientSideFindings(scanID, opts.Domain, clientSideFile)
 	}
 
 	logger.GetLogger().Infof("[INFO] JS scan: Final result - %d JS URLs processed", totalJS)
@@ -249,6 +223,59 @@ func Run(opts Options) (*Result, error) {
 		VulnJSFile: targetJS,
 		TotalJS:    totalJS,
 	}, nil
+}
+
+// jsDownloadConcurrency caps parallel JS fetches: they hit the target's own
+// hosts, and a burst of 100+ got AutoAR's IP reset by awaze.com's origin.
+const jsDownloadConcurrency = 25
+
+// maxJSDownloads is the per-scan cap on JS files fetched (JS_SCAN_MAX_FILES).
+func maxJSDownloads() int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("JS_SCAN_MAX_FILES"))); err == nil && n > 0 {
+		return n
+	}
+	return 1500
+}
+
+// selectJSURLs keeps JavaScript files only, one per scheme+host+path (cache
+// busters like ?ver=1.2 dropped), in input order — live-page scripts come
+// before archive ones — up to max.
+func selectJSURLs(in []string, max int) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, min(len(in), max))
+	for _, u := range in {
+		if len(out) >= max {
+			break
+		}
+		if !urls.IsJSURL(u) {
+			continue
+		}
+		key := strings.ToLower(u)
+		if i := strings.IndexAny(key, "?#"); i >= 0 {
+			key = key[:i]
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, strings.TrimSpace(u))
+	}
+	return out
+}
+
+// selectJSURLsFile rewrites path with selectJSURLs and reports before/after.
+func selectJSURLsFile(path string, max int) (int, int, error) {
+	in, err := readLines(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	out := selectJSURLs(in, max)
+	if len(out) != len(in) {
+		if err := os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+			return len(in), len(in), err
+		}
+	}
+	return len(in), len(out), nil
 }
 
 func filterJSBySubdomain(src, subdomain, dst string) (string, error) {
@@ -372,6 +399,17 @@ func parseSecretLine(line string) (target string, secretType string, secretValue
 	return target, secretType, secretValue
 }
 
+// maskSecretInLine masks secretValue (the "-> value" tail of a js-secrets.txt
+// line) for shared artifacts, returning the masked line and masked value.
+func maskSecretInLine(line, secretValue string) (maskedLine, masked string) {
+	masked = utils.MaskSecret(secretValue)
+	maskedLine = line
+	if i := strings.LastIndex(line, secretValue); secretValue != "" && i >= 0 {
+		maskedLine = line[:i] + masked + line[i+len(secretValue):]
+	}
+	return maskedLine, masked
+}
+
 func ternary(cond bool, yes, no string) string {
 	if cond {
 		return yes
@@ -379,53 +417,107 @@ func ternary(cond bool, yes, no string) string {
 	return no
 }
 
-func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
+// jsScanTarget describes one pattern set to apply to every downloaded JS file.
+type jsScanTarget struct {
+	name       string
+	patterns   map[string][]*regexp.Regexp
+	outputFile string
+	count      int
+}
+
+// scanJSFiles downloads each JS file once and scans it with every target's
+// pattern set, writing findings (one "[Pattern] URL -> match" line each) to
+// the target's output file. Output files are always created, even when empty.
+func scanJSFiles(jsURLsFile string, targets []jsScanTarget, threads int) error {
 	if threads <= 0 {
 		threads = 50
 	}
-
-	// Load regex patterns
-	patterns, err := utils.LoadSecretPatterns("regexes")
-	if err != nil {
-		return fmt.Errorf("failed to load secret patterns: %w", err)
-	}
-	logger.GetLogger().Infof("[INFO] JS scan: Loaded %d secret patterns", len(patterns))
 
 	// Read JS URLs
 	jsURLs, err := readLines(jsURLsFile)
 	if err != nil {
 		return fmt.Errorf("failed to read JS URLs file: %w", err)
 	}
-	// Create output file (always create it even if empty)
-	outFile, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
+
+	// Create output files and writers (always created even if empty)
+	writers := make([]*bufio.Writer, len(targets))
+	files := make([]*os.File, len(targets))
+	for i := range targets {
+		f, err := os.Create(targets[i].outputFile)
+		if err != nil {
+			for _, opened := range files[:i] {
+				opened.Close()
+			}
+			return fmt.Errorf("failed to create output file %s: %w", targets[i].outputFile, err)
+		}
+		files[i] = f
+		writers[i] = bufio.NewWriter(f)
 	}
-	defer outFile.Close()
+	defer func() {
+		for i := range files {
+			writers[i].Flush()
+			files[i].Close()
+		}
+	}()
 
 	if len(jsURLs) == 0 {
 		return nil
 	}
 
-	writer := bufio.NewWriter(outFile)
-	defer writer.Flush()
-
 	// Worker pool for downloading and scanning
 	sem := make(chan struct{}, threads)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	findingsCount := 0
 
+	// If every pattern set failed to load there is nothing to scan for — don't
+	// download thousands of JS files just to discard them.
+	anyPatterns := false
+	for i := range targets {
+		if len(targets[i].patterns) > 0 {
+			anyPatterns = true
+			break
+		}
+	}
+	if !anyPatterns {
+		logger.GetLogger().Infof("[WARN] JS scan: no patterns loaded — skipping downloads")
+		return nil
+	}
+
+	// Public-IP enforcement at connect time (closes DNS rebinding past the
+	// ValidatePublicHTTPURL check below). TLS verification is deliberately
+	// skipped: we only download public target JS and send nothing sensitive, and
+	// in-scope hosts with expired/self-signed/mismatched certs must stay reachable.
+	transport := utils.NewPublicTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		Transport: transport,
+		Timeout:   15 * time.Second,
+		// A target-controlled JS URL can 302 to a different host (e.g. cloud
+		// metadata endpoints) whose body would then be secret-scanned and shipped
+		// to artifacts/webhooks — refuse to follow redirects off the original host.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+				return fmt.Errorf("refusing cross-host redirect to %s", req.URL.Hostname())
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
 		},
-		Timeout: 15 * time.Second,
 	}
 
 	for _, jsURL := range jsURLs {
 		jsURL = strings.TrimSpace(jsURL)
 		if jsURL == "" {
+			continue
+		}
+		// These URLs come from crawled pages (katana/wayback) and are therefore
+		// target-influenceable. The same SSRF gate the URL monitor uses: refuse
+		// private/loopback/link-local hosts so a page linking the cloud metadata
+		// endpoint can't get its response secret-scanned and shipped to
+		// artifacts/webhooks.
+		if err := utils.ValidatePublicHTTPURL(jsURL); err != nil {
+			logger.GetLogger().Infof("[WARN] JS scan: skipping non-public URL %q: %v", jsURL, err)
 			continue
 		}
 
@@ -441,28 +533,180 @@ func scanJSForSecrets(jsURLsFile, outputFile string, threads int) error {
 				return // Silently skip failed downloads
 			}
 
-			// Scan for secrets
-			findings := scanContentForSecrets(content, url, patterns)
-			if len(findings) > 0 {
-				mu.Lock()
-				for _, finding := range findings {
-					writer.WriteString(finding + "\n")
-					findingsCount++
+			// Scan with every pattern set
+			for i := range targets {
+				if len(targets[i].patterns) == 0 {
+					continue
 				}
-				writer.Flush()
-				mu.Unlock()
+				findings := utils.ScanContentForSecrets(content, url, targets[i].patterns)
+				if len(findings) > 0 {
+					mu.Lock()
+					for _, finding := range findings {
+						writers[i].WriteString(finding + "\n")
+						targets[i].count++
+					}
+					writers[i].Flush()
+					mu.Unlock()
+				}
 			}
 		}(jsURL)
 	}
 
 	wg.Wait()
-	logger.GetLogger().Infof("[INFO] JS scan: Secret scanning completed, found %d secrets", findingsCount)
+	for i := range targets {
+		logger.GetLogger().Infof("[INFO] JS scan: %s scanning completed, found %d matches", targets[i].name, targets[i].count)
+	}
 	return nil
 }
 
-// scanContentForSecrets scans JS content for secrets using loaded patterns
-func scanContentForSecrets(content, url string, patterns map[string][]*regexp.Regexp) []string {
-	return utils.ScanContentForSecrets(content, url, patterns)
+// emitSecretFindings converts js-secrets.txt lines into the structured
+// js-secrets-vulnerabilities.json artifact for the current scan.
+func emitSecretFindings(scanID, domain, secretsFile string) {
+	if info, err := os.Stat(secretsFile); err == nil && info.Size() > 0 {
+		logger.GetLogger().Infof("[OK] JS scan: Found secrets in JS files, saved to: %s", secretsFile)
+
+		if scanID != "" {
+			data, readErr := os.ReadFile(secretsFile)
+			if readErr == nil {
+				type secretFinding struct {
+					TemplateID string `json:"template-id"`
+					MatchedAt  string `json:"matched-at"`
+					Severity   string `json:"severity"`
+					Finding    string `json:"finding"`
+					Module     string `json:"module"`
+					SecretType string `json:"secret_type,omitempty"`
+					Secret     string `json:"secret,omitempty"`
+				}
+				var findings []secretFinding
+				seen := make(map[string]struct{})
+				for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					target, secretType, secretValue := parseSecretLine(line)
+					if target == "" {
+						continue
+					}
+					key := target + "|" + secretType + "|" + secretValue
+					if _, ok := seen[key]; ok {
+						continue
+					}
+					seen[key] = struct{}{}
+					// This artifact feeds the dashboard/DB/R2: mask the value
+					// (detector + first/last 4 chars). The full value stays only
+					// in the local js-secrets.txt for manual validation.
+					maskedLine, masked := maskSecretInLine(line, secretValue)
+					findings = append(findings, secretFinding{
+						TemplateID: "JS Secret Exposure" + ternary(secretType != "", " ("+secretType+")", ""),
+						MatchedAt:  target,
+						Severity:   secretSeverity(secretType),
+						Finding:    maskedLine,
+						Module:     "js-secrets",
+						SecretType: secretType,
+						Secret:     masked,
+					})
+				}
+				if len(findings) > 0 {
+					_ = utils.WriteJSONToScanDir(scanID, "js-secrets-vulnerabilities.json", findings)
+				}
+			}
+		}
+	} else {
+		logger.GetLogger().Infof("[INFO] JS scan: No secrets found in JS files")
+		if scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "js-scan", "js-secrets-vulnerabilities.json")
+		}
+	}
+}
+
+// secretSeverity is "high" for a key that grants access, "low" for keys
+// that are public by design (a reCAPTCHA site key ships in every page that
+// shows the widget; its secret key has the same shape, so it stays a lead).
+func secretSeverity(secretType string) string {
+	switch secretType {
+	case "google_captcha":
+		return "low"
+	}
+	return "high"
+}
+
+// emitClientSideFindings converts js-clientside.txt lines into the structured
+// js-clientside-vulnerabilities.json artifact. These are *candidates* — they
+// flag dangerous sources/sinks/idioms that still need manual verification —
+// so severities stay below the hard "high" used for exposed secrets.
+func emitClientSideFindings(scanID, domain, clientSideFile string) {
+	if info, err := os.Stat(clientSideFile); err == nil && info.Size() > 0 {
+		logger.GetLogger().Infof("[OK] JS scan: Found client-side bug candidates, saved to: %s", clientSideFile)
+
+		if scanID != "" {
+			data, readErr := os.ReadFile(clientSideFile)
+			if readErr == nil {
+				type clientSideFinding struct {
+					TemplateID  string `json:"template-id"`
+					MatchedAt   string `json:"matched-at"`
+					Severity    string `json:"severity"`
+					Finding     string `json:"finding"`
+					Module      string `json:"module"`
+					PatternType string `json:"pattern_type,omitempty"`
+					Match       string `json:"match,omitempty"`
+				}
+				var findings []clientSideFinding
+				seen := make(map[string]struct{})
+				for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					target, patternType, match := parseSecretLine(line)
+					if target == "" {
+						continue
+					}
+					key := target + "|" + patternType + "|" + match
+					if _, ok := seen[key]; ok {
+						continue
+					}
+					seen[key] = struct{}{}
+					findings = append(findings, clientSideFinding{
+						TemplateID:  "JS Client-Side Candidate" + ternary(patternType != "", " ("+patternType+")", ""),
+						MatchedAt:   target,
+						Severity:    clientSideSeverity(patternType),
+						Finding:     line,
+						Module:      "js-clientside",
+						PatternType: patternType,
+						Match:       match,
+					})
+				}
+				if len(findings) > 0 {
+					_ = utils.WriteJSONToScanDir(scanID, "js-clientside-vulnerabilities.json", findings)
+				}
+			}
+		}
+	} else {
+		logger.GetLogger().Infof("[INFO] JS scan: No client-side bug candidates found")
+		if scanID != "" {
+			_ = utils.WriteNoFindingsJSON(scanID, domain, "js-scan", "js-clientside-vulnerabilities.json")
+		}
+	}
+}
+
+// clientSideSeverity maps a client-side pattern class (the name prefix from
+// regexes/client-side-patterns.yaml) to a severity. Sources alone and "(bare)"
+// broad-idiom matches are "info"; source→sink flows, exploitable sinks and
+// dangerous idioms are "medium"; the rest are "low".
+func clientSideSeverity(patternType string) string {
+	switch {
+	case strings.HasPrefix(patternType, "DOM XSS Source"),
+		// broad idioms (bare innerHTML=, __proto__, …) — mostly benign alone
+		strings.Contains(patternType, "(bare)"):
+		return "info"
+	case strings.HasPrefix(patternType, "DOM XSS Flow"),
+		strings.HasPrefix(patternType, "DOM XSS Sink"),
+		strings.HasPrefix(patternType, "Dynamic Code Execution"),
+		strings.HasPrefix(patternType, "postMessage"),
+		strings.HasPrefix(patternType, "Prototype Pollution"):
+		return "medium"
+	default:
+		return "low"
+	}
 }
 
 // downloadJSFile downloads a JS file from a URL

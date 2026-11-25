@@ -28,10 +28,11 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **Subdomains**      | Enumerate using 15+ sources: Subfinder, CertSpotter, SecurityTrails, Chaos, crt.sh, OTX, VirusTotal, and more                          |
 |  **Live Hosts**      | Detect alive hosts using httpx with follow-redirects and status detection                                                              |
 |  **DNS Takeovers**  | Detect CNAME, NS, Azure/AWS cloud, DNSReaper, dangling-IP, and **CF-1016 Cloudflare dangling record** vulnerabilities                  |
-|  **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting                                                             |
-|  **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                     |
-|  **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                           |
-|  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files                                                                              |
+|  **Nuclei Scanning** | Automated vulnerability scanning using Nuclei templates with rate limiting. Scans are **cancellable** from the UI, and past scans support **rescan** (incl. raw-template runs) |
+|  **Zero-Days**       | Smart scan configured for detected tech stacks — finds active CVEs                                                                                                                                             |
+|  **Firebase**        | Read-only Firebase misconfiguration scanner — fingerprints Firebase on live hosts and tests Realtime DB / Firestore / Storage for unauthenticated exposure (opt-in aggressive write tests)                        |
+|  **S3 Buckets**      | Enumerate and scan AWS S3 buckets for exposure and misconfig                                                                                                                                                    |
+|  **JavaScript**      | Extract secrets, API endpoints, auth tokens from JS files — plus **client-side bug candidates** (DOM XSS sources/sinks, postMessage, open-redirect sinks, prototype pollution) via 25 RE2 patterns               |
 |  **GitHub Recon**    | Org-level and repo-level scanning for secrets, dependency confusion                                                                    |
 |  **APK Auditor**     | Browser-based Android analysis: DEX decompiler, manifest + cert parsing, tracker detection, MASVS mapping, and regex-driven findings with APX secret patterns. (Based on [apkauditor](https://github.com/thecybersandeep/apkauditor) by @thecybersandeep) |
 |  **IPA Auditor**     | Browser-based iOS IPA analysis: plist + Mach-O inspection, binary strings extraction, and findings tab powered by 200+ regex signatures plus MASVS-style rules. (Based on [ipaauditor](https://github.com/thecybersandeep/ipaauditor) by @thecybersandeep) |
@@ -39,10 +40,11 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **Misconfigs**      | 100+ service misconfiguration checks                                                                                                   |
 |  **BB Scope**     | Fetch scope from HackerOne, Bugcrowd, Intigriti, YesWeHack (token), Immunefi — CLI & **dashboard Targets page**                       |
 |  **Monitoring**      | Subdomain + URL change monitoring daemon with webhook alerts (Discord-compatible) & DB history                                          |
-|  **AI Agent**        | Full AI hunt loop from the CLI (`autoar agent` / `autoar explain`) — defaults to **deepseek-v4-flash-free via OpenCode Zen** — free tier, no card required |
+|  **AI Assist**       | AI finding validation & bug-bounty reports from the dashboard — defaults to the **official DeepSeek API**; OpenCode, OpenRouter, Z.ai and Gemini selectable in Settings |
 |  **R2 Storage**      | Auto-upload every non-empty result file to Cloudflare R2 and print the public URL                                                      |
 |  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
-|  **Web dashboard**  | **v4.1+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
+|  **Web dashboard**  | **v4.3+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
+|  **DB-backed Settings** | Configure a running instance from the dashboard — platform accounts (multi-account, editable), provider/subfinder keys (multi-key), webhook, Cloudflare R2, AI keys, scan timeouts. Stored in the database, survives redeploys; env vars become optional seeds |
 
 
 ---
@@ -86,6 +88,8 @@ autoar ports scan      -d <domain>            Port scan with naabu
 
 ```
 autoar nuclei run      -d <domain>            Run Nuclei templates on all live hosts
+autoar firebase scan   -d <domain>            Fingerprint Firebase on live hosts and test Realtime DB /
+                                              Firestore / Storage for unauthenticated exposure
 autoar zerodays scan   -d <domain>            Smart CVE scanning based on detected tech
                        -s <subdomain>         Scan a specific subdomain
                        -f <domains_file>      Scan domains from a file
@@ -120,11 +124,16 @@ autoar dns cf1016      -d <domain>            Cloudflare 1016 Dangling DNS — a
 autoar dns all         -d <domain>            Run all DNS checks simultaneously
 ```
 
-### JavaScript Scanning
+### Client-side Scanning (formerly "JavaScript scan")
+
+Collects a target's JavaScript and runs the JS-secrets and client-side source/sink patterns over it
+(DOM XSS sources/sinks/flows, open-redirect sinks, postMessage listeners, prototype pollution, eval,
+credentials in storage). A root domain covers every subdomain; a host covers only that app.
 
 ```
-autoar js scan         -d <domain>            Scan all JS files for secrets and endpoints
-                       [-s <subdomain>]       Scope to a specific subdomain's JS
+POST /scan/clientside  {"domain": "example.com"}       every subdomain's JS   (old name: /scan/js)
+POST /scan/clientside  {"domain": "app.example.com"}   that host's JS only
+MCP  run_scan {type: "clientside", target: ...}  →  clientside_results {scan_id}
 ```
 
 ### Fuzzing (FFUF)
@@ -295,96 +304,74 @@ autoar monitor updates manage start     [--id <id>] [--all]
 autoar monitor updates manage list
 ```
 
-### AI Agent Commands
-
-Autonomous bug hunting directly from the terminal.
-
-```
-autoar agent "<request>" [--json]
-    Run the full AI agent loop (up to 20 iterations) from the CLI.
-    Example: autoar agent "find XSS vulnerabilities on example.com"
-    Example: autoar agent "full recon on example.com" --json
-
-autoar explain <result-file> [--json]
-    Feed any scan result file to the AI for triage and follow-up suggestions.
-    Example: autoar explain new-results/example.com/nuclei-output.txt
-    Example: autoar explain new-results/example.com/js-secrets.txt --json
-
-autoar status [--json]
-    Show runtime metrics and DB scan progress.
-    Useful for AI agents polling long-running scans:
-    Example: autoar status --json
-    Returns: { "active_scans": [ { "target": "...", "current_phase": 4, "total_phases": 12 } ] }
-```
 
 ---
 
-##  AI-Driven Security Framework — Free for Everyone
+##  AI-Driven Security Framework
 
-AutoAR's AI engine defaults to **[OpenCode Zen](https://opencode.ai/zen)** running `deepseek-v4-flash-free`. OpenCode Zen is OpenAI-compatible and offers a free tier with no card required. You can also bring your own OpenRouter or Gemini key — AutoAR routes to whichever providers you configure.
-
-> **Free path in 60 seconds:** create a free OpenCode Zen account, copy your key into `OPENCODE_API_KEY`, and the agent works.
+AutoAR's AI layer defaults to the **official [DeepSeek API](https://platform.deepseek.com)** (`deepseek-chat`). Exactly one provider is active at a time; OpenCode Zen, OpenRouter, Z.ai (GLM) and Google Gemini are optional alternatives you can switch to from the dashboard. There is no silent fallback chain — requests go to the provider you picked, and a missing key or upstream error is reported as such.
 
 ### What the AI powers
 
+| Feature | Where |
+| ------- | ----- |
+| AI vulnerability reports for selected findings (one or many) | Scan detail → select rows → **AI report** |
+| **Automatic triage of every finished scan** → reportable findings to Discord with a draft report | **AI Triage** page (`/triage`) |
+| Finding validation / report endpoints | `POST /api/findings/validate`, `/api/findings/report`, `/api/findings/report-batch` |
+| Ranking of release/changelog pages to monitor | Monitor → **Suggest from domain** |
 
-| Command                                 | What it does                                                                                                   |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `autoar agent "<request>"`              | Autonomous agent loop — the AI plans, runs tools, validates findings, and reports confirmed bugs.             |
-| `autoar agent "<request>" --json`       | Same agent loop with machine-readable JSON output for piping into other tools.                                 |
-| `autoar explain <result-file>`          | Feed any result file to the AI for triage and follow-up suggestions.                                           |
+Scan evidence sent to the model is treated as untrusted (it comes from the target), and the prompts tell the model never to follow instructions inside it.
 
+### AI triage & Discord reporting
 
-### Getting your free OpenCode Zen key
+When a scan finishes, AutoAR queues it for **AI triage** (race-pass scans jump the queue):
 
-1. Go to [opencode.ai/zen](https://opencode.ai/zen) and create a free account.
-2. Generate an API key from the dashboard.
-3. Drop it into `.env`:
+1. Its nuclei hits at or above the minimum severity (default *medium*) are read from the scan's result files, most severe first; CVE templates go first.
+2. Each hit is sent to the active provider with its template, request, response, extracted values and catalog scope. The model returns a JSON verdict (`true_positive` / `likely` / `false_positive` / `needs_manual_review`), a confidence, a reason and — when reportable — a draft report.
+3. Optionally AutoAR first does **one safe re-check**: a single GET to the matched URL, only for hits that were themselves GET requests, through the SSRF-guarded client. The model only ever *reads* evidence; it never chooses requests or commands.
+4. A finding is **reportable** only if the model says true/likely positive *and* confidence ≥ the threshold (default 75%) *and* severity ≥ the minimum *and* the host is not out of scope or in a paused program (optionally: must match an in-scope program).
+5. Reportable findings are posted once to the **Findings** Discord webhook (`WEBHOOK_FINDINGS`, falling back to the monitor webhook) with the draft report attached as a `.md` file. Mentions are disabled and all target/model text is escaped.
+
+Cost controls: a daily AI-call limit (default 200), a per-scan cap (default 40), and per-template sampling — after 3 confident false positives from one template in a scan, its remaining hits are skipped. Each finding is triaged once; re-runs reuse the stored verdict.
+
+Review everything on the **AI Triage** page (`/triage`): verdicts, reasons, the evidence the model saw, draft reports (copy), *Send/Resend* to Discord, and *Mark TP / FP* overrides — an FP override is never reported. Tune the policy in **Settings → AI Providers → AI Triage & Discord reporting**. API: `GET /api/triage`, `GET /api/triage/status`, `POST /api/triage/scans/:id`, `POST /api/triage/item/:id/notify`, `POST /api/triage/item/:id/verdict`.
+
+### Setting it up (dashboard — recommended)
+
+1. Create a key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
+2. Open **Settings → AI Providers**, paste it into **DeepSeek (official)** and click **Save key**. The key is stored in the database (it survives redeploys) and is never sent back to the browser.
+3. Click **Test connection** — it sends a one-word prompt and shows the model, latency and reply.
+4. Optional: change the model (**Load models** lists what your key can use, e.g. `deepseek-reasoner`), or pick a different **Active provider**.
+
+### Setting it up (env seed)
 
 ```env
-OPENCODE_API_KEY=oc-...
-# Optional model override — leave unset for the default deepseek-v4-flash-free.
-# Browse https://opencode.ai/zen/v1/models for the full list.
-OPENCODE_MODEL=
+AI_PROVIDER=deepseek        # deepseek | opencode | openrouter | zai | gemini
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_MODEL=             # optional; defaults to deepseek-chat
 ```
 
-That's it. AutoAR will use `deepseek-v4-flash-free` automatically for `autoar agent` and `autoar explain`.
+Env values are copied into the settings DB on first boot; after that the DB (i.e. the dashboard) is the source of truth.
 
-### Bringing your own OpenRouter key (optional)
-
-If you want to use OpenRouter (paid premium models or alternative free models):
-
-```env
-OPENROUTER_API_KEY=sk-or-v1-...
-# Optional model override — leave unset for z-ai/glm-4.5-air:free.
-OPENROUTER_MODEL=
-```
-
-### Provider priority
-
-When multiple keys are configured, AutoAR tries them in this order — each provider falls back to the next on error:
-
-1. `OPENROUTER_API_KEY` → OpenRouter (`OPENROUTER_MODEL` or `z-ai/glm-4.5-air:free`)
-2. `OPENCODE_API_KEY` → OpenCode Zen (`OPENCODE_MODEL` or `deepseek-v4-flash-free`)
-3. `ZHIPU_API_KEY` → Z.ai direct endpoint
-4. `GEMINI_API_KEY` → Gemini Direct
-
-### Configuring from the dashboard
-
-The web dashboard (`/ui/settings`) exposes all four keys and the two model overrides. You can paste keys, change models, and reset to defaults without touching `.env`. Existing keys are masked in the input — leave the field blank to keep the saved value, type a new value to overwrite.
+| Provider (`AI_PROVIDER`) | Key | Model override | Default model |
+| ------------------------ | --- | -------------- | ------------- |
+| `deepseek` (default) | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `deepseek-chat` |
+| `opencode` | `OPENCODE_API_KEY` | `OPENCODE_MODEL` | `deepseek-v4-flash-free` |
+| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | `z-ai/glm-4.5-air:free` |
+| `zai` | `ZHIPU_API_KEY` | `ZAI_MODEL` | `glm-4.5-air` |
+| `gemini` | `GEMINI_API_KEY` | `GEMINI_MODEL` | `gemini-2.5-flash` |
 
 ### Database & Results
 
 ```
-autoar db domains list                         List all scanned domains
-autoar db domains delete    -d <domain>        Remove a domain from the database
-autoar db subdomains list   -d <domain>        List all stored subdomains for a domain
-autoar db subdomains export -d <domain>        Export subdomains to a file
-                            [-o <output.txt>]
-autoar db js list           -d <domain>        List stored JS endpoints for a domain
 autoar db backup                               Create a database backup
              [--upload-r2]                     Also upload the backup to Cloudflare R2
 ```
+
+> Schedule this (cron / Dokploy schedule) on any deployment you care about — see
+> [Backups & growth](#backups--growth-production). Domain/subdomain listing and
+> deletion is available from the dashboard (Domains page, subdomain search) and
+> the REST API rather than the CLI.
 
 ### Utilities
 
@@ -430,6 +417,40 @@ The easiest way to run AutoAR with all dependencies (Go, Nuclei, FFUF, APK Audit
    docker compose --profile localdb up -d
    ```
 
+### Option 1b — Dokploy (VPS deployment with Traefik)
+
+AutoAR runs well on a single VPS managed by [Dokploy](https://dokploy.com): Dokploy builds the
+`Dockerfile` from your Git repo (use a **private** repo remote for this), and Traefik — Dokploy's
+bundled reverse proxy — terminates TLS for your domain and routes to the `autoar-api` service.
+PostgreSQL runs as a second Dokploy service with its own volume; no ports need to be published for
+it (the app talks to it over the internal Docker network).
+
+Setup outline:
+
+1. Create a Dokploy **project** → application pointing at your repo's `master` and the `Dockerfile`.
+2. Create a **PostgreSQL service** in the same project; set `DB_TYPE=postgresql` and
+   `DB_HOST=postgresql://<user>:<pass>@<postgres-service>:5432/bughunt?sslmode=disable` in the
+   application env. Schema init happens automatically on boot.
+3. Attach your domain (e.g. `autoar.example.com`) — Traefik gets a Let's Encrypt cert and adds an
+   HTTP→HTTPS redirect.
+4. Set `DASHBOARD_USER` / `DASHBOARD_PASSWORD` / `AUTOAR_JWT_SECRET` in the app env — the server
+   refuses to start with a public bind and no auth.
+
+Production checklist (things to get right on a public VPS):
+
+- **Don't publish the API port.** If the service publishes `8000` on the host, the dashboard is
+  reachable over plain HTTP on the raw VPS IP, bypassing Traefik's TLS. Let Traefik reach the
+  service over the internal network instead.
+- **Persist results.** Mount a volume at `/app/new-results` (or a host bind) if you want scan
+  output files and rescan template files to survive redeploys. Without a volume, container
+  rebuilds wipe local files — R2 uploads and DB rows survive either way.
+- **Back up the database.** Dokploy's volume backups are opt-in. Either enable them for the
+  Postgres volume or schedule `autoar db backup --upload-r2` (uploads a DB dump to your R2 bucket).
+  Do one of these — Postgres holds all scans, subdomains, settings and monitor history.
+- **Set `POSTGRES_PASSWORD`** (don't rely on defaults) and keep the Postgres port unpublished.
+- **Add resource limits** (`deploy.resources.limits`) — nuclei/ffuf bursts can otherwise starve
+  other stacks on the box.
+
 
 
 ### Option 2 — Manual Build
@@ -465,7 +486,17 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 
 ##  Configuration
 
-Copy `.env.example` to `.env` and fill in your values:
+> **Dashboard-first (recommended).** Most settings below can be set from the web dashboard
+> **Settings** page instead of `.env` — platform accounts, subfinder/recon provider keys, the
+> monitor webhook, Cloudflare R2 storage, AI keys/models, and scan timeouts. Anything set there is
+> **stored in the database and survives redeploys**, so the matching environment variables become
+> optional. On boot AutoAR seeds any env-only value into the DB once (so you can then drop it from
+> your deployment) and the DB value wins thereafter. Truly required in `.env`: the database
+> connection (`DB_TYPE`/`DB_HOST`), server bind (`API_HOST`/`API_PORT`), dashboard login
+> (`DASHBOARD_USER`/`DASHBOARD_PASSWORD`, `AUTOAR_JWT_SECRET`), and runtime paths — these bootstrap
+> the app before the DB exists. See [Dashboard Settings](#dashboard-settings) below.
+
+Copy `.env.example` to `.env` and fill in your values (or configure via the dashboard):
 
 ```bash
 cp .env.example .env
@@ -494,6 +525,8 @@ The monitoring daemon posts change alerts to a webhook of your choice. Leave it 
 MONITOR_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
+> Or set it in **Settings → Notifications** — it's stored in the DB and survives redeploys, so the env var isn't required.
+
 ### Cloudflare R2 Storage (Highly Recommended)
 
 AutoAR automatically uploads every non-empty result file to R2 and prints a public URL in the scan output. AI assistants can see and share these links directly.
@@ -513,9 +546,19 @@ Creating R2 Credentials:
 2. Account Settings → API Tokens → Create R2 Token (read+write)
 3. Enable public access: Bucket Settings → Public Access → Allow
 
+> Or configure all of the above in **Settings → System → Cloudflare R2** — the fields are DB-backed
+> (survive redeploys) and applied live on save, so you can switch buckets or rotate keys without a
+> redeploy and without setting any `R2_*` env vars.
+
 ### API Keys for Maximum Subdomain Coverage
 
-All keys are optional but recommended. AutoAR uses whichever are provided:
+All keys are optional but recommended. AutoAR uses whichever are provided.
+
+> Prefer the dashboard: **Settings → Platforms & Keys** manages the recon/subfinder provider keys
+> (multiple keys per provider, add without replacing via the `+` action) and the bug-bounty platform
+> accounts (multiple accounts per platform, each with **Test / Edit / enable / delete**). Everything
+> is DB-backed and survives redeploys — a stored value overrides the env of the same name. The env
+> vars below are just an alternative / initial seed.
 
 ```env
 # Subdomain enumeration sources
@@ -546,7 +589,7 @@ YWH_TOKEN=...            # YesWeHack JWT
 # AI analysis — only ONE key is needed
 #  Recommended (free): OpenCode Zen (no credit card required)
 #    Sign up at https://opencode.ai/zen · uses deepseek-v4-flash-free automatically
-OPENCODE_API_KEY=oc-...   # Powers `autoar agent` and `autoar explain` — completely free
+DEEPSEEK_API_KEY=sk-...   # Default AI provider (official DeepSeek API); or set it in Settings ▸ AI Providers
 # OPENCODE_MODEL=         # Optional override; see https://opencode.ai/zen/v1/models
 
 # Optional: OpenRouter for premium / alternative models
@@ -576,6 +619,27 @@ DOMAIN_RUN_TIMEOUT=18000    # 5 hours for full domain runs
 AUTOAR_TIMEOUT_MISCONFIG=1800
 AUTOAR_TIMEOUT_NUCLEI=0
 ```
+
+> Per-phase scan timeouts are also editable in **Settings → Scan Timeouts** (DB-backed as
+> `timeout_<phase>`; the DB value wins over `AUTOAR_TIMEOUT_<PHASE>`).
+
+<a id="dashboard-settings"></a>
+### Dashboard Settings
+
+The web dashboard **Settings** page is the primary way to configure a running instance. Every value
+here is written to the database (so it survives container/Dokploy redeploys that reset `.env`); the
+matching env var becomes an optional seed. Tabs:
+
+| Tab | What you manage |
+| --- | --- |
+| **Platforms & Keys** | Bug-bounty accounts — multiple per platform (HackerOne, Bugcrowd, Intigriti, YesWeHack), each with **Test / Edit / enable / delete** (editing keeps a stored secret when the field is left blank). External aggregator keys (Shodan, Chaos) and the **Subfinder provider keys** (multi-key, `+` to append without replacing). |
+| **AI Providers** | OpenRouter / OpenCode / Gemini keys and the two model overrides — masked, blank keeps the saved value. |
+| **Scan Timeouts** | Per-phase timeouts (nuclei, misconfig, katana, xss, …). |
+| **Notifications** | Monitor webhook URL (Discord-compatible). |
+| **System** | **Cloudflare R2 storage** (account ID, keys, bucket, public URL, enable toggle — applied live on save), plus system status and API endpoints. |
+
+Secrets are never returned by the API — inputs render masked and show a "set / not set" badge; submit
+a blank field to keep the stored value or a new value to overwrite.
 
 ---
 
@@ -710,7 +774,7 @@ AUTOAR_RESULTS_DIR=/app/new-results
 DB_TYPE=postgresql
 DB_HOST=postgresql://autoar:autoar@postgres:5432/bughunt?sslmode=disable
 USE_R2_STORAGE=true
-OPENCODE_API_KEY=oc-...   # or OPENROUTER_API_KEY / GEMINI_API_KEY
+DEEPSEEK_API_KEY=sk-...   # or pick another provider in Settings ▸ AI Providers
 ```
 
 ---
@@ -741,6 +805,15 @@ DB_HOST=postgresql://username:password@host:5432/autoar
 DB_TYPE=sqlite
 DB_HOST=./bughunt.db
 ```
+
+### Backups & growth (production)
+
+- **Backups:** `autoar db backup --upload-r2` creates a DB dump and (optionally) uploads it to your
+  R2 bucket. Schedule it (cron / Dokploy schedule) on any deployment you care about — scan history,
+  subdomains, settings and monitor state all live in the DB.
+- **Growth:** `subdomains`, `scan_artifacts` and `monitor_changes` grow without bound by design.
+  On long-running instances, prune old rows periodically (e.g. delete scans older than N months and
+  run `VACUUM`/`pg_repack` on Postgres) — 800k+ subdomain rows are normal for active targets.
 
 ---
 
@@ -789,6 +862,19 @@ For PostgreSQL, ensure:
 - Network allows connections (firewall rules, VPN)
 - For Supabase: use the **pooler** (port 6543) not the direct port (5432)
 
+### Program/Scope Fetches Fail with 401
+
+The Programs page refresh logs `[PROGRAMS] Intigriti fetch failed: ... (401)` (or similar for other
+platforms) when a stored platform token expired or was rotated. Fix it in **Settings → Platforms &
+Keys** — edit the account, paste the fresh token, and use **Test** to verify. Stale-token failures
+don't clear existing cached programs (last-known-good scope is preserved).
+
+### Scan Results Missing After a Redeploy
+
+Scan output files live under `/app/new-results` inside the container. If no volume is mounted
+there, a container rebuild wipes them (DB records and R2 uploads survive). Mount a volume at
+`/app/new-results` to keep files across redeploys — see the Dokploy checklist above.
+
 ---
 
 ##  GitHub release (tag → CI)
@@ -801,7 +887,9 @@ Versions are defined once in `[internal/version/version.go](internal/version/ver
    chmod +x scripts/tag-release.sh
    ./scripts/tag-release.sh v4.2.0
   ```
-   This pushes your current branch and the annotated tag. `**[.github/workflows/release.yml](.github/workflows/release.yml)**` then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes `**ghcr.io/<owner>/autoar**` for that tag.
+   This pushes your current branch and the annotated tag. `**[.github/workflows/release.yml](.github/workflows/release.yml)**` then builds Linux binaries, attaches `tar.gz` / `zip`, generates release notes, and pushes the private image `**ghcr.io/<owner>/autoar-private**` for that tag.
+
+   To re-publish the image for an existing tag (for example after a failed docker job), run the **Release** workflow manually from the Actions tab with the tag as input. It builds only the image; the tag and GitHub release are left alone.
 
 You need a Git remote with push access (HTTPS + token or SSH). No manual “Create release” step in the UI is required.
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
+	bbscope "github.com/sw33tLie/bbscope/pkg/scope"
 )
 
 func TestHasBountyFiltersVDPs(t *testing.T) {
@@ -30,6 +31,11 @@ func TestHandleFromURL(t *testing.T) {
 		"https://hackerone.com/acme":            "acme",
 		"https://bugcrowd.com/acme":             "acme",
 		"https://yeswehack.com/programs/acme-x": "acme-x",
+		// Intigriti URLs end in a literal "detail" segment (C9: every IT
+		// program used to collapse into one "detail" row).
+		"https://app.intigriti.com/researcher/programs/acmecorp/acme-bbp/detail":  "acme-bbp",
+		"https://app.intigriti.com/researcher/programs/acmecorp/acme-bbp/detail/": "acme-bbp",
+		"https://app.intigriti.com/researcher/programs/acmecorp//other//detail":   "other",
 	}
 	for u, want := range cases {
 		if got := handleFromURL(u); got != want {
@@ -85,5 +91,80 @@ func TestCatalogSearchInOutScope(t *testing.T) {
 		if p.Source == "as93" {
 			t.Fatalf("as93 rows should be cleared; found %+v", p)
 		}
+	}
+}
+
+// C8: a source is never replaced by an empty fetch or one under half its size.
+func TestReplaceAllowed(t *testing.T) {
+	cases := []struct {
+		prev, next int
+		want       bool
+	}{
+		{0, 0, false},   // nothing fetched
+		{217, 0, false}, // bbscope 401 → nil,nil must not wipe 217 programs
+		{0, 5, true},    // first sync
+		{100, 50, true},
+		{100, 49, false},
+		{100, 150, true},
+	}
+	for _, c := range cases {
+		if got := replaceAllowed(c.prev, c.next); got != c.want {
+			t.Errorf("replaceAllowed(%d,%d) = %v, want %v", c.prev, c.next, got, c.want)
+		}
+	}
+	t.Setenv("CATALOG_SYNC_FORCE", "true")
+	if !replaceAllowed(100, 10) || replaceAllowed(100, 0) {
+		t.Error("CATALOG_SYNC_FORCE overrides the ratio but never allows an empty replace")
+	}
+}
+
+func TestPlatformCatalogProgramsMergesAndKeepsHosts(t *testing.T) {
+	progs := platformCatalogPrograms([]bbscope.ProgramData{
+		{Url: "https://app.intigriti.com/researcher/programs/acme/acme-bbp/detail", InScope: []bbscope.ScopeElement{
+			{Target: "app.acme.com", Category: "Url"},
+			{Target: "*.api.acme.com", Category: "Wildcard"},
+		}},
+		{Url: "https://app.intigriti.com/researcher/programs/other/other-bbp/detail", InScope: []bbscope.ScopeElement{
+			{Target: "other.io", Category: "Url"},
+		}},
+		// The same program seen by a second account, with an exclusion.
+		{Url: "https://app.intigriti.com/researcher/programs/acme/acme-bbp/detail",
+			InScope:    []bbscope.ScopeElement{{Target: "app.acme.com", Category: "Url"}},
+			OutOfScope: []bbscope.ScopeElement{{Target: "status.acme.com", Category: "Url"}}},
+	})
+	if len(progs) != 2 {
+		t.Fatalf("programs = %+v, want 2 (merged by handle)", progs)
+	}
+	got := map[string]bool{}
+	for _, d := range progs[0].Domains {
+		got[d.Domain] = d.InScope
+	}
+	want := map[string]bool{"app.acme.com": true, "*.api.acme.com": true, "status.acme.com": false}
+	if progs[0].Program.Handle != "acme-bbp" || len(got) != len(want) {
+		t.Fatalf("acme-bbp = %+v", progs[0])
+	}
+	for d, in := range want {
+		if g, ok := got[d]; !ok || g != in {
+			t.Errorf("%s = %v,%v want %v", d, g, ok, in)
+		}
+	}
+	if _, widened := got["acme.com"]; widened {
+		t.Error("specific hosts must not be widened to the registrable root")
+	}
+}
+
+func TestTailBufferKeepsLastBytes(t *testing.T) {
+	tb := NewTailBuffer(8)
+	tb.Write([]byte("hello "))
+	tb.Write([]byte("world"))
+	if got := tb.String(); got != "…lo world" {
+		t.Errorf("tail = %q", got)
+	}
+	tb.Write([]byte("0123456789fatal"))
+	if got := tb.String(); got != "…789fatal" {
+		t.Errorf("tail after big write = %q", got)
+	}
+	if LastLine("a\nb\nlog.Fatal: Invalid auth token\n", 0) != "log.Fatal: Invalid auth token" {
+		t.Error("LastLine")
 	}
 }

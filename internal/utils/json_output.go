@@ -62,7 +62,10 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 		module = "github-scan"
 	} else if strings.Contains(lf, "js-endpoint") {
 		module = "js-endpoints"
-	} else if strings.Contains(lf, "js-secret") || strings.Contains(lf, "js-exposure") {
+	} else if strings.Contains(lf, "js-secret") || strings.Contains(lf, "js-exposure") || strings.Contains(lf, "js-clientside") {
+		// Both jsscan artifacts belong to js-analysis; without the explicit
+		// js-clientside case the generic prefix fallback indexed it as module
+		// "js", which the dashboard treats as an unknown module.
 		module = "js-analysis"
 	} else if strings.Contains(lf, "url") {
 		module = "url-collection"
@@ -122,7 +125,11 @@ func WriteJSONToScanDir(scanID, fileName string, data interface{}) error {
 			strings.Contains(fileName, "nuclei-summary") ||
 			strings.Contains(fileName, "scan-manifest") ||
 			strings.Contains(fileName, "dns-takeover-vulnerabilities") // counted separately via WriteDNSTakeoverJSON
-		if !isReconFile && !isNoFindings && len(raw) > 10 {
+		// The category above already marks URL/subdomain/tech/CNAME lists as
+		// recon: a client-side scan's urls.json ({"items": [...]}) used to be
+		// counted as findings, so "1 finding" reached the badge and Discord
+		// for a scan that found nothing.
+		if !isReconFile && !isNoFindings && category != "recon" && len(raw) > 10 {
 			// Count items in the JSON to get an accurate finding count.
 			findingCount := 0
 			var parsed interface{}

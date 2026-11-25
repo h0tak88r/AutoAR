@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/accounts"
+	"github.com/h0tak88r/AutoAR/internal/bbcatalog"
 	"github.com/h0tak88r/AutoAR/internal/db"
 )
 
@@ -94,10 +95,14 @@ func apiUpsertBBPAccount(c *gin.Context) {
 	password := b.Password
 	totpSecret := strings.TrimSpace(b.TOTPSecret)
 	// Preserve stored secrets when the body omits them (masked-edit case).
+	prevToken, prevPassword, prevTOTP := "", "", ""
+	existed := false
 	if token == "" || password == "" || totpSecret == "" {
 		if existing, err := db.ListBBPAccounts(p); err == nil {
 			for _, e := range existing {
 				if e.Label == label {
+					existed = true
+					prevToken, prevPassword, prevTOTP = e.Token, e.Password, e.TOTPSecret
 					if token == "" {
 						token = e.Token
 					}
@@ -127,6 +132,32 @@ func apiUpsertBBPAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	invalidateConfigPayloadCache()
+	// Audit names of the changed secret fields only — never their values.
+	detail := "created"
+	if existed {
+		var changed []string
+		if token != prevToken {
+			changed = append(changed, "token")
+		}
+		if password != prevPassword {
+			changed = append(changed, "password")
+		}
+		if totpSecret != prevTOTP {
+			changed = append(changed, "totp_secret")
+		}
+		detail = "updated"
+		if len(changed) > 0 {
+			detail += "; changed: " + strings.Join(changed, ",")
+		}
+	}
+	audit(c, "account.upsert", p+"/"+label, detail)
+	// A new or rotated credential can unblock platform fetching — refresh the
+	// program catalog right away instead of waiting for the 2h background warm
+	// cycle. SyncAsync is single-flight, so concurrent saves kick one sync.
+	if !existed || token != prevToken || password != prevPassword {
+		go bbcatalog.SyncAsync()
+	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "platform": p, "label": label, "enabled": enabled})
 }
 
@@ -145,6 +176,8 @@ func apiToggleBBPAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	invalidateConfigPayloadCache()
+	audit(c, "account.toggle", bbpAccountName(id), "enabled="+strconv.FormatBool(b.Enabled))
 	c.JSON(http.StatusOK, gin.H{"id": id, "enabled": b.Enabled})
 }
 
@@ -155,9 +188,25 @@ func apiDeleteBBPAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+	name := bbpAccountName(id) // resolve before the row is gone
 	if err := db.DeleteBBPAccount(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	invalidateConfigPayloadCache()
+	audit(c, "account.delete", name, "")
 	c.JSON(http.StatusOK, gin.H{"deleted": id})
+}
+
+// bbpAccountName returns "platform/label" for an account id (for audit
+// targets), or "#id" when it can't be resolved.
+func bbpAccountName(id int64) string {
+	if rows, err := db.ListBBPAccounts(""); err == nil {
+		for _, r := range rows {
+			if r.ID == id {
+				return r.Platform + "/" + r.Label
+			}
+		}
+	}
+	return "#" + strconv.FormatInt(id, 10)
 }

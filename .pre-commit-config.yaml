@@ -1,0 +1,8 @@
+# Pre-commit secret scanning. Run once after cloning:  pre-commit install
+# gitleaks auto-uses the repo's .gitleaks.toml (default rules + custom
+# discord-webhook / generic-api-key / mongo-uri rules) and .gitleaksignore.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

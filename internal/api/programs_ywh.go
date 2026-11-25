@@ -6,12 +6,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/accounts"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
 // fetchYWHPrograms fetches YesWeHack programs (with in-scope assets) across every
@@ -90,6 +92,7 @@ type ywhListItem struct {
 	Bounty      bool   `json:"bounty"`
 	Disabled    bool   `json:"disabled"`
 	Public      bool   `json:"public"`
+	Status      string `json:"status"`
 	ScopesCount int    `json:"scopes_count"`
 	LastUpdate  string `json:"last_update_at"`
 }
@@ -162,6 +165,8 @@ func fetchYWHProgramsWithToken(token string, bbpOnly, includeScope bool) ([]Prog
 			Handle:                it.Slug,
 			Name:                  name,
 			URL:                   "https://yeswehack.com/programs/" + it.Slug,
+			State:                 it.Status,
+			SubmissionState:       ternaryYWHOpen(it.Status),
 			OffersBounties:        it.Bounty,
 			ScopeTargets:          it.ScopesCount,
 			LatestTargetUpdatedAt: it.LastUpdate,
@@ -172,11 +177,18 @@ func fetchYWHProgramsWithToken(token string, bbpOnly, includeScope bool) ([]Prog
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i int, slug string) {
+			defer utils.RecoverPanic("programs:ywh-scope")
 			defer wg.Done()
 			defer func() { <-sem }()
-			if assets := fetchYWHProgramScope(client, token, slug); len(assets) > 0 {
+			if assets, types := fetchYWHProgramScope(client, token, slug); len(assets) > 0 {
 				out[i].Assets = assets
-				out[i].ScopeTargets = len(assets)
+				out[i].AssetTypes = types
+				// Keep the list's scopes_count when present so both watch loops
+				// (fast: list only; warmer: list + scope) report the same count —
+				// the program-watch fingerprint compares it across loops.
+				if out[i].ScopeTargets == 0 {
+					out[i].ScopeTargets = len(assets)
+				}
 				out[i].LatestTarget = assets[0]
 			}
 		}(i, it.Slug)
@@ -185,24 +197,28 @@ func fetchYWHProgramsWithToken(token string, bbpOnly, includeScope bool) ([]Prog
 	return out, nil
 }
 
-// fetchYWHProgramScope returns the raw in-scope targets for one program. Downstream
-// root extraction (ScopeElementRoots) filters out mobile/app/source targets, so we
-// pass everything through here. Errors are swallowed — a program with no fetched
-// scope simply keeps its list-level scopes_count.
-func fetchYWHProgramScope(client *http.Client, token, slug string) []string {
-	req, err := http.NewRequest("GET", "https://api.yeswehack.com/programs/"+slug, nil)
+// fetchYWHProgramScope returns the raw in-scope targets for one program plus
+// each one's scope_type. Downstream root extraction (ScopeElementRoots) drops
+// mobile/app/source targets by that type, so we pass everything through here.
+// Errors are swallowed — a program with no fetched scope simply keeps its
+// list-level scopes_count.
+func fetchYWHProgramScope(client *http.Client, token, slug string) ([]string, []string) {
+	if !validProgramHandle(slug) {
+		return nil, nil
+	}
+	req, err := http.NewRequest("GET", "https://api.yeswehack.com/programs/"+url.PathEscape(slug), nil)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil
+		return nil, nil
 	}
 	body, _ := io.ReadAll(resp.Body)
 	var payload struct {
@@ -212,13 +228,24 @@ func fetchYWHProgramScope(client *http.Client, token, slug string) []string {
 		} `json:"scopes"`
 	}
 	if json.Unmarshal(body, &payload) != nil {
-		return nil
+		return nil, nil
 	}
-	var assets []string
+	var assets, types []string
 	for _, sc := range payload.Scopes {
 		if t := strings.TrimSpace(sc.Scope); t != "" {
 			assets = append(assets, t)
+			types = append(types, sc.ScopeType)
 		}
 	}
-	return assets
+	return assets, types
+}
+
+// ternaryYWHOpen maps the YWH list-API status code to a SubmissionState:
+// "V" (visible/live) is open; anything else is treated as closed so the
+// program-watch pause detector can see the transition.
+func ternaryYWHOpen(status string) string {
+	if strings.TrimSpace(status) == "V" {
+		return "open"
+	}
+	return "closed"
 }

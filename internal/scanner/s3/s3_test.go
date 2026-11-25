@@ -1,6 +1,10 @@
 package s3
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -171,5 +175,92 @@ func TestGenerateBucketNamesNoDot(t *testing.T) {
 	names := generateBucketNames("mybucket")
 	if names[0] != "mybucket" {
 		t.Errorf("generateBucketNames()[0] = %q, want %q", names[0], "mybucket")
+	}
+}
+
+// fakeBucket is a minimal S3 stand-in: public list + read of one existing
+// object, public PUT, and a configurable DELETE status.
+func fakeBucket(t *testing.T, deleteStatus int) (*httptest.Server, *[]string) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.EscapedPath())
+		mu.Unlock()
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/":
+			_, _ = w.Write([]byte(`<ListBucketResult><Contents><Key>docs/a &amp; b.txt</Key></Contents></ListBucketResult>`))
+		case r.Method == "HEAD" && r.URL.Path == "/docs/a & b.txt":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == "PUT":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == "GET":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == "DELETE":
+			w.WriteHeader(deleteStatus)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+func TestProbeBucketReadOnlyByDefault(t *testing.T) {
+	srv, calls := fakeBucket(t, http.StatusNoContent)
+	p := probeBucketBase(srv.Client(), srv.URL, "autoar-perm-test-1.txt", false, nil)
+	if !p.List || !p.Read {
+		t.Fatalf("list/read inference failed: %+v", p)
+	}
+	if p.Write || p.Delete || p.LeftoverKey != "" {
+		t.Fatalf("read-only probe reported write/delete: %+v", p)
+	}
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "PUT") || strings.HasPrefix(c, "DELETE") {
+			t.Fatalf("state-changing request sent without opt-in: %s", c)
+		}
+	}
+}
+
+func TestProbeBucketWriteCleanup(t *testing.T) {
+	srv, _ := fakeBucket(t, http.StatusNoContent)
+	p := probeBucketBase(srv.Client(), srv.URL, "autoar-perm-test-2.txt", true, nil)
+	if !p.Write || !p.Delete || p.LeftoverKey != "" || p.cleanupNote() != "" {
+		t.Fatalf("clean write probe: %+v", p)
+	}
+}
+
+func TestProbeBucketWriteCleanupFailureReported(t *testing.T) {
+	srv, calls := fakeBucket(t, http.StatusForbidden)
+	p := probeBucketBase(srv.Client(), srv.URL, "autoar-perm-test-3.txt", true, nil)
+	if !p.Write || p.Delete {
+		t.Fatalf("write probe with denied delete: %+v", p)
+	}
+	if p.LeftoverKey != "autoar-perm-test-3.txt" || !strings.HasSuffix(p.LeftoverURL, "/autoar-perm-test-3.txt") {
+		t.Fatalf("leftover object not reported: %+v", p)
+	}
+	if !strings.Contains(p.cleanupNote(), "test object left in bucket: autoar-perm-test-3.txt") {
+		t.Fatalf("cleanup note = %q", p.cleanupNote())
+	}
+	deletes := 0
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "DELETE") {
+			deletes++
+		}
+	}
+	if deletes != 2 {
+		t.Fatalf("DELETE attempts = %d, want 2 (one retry)", deletes)
+	}
+}
+
+func TestS3WriteProbeOptIn(t *testing.T) {
+	t.Setenv(envS3WriteProbe, "")
+	if s3WriteProbeAllowed() {
+		t.Fatal("write probe must be off by default")
+	}
+	t.Setenv(envS3WriteProbe, "true")
+	if !s3WriteProbeAllowed() {
+		t.Fatal("opt-in env not honoured")
 	}
 }

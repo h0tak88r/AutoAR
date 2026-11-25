@@ -380,6 +380,7 @@ type ScanRequest struct {
 	Provider          *string `json:"provider"`
 	APIKey            *string `json:"api_key"`
 	Resolvers         *string `json:"resolvers"`
+	Aggressive        *bool   `json:"aggressive"` // firebase: enable write tests (opt-in)
 	// FFuf options
 	Target         *string            `json:"target"`          // FFuf target URL
 	Wordlist       *string            `json:"wordlist"`        // FFuf wordlist path
@@ -492,6 +493,10 @@ func SetupAPI() *gin.Engine {
 	auth := supabaseJWTAuth()
 
 	// Root: serve dashboard UI by default.
+	// MCP server endpoint (Streamable HTTP subset): its own bearer token,
+	// validated in mcpHandle — deliberately not under dashboard auth.
+	r.POST("/mcp", mcpHandle)
+
 	r.GET("/", serveDashboardUI)
 	// API landing endpoint (non-auth) for health/info checks.
 	r.GET("/api", rootHandler)
@@ -501,7 +506,7 @@ func SetupAPI() *gin.Engine {
 	// Rate limiter for /api/* routes (skips localhost).
 	r.Use(RateLimitMiddleware())
 
-	r.GET("/metrics", auth, metricsHandler)
+	r.GET("/metrics", auth, requireAdmin(), metricsHandler)
 	r.GET("/docs", swaggerDocsHandler)
 	r.GET("/api/openapi.json", openapiSpecHandler)
 
@@ -512,20 +517,52 @@ func SetupAPI() *gin.Engine {
 	// Deep link: /scans/:scanId (same SPA; client router reads pathname)
 	r.GET("/scans", serveDashboardUI)
 	r.GET("/scans/*filepath", serveDashboardUI)
+	// Per-view deep-link URLs: serve the SPA for each top-level view path so every
+	// section is bookmarkable/shareable with working back/forward (the client
+	// router selects the view from the pathname). Overview stays at /ui; scans is
+	// handled above. Kept in sync with VIEW_PATHS in ui/pages/router-core.js.
+	for _, v := range []string{"monitor", "domains", "subdomains", "targets", "programs", "program-lookup", "keyhacks", "r2", "settings", "report-templates", "triage", "cve-radar", "findings", "ai-agent", "ports"} {
+		r.GET("/"+v, serveDashboardUI)
+	}
 
 	// Static data files (JSON reference tables)
 	r.GET("/static/data/*filepath", serveStaticData)
 
-	// Public: SPA reads these before login (no JWT).
+	// Public: SPA reads these before login (no JWT). While auth is enforced,
+	// /api/config returns only version + auth flags without a valid token.
 	r.GET("/api/config", apiConfigHandler)
-	r.POST("/api/settings", auth, apiUpdateSettingsHandler)
+	// Recon dork corpus — public reference data (no user data). Shared source of
+	// truth for the Security Lab page and the MCP recon_dorks tool.
+	r.GET("/api/dorks", apiDorksHandler)
+	// Security Lab reference datasets (SSRF/XSS payloads, takeover fingerprints) —
+	// public reference data, shared with the MCP seclab tools.
+	r.GET("/api/seclab/:name", apiSeclabHandler)
+	r.POST("/api/settings", auth, requireAdmin(), apiUpdateSettingsHandler)
 	r.POST("/api/auth/login", apiLocalAuthLogin)
 	r.POST("/api/auth/logout", auth, apiLocalAuthLogout)
+	// Self-service (any authenticated user, viewers included).
+	r.GET("/api/auth/me", auth, apiAuthMe)
+	r.POST("/api/auth/change-password", auth, apiAuthChangePassword)
 
 	// ── Dashboard data API (protected when DASHBOARD_USER/PASSWORD is set) ───
 	apiGroup := r.Group("/api")
 	apiGroup.Use(auth)
 	{
+		// User management (admin only). Viewer mutations are already rejected by the
+		// auth middleware's read-only check; requireAdmin also hides the list/CRUD
+		// from non-admins.
+		users := apiGroup.Group("/users")
+		users.Use(requireAdmin())
+		{
+			users.GET("", apiListUsers)
+			users.POST("", apiCreateUser)
+			users.PUT("/:id", apiUpdateUser)
+			users.DELETE("/:id", apiDeleteUser)
+		}
+
+		// Admin activity log (who did what).
+		apiGroup.GET("/audit", requireAdmin(), apiListAudit)
+
 		apiGroup.GET("/dashboard/stats", apiDashboardStats)
 		apiGroup.GET("/domains", apiListDomains)
 		apiGroup.POST("/domains", apiAddDomain)           // single add
@@ -536,37 +573,84 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/subdomains/cnames/retry", apiRetryCnames)
 		apiGroup.GET("/subdomains/cnames/progress", apiRetryCnamesProgress)
 		apiGroup.POST("/subdomains/nuclei/run", apiRunGlobalNuclei)
+		apiGroup.POST("/subdomains/discover", apiRunAssetDiscovery)
+		apiGroup.GET("/subdomains/discovered", apiDiscoveredAssets)
+		apiGroup.GET("/findings", apiListFindings)
+		apiGroup.POST("/findings", apiCreateFinding)
+		apiGroup.PATCH("/findings/:id", apiUpdateFinding)
+		apiGroup.POST("/findings/:id/report", apiGenerateFindingReport)
+		apiGroup.PATCH("/findings/:id/report", apiSaveFindingReport)
+		apiGroup.GET("/findings/:id", apiGetFinding)
+		apiGroup.POST("/findings/:id/ai-review", requireAdmin(), apiFindingAIReview)
+		apiGroup.POST("/findings/:id/verdict", requireAdmin(), apiFindingVerdict)
+		apiGroup.POST("/findings/:id/notify", requireAdmin(), apiFindingNotify)
+		apiGroup.GET("/findings/:id/submit", requireAdmin(), apiFindingSubmitPreview)
+		apiGroup.POST("/findings/:id/submit", requireAdmin(), apiFindingSubmit)
+		apiGroup.POST("/findings/:id/remind", requireAdmin(), apiFindingRemind)
+		apiGroup.POST("/findings/import-scan", requireAdmin(), apiFindingsImportScan)
+		apiGroup.POST("/findings/agent-validate", requireAdmin(), apiFindingsAgentValidate)
+		apiGroup.POST("/findings/bulk-delete", requireAdmin(), apiFindingsBulkDelete)
+		apiGroup.GET("/digest/preview", apiDigestPreview)
+		apiGroup.POST("/digest/send", requireAdmin(), apiDigestSend)
+		apiGroup.POST("/ports/run", apiRunPortSurface)
+		apiGroup.POST("/php2shell/run", apiRunPhp2Shell)
+		apiGroup.GET("/ports", apiListHostPorts)
+		apiGroup.POST("/mcp/rotate-token", requireAdmin(), apiMCPRotateToken)
+		apiGroup.GET("/mcp/status", requireAdmin(), apiMCPStatus)
 		apiGroup.POST("/subdomains/import", apiImportSubdomains)
 		apiGroup.POST("/pipeline/root-scan", apiRunRootPipeline)
+		apiGroup.POST("/ai/agent/chat", apiAgentChat)
+		apiGroup.GET("/ai/agent/sessions", apiAgentSessions)
+		apiGroup.GET("/ai/agent/session/:id", apiAgentSessionHistory)
+		apiGroup.DELETE("/ai/agent/session/:id", apiAgentReset)
+		apiGroup.GET("/ai/agent/skills", apiAgentSkills)
+		apiGroup.GET("/cves", apiListCVEs)
+		apiGroup.GET("/cves/:id", apiGetCVE)
+		apiGroup.PATCH("/cves/:id/label", apiSetCVELabel)
+		// Edge-only routes (PoC-day pipeline, scope autopilot): present in the
+		// private edition, absent in public.
+		registerEdgeRoutes(apiGroup)
 		apiGroup.GET("/scans", apiListScans)
-		apiGroup.GET("/scans/:id/results/summary", apiScanResultsSummary)
-		apiGroup.GET("/scans/:id/results/files", apiScanResultFiles)
-		apiGroup.GET("/scans/:id/results/file", apiScanResultFileContent)
-		apiGroup.GET("/scans/:id/results/download", apiScanResultFileDownload)
-		apiGroup.GET("/scans/:id/results/parsed", apiScanParsedResults)
-		apiGroup.GET("/scans/:id/results/assets", apiScanAssets)
-		apiGroup.GET("/scans/:id/results/urls", apiScanURLs)
-		apiGroup.GET("/scans/:id/artifacts", apiListScanArtifacts)
-		apiGroup.GET("/scans/:id/manifest", apiGetScanManifest)
-		apiGroup.GET("/scans/:id/logs", apiGetScanPhaseLogs)
-		apiGroup.GET("/scans/:id", apiGetScan)
-		apiGroup.GET("/scans/:id/report", apiGetScanReport)
-		apiGroup.GET("/scans/:id/logs/stream", apiStreamScanLogs)
+		apiGroup.GET("/scans/:id/results/summary", ownScanOnly(apiScanResultsSummary))
+		apiGroup.GET("/scans/:id/results/files", ownScanOnly(apiScanResultFiles))
+		apiGroup.GET("/scans/:id/results/file", ownScanOnly(apiScanResultFileContent))
+		apiGroup.GET("/scans/:id/results/download", ownScanOnly(apiScanResultFileDownload))
+		apiGroup.GET("/scans/:id/results/parsed", ownScanOnly(apiScanParsedResults))
+		apiGroup.GET("/scans/:id/results/assets", ownScanOnly(apiScanAssets))
+		apiGroup.GET("/scans/:id/results/urls", ownScanOnly(apiScanURLs))
+		apiGroup.GET("/scans/:id/artifacts", ownScanOnly(apiListScanArtifacts))
+		apiGroup.GET("/scans/:id/manifest", ownScanOnly(apiGetScanManifest))
+		apiGroup.GET("/scans/:id/logs", ownScanOnly(apiGetScanPhaseLogs))
+		apiGroup.GET("/scans/:id", ownScanOnly(apiGetScan))
+		apiGroup.GET("/scans/:id/report", ownScanOnly(apiGetScanReport))
+		apiGroup.GET("/scans/:id/logs/stream", ownScanOnly(apiStreamScanLogs))
 		apiGroup.POST("/scans/bulk-delete", apiBulkDeleteScans)
 		apiGroup.POST("/scans/clear-all", apiClearAllScans)
 		apiGroup.DELETE("/scans/:id", apiDeleteScan)
+		apiGroup.PATCH("/scans/:id", ownScanOnly(apiUpdateScanMeta))
 		apiGroup.POST("/scans/:id/cancel", apiCancelScan)
 		apiGroup.POST("/scans/:id/pause", apiPauseScan)
-		apiGroup.POST("/scans/:id/resume", apiResumeScan)
+		apiGroup.POST("/scans/:id/resume", apiResumeScan)                   // SIGCONT a paused live process
+		apiGroup.POST("/scans/:id/resume-run", apiResumeScanFromCheckpoint) // resume a failed/timed-out workflow from its last completed phase
 		apiGroup.POST("/scans/:id/rescan", apiRescan)
+		apiGroup.POST("/smarty/run", apiSmartyRun)
+		apiGroup.POST("/zammad/run", apiZammadRun)
 		apiGroup.POST("/scans/recount-findings", func(c *gin.Context) {
 			go utils.BackfillFindingsCounts()
 			c.JSON(http.StatusOK, gin.H{"status": "backfill started"})
 		})
-		apiGroup.GET("/monitor/targets", apiMonitorTargets)
-		apiGroup.GET("/monitor/subdomain-targets", apiSubdomainMonitorTargets)
-		apiGroup.GET("/monitor/changes", apiMonitorChanges)
+		// Monitor is admin-only: viewers must not read monitoring targets/changes.
+		// (Mutations below are already blocked for viewers by the read-only check;
+		// these requireAdmin gates close the GET reads too.)
+		apiGroup.GET("/monitor/targets", requireAdmin(), apiMonitorTargets)
+		apiGroup.GET("/monitor/subdomain-targets", requireAdmin(), apiSubdomainMonitorTargets)
+		apiGroup.GET("/monitor/changes", requireAdmin(), apiMonitorChanges)
 		apiGroup.DELETE("/monitor/changes", apiClearMonitorChanges)
+		apiGroup.POST("/jsmonitor/targets", apiPostJSMonitorTarget)
+		apiGroup.GET("/jsmonitor/targets", requireAdmin(), apiGetJSMonitorTargets)
+		apiGroup.DELETE("/jsmonitor/targets/:id", apiDeleteJSMonitorTarget)
+		apiGroup.POST("/jsmonitor/targets/:id/run", apiRunJSMonitorTarget)
+		apiGroup.GET("/jsmonitor/targets/:id/files", requireAdmin(), apiGetJSMonitorFiles)
 		apiGroup.POST("/monitor/url-targets", apiPostMonitorURLTarget)
 		apiGroup.POST("/monitor/suggest-from-domain", apiPostMonitorSuggestFromDomain)
 		apiGroup.DELETE("/monitor/url-targets/:id", apiDeleteMonitorURLTarget)
@@ -576,17 +660,28 @@ func SetupAPI() *gin.Engine {
 		apiGroup.DELETE("/monitor/subdomain-targets/:id", apiDeleteMonitorSubdomainTarget)
 		apiGroup.POST("/monitor/subdomain-targets/:id/pause", apiPauseMonitorSubdomainTarget)
 		apiGroup.POST("/monitor/subdomain-targets/:id/resume", apiResumeMonitorSubdomainTarget)
-		apiGroup.GET("/r2/files", apiR2Files)
-		apiGroup.POST("/r2/delete", apiR2Delete)
+		apiGroup.GET("/monitor/hunter-targets", requireAdmin(), apiHunterMonitorTargets)
+		apiGroup.POST("/monitor/hunter-targets", apiPostHunterMonitorTarget)
+		apiGroup.DELETE("/monitor/hunter-targets/:id", apiDeleteHunterMonitorTarget)
+		apiGroup.POST("/monitor/hunter-targets/:id/pause", apiPauseHunterMonitorTarget)
+		apiGroup.POST("/monitor/hunter-targets/:id/resume", apiResumeHunterMonitorTarget)
+		// R2 browsing is admin-only: the bucket holds DB backups (JWT signing
+		// secret, platform tokens) — the read-only check alone lets viewers list it.
+		apiGroup.GET("/r2/files", requireAdmin(), apiR2Files)
+		apiGroup.POST("/r2/delete", requireAdmin(), apiR2Delete)
 		// Bug bounty scope / target fetch endpoints
 		apiGroup.POST("/scope/fetch", apiFetchScope)
 		apiGroup.POST("/chaos/subdomains", apiChaosSubdomains) // Chaos dataset subdomain lookup
 		apiGroup.GET("/scope/platforms", apiScopePlatforms)
 		// Multi-account management (multiple accounts per platform)
-		apiGroup.GET("/accounts", apiListBBPAccounts)
+		// Account inventory + credential reveals are admin-only: viewers must not
+		// read platform tokens/keys (the read-only middleware only blocks mutations).
+		apiGroup.GET("/accounts", requireAdmin(), apiListBBPAccounts)
 		apiGroup.POST("/accounts", apiUpsertBBPAccount)
 		apiGroup.POST("/accounts/:id/toggle", apiToggleBBPAccount)
-		apiGroup.GET("/accounts/:id/check", apiCheckBBPAccount)
+		apiGroup.GET("/accounts/:id/check", requireAdmin(), apiCheckBBPAccount)
+		apiGroup.GET("/accounts/:id/reveal", requireAdmin(), apiRevealBBPAccount)
+		apiGroup.GET("/config/reveal", requireAdmin(), apiRevealEnvSecret)
 		apiGroup.DELETE("/accounts/:id", apiDeleteBBPAccount)
 		// Program Lookup (keyword/domain → bug-bounty program) catalog
 		apiGroup.GET("/assets/program-lookup", apiProgramLookup)
@@ -596,8 +691,17 @@ func SetupAPI() *gin.Engine {
 		apiGroup.POST("/scope/program-summaries", apiProgramScopeSummaries)
 		apiGroup.GET("/scope/watch-status", apiProgramWatchStatus)
 		apiGroup.POST("/scope/watch-test", apiProgramWatchTest)
-		apiGroup.GET("/scope/debug", apiProgramScopeDebug)
+		apiGroup.GET("/scope/debug", requireAdmin(), apiProgramScopeDebug)
 		// AI finding validation & reporting
+		// AI triage of scan findings + Discord reporting (internal/triage).
+		registerTriageRoutes(apiGroup)
+
+		// AI provider management (Settings ▸ AI Providers) — admin only.
+		apiGroup.GET("/ai/providers", requireAdmin(), apiAIProviders)
+		apiGroup.GET("/ai/models", requireAdmin(), apiAIModels)
+		apiGroup.POST("/ai/test", requireAdmin(), apiAITest)
+		apiGroup.GET("/ai/usage", requireAdmin(), apiAIUsage)
+
 		apiGroup.POST("/findings/validate", apiValidateFinding)
 		apiGroup.POST("/findings/report", apiReportFinding)
 		apiGroup.POST("/findings/report-batch", apiReportFindingsBatch)
@@ -605,18 +709,18 @@ func SetupAPI() *gin.Engine {
 		apiGroup.GET("/keyhacks", apiListKeyhacks)
 		apiGroup.GET("/keyhacks/search", apiSearchKeyhacks)
 		// System & Templates
-		apiGroup.GET("/system/metrics", apiGetSystemMetrics)
-		apiGroup.GET("/system/limits", apiGetRuntimeLimits)
+		apiGroup.GET("/system/metrics", requireAdmin(), apiGetSystemMetrics)
+		apiGroup.GET("/system/limits", requireAdmin(), apiGetRuntimeLimits)
 		apiGroup.GET("/nuclei/templates", apiListNucleiTemplates)
 		// Security Lab — JWT HMAC secret brute-force (client-side analyzer calls this)
 		apiGroup.POST("/jwt/brute", apiJWTBrute)
-		// Report Templates
-		apiGroup.GET("/report-templates", apiListReportTemplates)
-		apiGroup.GET("/report-templates/export", apiExportReportTemplates)
-		apiGroup.POST("/report-templates/import", apiImportReportTemplates)
-		apiGroup.GET("/report-templates/:name", apiGetReportTemplate)
-		apiGroup.POST("/report-templates", apiSaveReportTemplate)
-		apiGroup.DELETE("/report-templates/:name", apiDeleteReportTemplate)
+		// Report Templates (admin-only, like the rest of the System section)
+		apiGroup.GET("/report-templates", requireAdmin(), apiListReportTemplates)
+		apiGroup.GET("/report-templates/export", requireAdmin(), apiExportReportTemplates)
+		apiGroup.POST("/report-templates/import", requireAdmin(), apiImportReportTemplates)
+		apiGroup.GET("/report-templates/:name", requireAdmin(), apiGetReportTemplate)
+		apiGroup.POST("/report-templates", requireAdmin(), apiSaveReportTemplate)
+		apiGroup.DELETE("/report-templates/:name", requireAdmin(), apiDeleteReportTemplate)
 	}
 
 	// Scan endpoints
@@ -630,6 +734,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/cnames", scanCnames)
 		api.POST("/urls", scanURLs)
 		api.POST("/js", scanJS)
+		api.POST("/clientside", scanJS)
 		api.POST("/reflection", scanReflection)
 		api.POST("/nuclei", scanNuclei)
 		api.POST("/tech", scanTech)
@@ -638,6 +743,7 @@ func SetupAPI() *gin.Engine {
 		api.POST("/dns-takeover", scanDNSTakeover)
 		api.POST("/dns", scanDNS)              // New unified DNS endpoint (supports takeover and dangling-ip)
 		api.POST("/dns-cf1016", scanDNSCF1016) // Cloudflare 1016 dangling DNS scan
+		api.POST("/firebase", scanFirebase)    // Firebase misconfiguration exposure scan
 		api.POST("/mcp-discovery", scanMCPDiscovery)
 		api.POST("/s3", scanS3)
 		api.POST("/js-endpoints", scanJSEndpoints)
@@ -798,7 +904,7 @@ func metricsHandler(c *gin.Context) {
 
 func cleanupHandler(c *gin.Context) {
 	// Execute cleanup via CLI command to avoid import cycle
-	scanID := generateScanID()
+	scanID := generateScanID(c)
 	command := []string{
 		utils.GetAutoarScriptPath(),
 		"cleanup",
@@ -959,8 +1065,8 @@ func docsHandler(c *gin.Context) {
             </div>
 
             <div class="endpoint">
-                <div class="endpoint-path"><span class="method post">POST</span> /scan/js</div>
-                <div class="description">JavaScript scan (JS URLs)</div>
+                <div class="endpoint-path"><span class="method post">POST</span> /scan/clientside</div>
+                <div class="description">Client-side scan: JS secrets + client-side sink candidates (alias: /scan/js)</div>
             </div>
 
             <div class="endpoint">
@@ -1118,20 +1224,24 @@ func docsHandler(c *gin.Context) {
 func getScanStatus(c *gin.Context) {
 	scanID := c.Param("scan_id")
 
-	// Check active in-memory scans first (fastest path).
+	// Check active in-memory scans first (fastest path). Copy the fields while
+	// holding the lock — the runner rewrites Status under ScansMutex, so reading
+	// the *ScanInfo after RUnlock was a data race.
+	var active ScanStatusResponse
 	ScansMutex.RLock()
 	activeScan, inActive := ActiveScans[scanID]
-	ScansMutex.RUnlock()
-
-	if inActive {
-		c.JSON(http.StatusOK, ScanStatusResponse{
+	if inActive && activeScan != nil {
+		active = ScanStatusResponse{
 			ScanID:      scanID,
 			Status:      activeScan.Status,
 			StartedAt:   activeScan.StartedAt,
 			CompletedAt: activeScan.CompletedAt,
-			Output:      nil,
-			Error:       nil,
-		})
+		}
+	}
+	ScansMutex.RUnlock()
+
+	if inActive && activeScan != nil {
+		c.JSON(http.StatusOK, active)
 		return
 	}
 
@@ -1240,8 +1350,25 @@ func downloadScanResults(c *gin.Context) {
 
 // generateScanID returns a cryptographically random UUID v4 (#1).
 // Using time.Now().UnixNano() was collision-prone under concurrent load and guessable.
-func generateScanID() string {
-	return uuid.New().String()
+// generateScanID mints a scan id and records the initiating dashboard user (from
+// the request context) so the runner can stamp ScanRecord.CreatedBy. Pass nil for
+// non-user/system contexts. Recording happens synchronously here, before the scan
+// goroutine starts, so there is no race with CreateScan.
+func generateScanID(c *gin.Context) string {
+	id := uuid.New().String()
+	recordScanInitiator(id, currentUsername(c))
+	return id
+}
+
+// storedCommand renders a scan's command line for persistence/display. Secrets
+// passed as argv are redacted so they can't be read back via /api/scans/:id —
+// keyhack validate takes the provider's API key as its last argument.
+func storedCommand(scanType string, command []string) string {
+	redacted := append([]string(nil), command...)
+	if scanType == "keyhack_validate" && len(redacted) > 1 {
+		redacted[len(redacted)-1] = "***"
+	}
+	return strings.Join(redacted, " ")
 }
 
 // extractScanTargetFromCommand infers the human-readable target from command arguments (#11).
@@ -1305,7 +1432,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			Status:     "failed",
 			StartedAt:  startedAt,
 			LastUpdate: completedAt,
-			Command:    strings.Join(command, " "),
+			Command:    storedCommand(scanType, command),
 		})
 		_ = db.UpdateScanResult(scanID, "failed", "")
 		writeScanManifest(scanID, scanType, target, startedAt, completedAt, moduleExecutionEntry{
@@ -1315,7 +1442,7 @@ func executeScan(scanID string, command []string, scanType string) {
 			CompletedAt:    completedAt,
 			DurationMS:     completedAt.Sub(startedAt).Milliseconds(),
 			ScannerVersion: version.Version,
-			Command:        strings.Join(command, " "),
+			Command:        storedCommand(scanType, command),
 		})
 		apiScansMutex.Lock()
 		result := &ScanResult{
@@ -1342,7 +1469,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		ScanType:  scanType,
 		Target:    target,
 		StartedAt: startedAt,
-		Command:   strings.Join(command, " "),
+		Command:   storedCommand(scanType, command),
 	}
 	ScansMutex.Unlock()
 
@@ -1364,7 +1491,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		TotalPhases: initialTotalPhases,
 		StartedAt:   startedAt,
 		LastUpdate:  startedAt,
-		Command:     strings.Join(command, " "),
+		Command:     storedCommand(scanType, command),
 	}
 	if err := db.CreateScan(dbRecord); err != nil {
 		utils.GetLogger().Infof("[executeScan] Failed to create DB scan record for %s: %v", scanID, err)
@@ -1374,7 +1501,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		Status:         "started",
 		StartedAt:      startedAt,
 		ScannerVersion: version.Version,
-		Command:        strings.Join(command, " "),
+		Command:        storedCommand(scanType, command),
 	})
 
 	// Notify scan start via webhook
@@ -1462,6 +1589,7 @@ func executeScan(scanID string, command []string, scanType string) {
 	if initialTotalPhases == 0 {
 		scanLabel := map[string]string{
 			"dns_cf1016": "CF1016 Dangling DNS", "dns-cf1016": "CF1016 Dangling DNS",
+			"firebase":      "Firebase Exposure",
 			"mcp-discovery": "MCP Discovery",
 			"misconfig":     "Misconfiguration", "s3": "S3 Bucket",
 			"github": "GitHub Recon", "github_org": "GitHub Org Recon",
@@ -1532,7 +1660,7 @@ func executeScan(scanID string, command []string, scanType string) {
 		DurationMS:     durationMS,
 		OutputFiles:    outputFiles,
 		ScannerVersion: version.Version,
-		Command:        strings.Join(command, " "),
+		Command:        storedCommand(scanType, command),
 	})
 
 	ScansMutex.Lock()
@@ -1567,57 +1695,7 @@ func indexScanArtifacts(scanID, scanType, target string) {
 	if scanID == "" || resultsDir == "" {
 		return
 	}
-	roots := make([]string, 0, 8)
-
-	// Scan types that write to new-results/<target>/ (the full domain dir).
-	// These are workflow scans that own the entire target directory.
-	domainRootTypes := map[string]bool{
-		"domain_run": true, "subdomain_run": true,
-		"subdomains": true, "livehosts": true, "cnames": true,
-		"urls": true, "js": true, "jsscan": true, "reflection": true,
-		"nuclei": true, "tech": true, "ports": true, "gf": true,
-		"backup": true, "aem": true, "depconfusion": true, "wp_confusion": true,
-		"zerodays": true, "pipeline": true,
-	}
-
-	if domainRootTypes[scanType] && target != "" {
-		roots = append(roots, filepath.Join(resultsDir, target))
-	}
-
-	switch scanType {
-	case "misconfig":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, "misconfig", target))
-			roots = append(roots, filepath.Join(resultsDir, target, "misconfig"))
-		}
-	case "s3":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, "s3", target))
-		}
-	case "github":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, "github", "repos", target))
-		}
-	case "github_org":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, "github", "orgs", target))
-		}
-	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
-	case "dns-takeover", "dns-dangling-ip":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover"))
-		}
-	case "dns_cf1016", "dns-cf1016":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "cf1016"))
-			// Also pick up enumerated subdomains file (all-subs.txt / live-subs.txt written by the enumeration step)
-			roots = append(roots, filepath.Join(resultsDir, target, "subs"))
-		}
-	case "dns-takeover-legacy", "dns_takeover_legacy":
-		if target != "" {
-			roots = append(roots, filepath.Join(resultsDir, target, "vulnerabilities", "dns-takeover"))
-		}
-	}
+	roots := artifactIndexRoots(resultsDir, scanType, target)
 
 	// Ensure scan results directory exists for local-first file storage
 	scanResultsDir := utils.GetScanResultsDir(scanID)
@@ -1629,10 +1707,18 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			continue
 		}
 		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info == nil || info.IsDir() {
+			// Regular files only: a symlink planted in a results tree must not
+			// get its target (anything on the box) copied into a scan dir.
+			if err != nil || info == nil || !info.Mode().IsRegular() {
 				return nil
 			}
 			if shouldSkipArtifact(path) {
+				return nil
+			}
+			// Raw nuclei templates persisted for rescan
+			// (new-results/<target>/templates/) are inputs, not findings — never
+			// index or copy them into scan result dirs.
+			if strings.Contains(filepath.ToSlash(path), "/templates/") && strings.HasSuffix(strings.ToLower(path), ".yaml") {
 				return nil
 			}
 			if _, ok := seen[path]; ok {
@@ -1644,10 +1730,8 @@ func indexScanArtifacts(scanID, scanType, target string) {
 			fileName := filepath.Base(path)
 			destPath := filepath.Join(scanResultsDir, fileName)
 			if _, statErr := os.Stat(destPath); statErr != nil {
-				if data, readErr := os.ReadFile(path); readErr == nil {
-					if writeErr := os.WriteFile(destPath, data, 0644); writeErr != nil {
-						utils.GetLogger().Infof("[executeScan] failed to copy %s to scan dir: %v", fileName, writeErr)
-					}
+				if copyErr := copyFileStreaming(path, destPath); copyErr != nil {
+					utils.GetLogger().Infof("[executeScan] failed to copy %s to scan dir: %v", fileName, copyErr)
 				}
 			}
 
@@ -1660,6 +1744,81 @@ func indexScanArtifacts(scanID, scanType, target string) {
 	}
 }
 
+// artifactIndexRoots returns the result directories indexScanArtifacts walks for
+// a scan. Targets go through utils.SanitizeTargetSegment exactly like the
+// scanners that write these trees: joining the raw target let a crafted one
+// ({"domain":"../../../../app"}) walk — and copy into the viewer-readable,
+// R2-uploaded scan dir — anything on the box, and missed real output whenever
+// sanitizing changes the name (scheme, port, owner/repo).
+func artifactIndexRoots(resultsDir, scanType, target string) []string {
+	if strings.TrimSpace(target) == "" {
+		return nil
+	}
+	seg := utils.SanitizeTargetSegment(target)
+	roots := make([]string, 0, 4)
+
+	// Scan types that write to new-results/<target>/ (the full domain dir).
+	// These are workflow scans that own the entire target directory.
+	// "nuclei" is deliberately NOT a domain-root type: every nuclei runner
+	// (wrapper + runGlobalNucleiScan) already copies and indexes its OWN output
+	// into its scan dir. Walking the shared target tree here copied every OTHER
+	// nuclei scan's output (nuclei-<other-scan>.json) into this scan's dir,
+	// attributing foreign findings — and staged template YAMLs — to it. The
+	// root pipeline is excluded for the same reason: its label tree
+	// (root-pipeline/vulnerabilities/nuclei-<scanID>.json) holds every earlier
+	// run's output, and the runner already indexes its own file.
+	domainRootTypes := map[string]bool{
+		"domain_run": true, "subdomain_run": true,
+		"subdomains": true, "livehosts": true, "cnames": true,
+		"urls": true, "js": true, "jsscan": true, "reflection": true,
+		"tech": true, "ports": true, "gf": true,
+		"backup": true, "aem": true, "depconfusion": true, "wp_confusion": true,
+		"zerodays": true,
+	}
+	if domainRootTypes[scanType] {
+		roots = append(roots, filepath.Join(resultsDir, seg))
+		// A few scanners (tech, reflection) still join the raw target; keep
+		// indexing their tree too, but only for a validated target whose path
+		// stays inside resultsDir.
+		if raw := strings.TrimSpace(target); raw != seg && validateScanTarget(raw) == nil {
+			if p := filepath.Join(resultsDir, raw); pathWithin(resultsDir, p) {
+				roots = append(roots, p)
+			}
+		}
+	}
+
+	switch scanType {
+	case "misconfig":
+		roots = append(roots, filepath.Join(resultsDir, "misconfig", seg))
+		roots = append(roots, filepath.Join(resultsDir, seg, "misconfig"))
+	case "s3":
+		roots = append(roots, filepath.Join(resultsDir, "s3", seg))
+	case "github":
+		roots = append(roots, filepath.Join(resultsDir, "github", "repos", seg))
+	case "github_org":
+		roots = append(roots, filepath.Join(resultsDir, "github", "orgs", seg))
+	// DNS-specific scans: only index from their specific output dir, never the whole domain root.
+	case "dns-takeover", "dns-dangling-ip":
+		roots = append(roots, filepath.Join(resultsDir, seg, "vulnerabilities", "dns-takeover"))
+	case "dns_cf1016", "dns-cf1016":
+		roots = append(roots, filepath.Join(resultsDir, seg, "vulnerabilities", "cf1016"))
+		// Also pick up enumerated subdomains file (all-subs.txt / live-subs.txt written by the enumeration step)
+		roots = append(roots, filepath.Join(resultsDir, seg, "subs"))
+	case "dns-takeover-legacy", "dns_takeover_legacy":
+		roots = append(roots, filepath.Join(resultsDir, seg, "vulnerabilities", "dns-takeover"))
+	}
+	return roots
+}
+
+// pathWithin reports whether p is base itself or lies below it.
+func pathWithin(base, p string) bool {
+	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(p))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 // targetHostForR2Prefixes mirrors the UI r2PrefixesForScan hostname normalization (app.js).
 func targetHostForR2Prefixes(target string) string {
 	t := strings.TrimSpace(target)
@@ -1669,6 +1828,51 @@ func targetHostForR2Prefixes(target string) string {
 	}
 	t = strings.TrimPrefix(strings.ToLower(t), "www.")
 	return t
+}
+
+// scanOwnsTargetR2Tree reports whether a scan type owns the per-host R2 tree
+// (new-results/<host>/ …) so deleting its last scan may purge that tree.
+func scanOwnsTargetR2Tree(scanType string) bool {
+	switch strings.ToLower(strings.TrimSpace(scanType)) {
+	case "domain_run", "subdomain_run":
+		return true
+	}
+	return false
+}
+
+// sharedR2Trees are result trees written by many scans at once (global nuclei,
+// watcher, race passes, root pipeline …) or by per-module layouts. A scan
+// delete must never purge them wholesale — only that scan's indexed keys.
+var sharedR2Trees = map[string]bool{
+	"global-subdomains": true, "nuclei-templates-watch": true, "race-pass": true,
+	"root-pipeline": true, "root-collect": true, "misconfig": true, "s3": true,
+	"github": true, "templates": true, "results": true, "new-results": true,
+}
+
+// isPurgeableTargetHost reports whether host (already normalized by
+// targetHostForR2Prefixes) names a single target's own tree: a dotted
+// hostname that isn't one of the shared trees.
+func isPurgeableTargetHost(host string) bool {
+	if host == "" || sharedR2Trees[host] || !strings.Contains(host, ".") {
+		return false
+	}
+	return validateScanTarget(host) == nil
+}
+
+// countOtherScansForHost counts scans other than scanID whose target
+// normalizes (targetHostForR2Prefixes) to host — i.e. that share its R2 tree.
+func countOtherScansForHost(scanID, host string) (int, error) {
+	targets, err := db.ListScanTargetsContaining(scanID, host)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, t := range targets {
+		if targetHostForR2Prefixes(t) == host {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // workflowScanR2Prefixes returns R2 key prefixes used for domain_run / subdomain_run (matches app.js default branch).
@@ -1800,6 +2004,20 @@ func shouldSkipArtifact(path string) bool {
 	if base == "scan-manifest.json" || base == "cache_info.json" || base == "report-table.json" {
 		return true
 	}
+	// Dotfiles are scanner state (the URL collector's .collected stamp), not
+	// results: copied into a scan dir they showed up as an "Other" row.
+	if strings.HasPrefix(base, ".") {
+		return true
+	}
+
+	// Nuclei template YAMLs (persisted for rescan under <target>/templates/ or
+	// staged by the watcher) are scanner INPUTS — never findings. Parsing them
+	// line-by-line produced garbage rows ("id:", "author:", "severity:") tagged
+	// as unrelated modules (filenames containing "cve" became "zerodays").
+	ext := strings.ToLower(filepath.Ext(base))
+	if ext == ".yaml" || ext == ".yml" {
+		return true
+	}
 
 	skipByName := []string{
 		"misconfig-scan-results.txt",
@@ -1809,6 +2027,7 @@ func shouldSkipArtifact(path string) bool {
 		"exposure-findings.txt",
 		"wp-confusion-results.txt",
 		"js-secrets.txt",
+		"js-clientside.txt",
 		"nuclei-summary.txt",
 		"all-subs.txt",
 		"live-subs.txt",

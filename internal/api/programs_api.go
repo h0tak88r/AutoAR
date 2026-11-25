@@ -16,7 +16,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/accounts"
+	"github.com/h0tak88r/AutoAR/internal/bugcrowd"
 	"github.com/h0tak88r/AutoAR/internal/db"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 	"github.com/tidwall/gjson"
 )
 
@@ -44,9 +46,10 @@ type ProgramSummary struct {
 	LatestTargetBrief     string       `json:"latest_target_brief"`      // brief context for the latest target
 	UpdatedAt             string       `json:"updated_at"`               // when we last fetched this
 	Stats                 ProgramStats `json:"stats"`
-	Assets                []string     `json:"-"`                        // all in-scope asset identifiers (internal, for scope-change monitoring)
+	Assets                []string     `json:"-"`                           // all in-scope asset identifiers (internal, for scope-change monitoring)
+	AssetTypes            []string     `json:"-"`                           // platform asset type per Assets entry ("" if unknown) — root extraction drops non-web types
 	ExternalPlatform      string       `json:"external_platform,omitempty"` // real platform for aggregator sources (e.g. "Immunefi" for Platform=="ha")
-	Sources               []string     `json:"sources,omitempty"`        // account label(s) that can see this program (multi-account)
+	Sources               []string     `json:"sources,omitempty"`           // account label(s) that can see this program (multi-account)
 }
 
 // mergeProgramsByHandle appends src programs into dst, deduping by (platform,
@@ -114,12 +117,57 @@ const programScopeCacheTTL = 15 * time.Minute
 // GET /api/scope/programs
 // ─────────────────────────────────────────────────────────────────────────────
 
+// requestIsAdmin mirrors requireAdmin: the auth middleware always sets the
+// role ("admin" when auth is disabled); an empty role means no middleware ran.
+func requestIsAdmin(c *gin.Context) bool {
+	// Exact match, like requireAdmin: the auth middleware sets "admin" in
+	// no-auth mode, so an empty/unknown role is never treated as admin.
+	return c.GetString("auth_role") == "admin"
+}
+
+// programsForcedRefreshMinGap rate-limits ?refresh=true: each forced rebuild
+// is ~20 minutes and 1000+ upstream calls on the operator's tokens.
+const programsForcedRefreshMinGap = 5 * time.Minute
+
+var (
+	programsForcedRefreshMu sync.Mutex
+	programsForcedRefreshAt time.Time
+)
+
+// allowForcedProgramsRefresh admits at most one forced rebuild per
+// programsForcedRefreshMinGap.
+func allowForcedProgramsRefresh() bool {
+	programsForcedRefreshMu.Lock()
+	defer programsForcedRefreshMu.Unlock()
+	if time.Since(programsForcedRefreshAt) < programsForcedRefreshMinGap {
+		return false
+	}
+	programsForcedRefreshAt = time.Now()
+	return true
+}
+
+// redactProgramStats strips the account owner's private H1 stats (reports,
+// earnings) and account labels from rows served to non-admins. Mutates the
+// given (request-local) slice.
+func redactProgramStats(programs []ProgramSummary) {
+	for i := range programs {
+		programs[i].Stats = ProgramStats{}
+		programs[i].Sources = nil
+	}
+}
+
 func apiListPrograms(c *gin.Context) {
 	platform := strings.ToLower(c.DefaultQuery("platform", "all"))
 	bbpOnly := true
 	includeScope := c.DefaultQuery("include_scope", "false") == "true"
 	sortBy := c.DefaultQuery("sort", "name")
-	forceRefresh := c.DefaultQuery("refresh", "false") == "true"
+	isAdmin := requestIsAdmin(c)
+	if !isAdmin && (sortBy == "reports" || sortBy == "bounty") {
+		sortBy = "name" // those orders would leak the redacted earnings ranking
+	}
+	// GET with a side effect: only an admin may force the ~20-minute upstream
+	// rebuild, and at most once per programsForcedRefreshMinGap.
+	forceRefresh := c.DefaultQuery("refresh", "false") == "true" && isAdmin && allowForcedProgramsRefresh()
 
 	// The DB-backed cache is only usable when a DB is configured. Without it we
 	// skip all cache/background-refresh logic and just do a live fetch (the
@@ -142,7 +190,7 @@ func apiListPrograms(c *gin.Context) {
 			if stale && !forceRefresh {
 				refreshProgramsCacheAsync()
 			}
-			serveProgramsPayload(c, payload, platform, sortBy, stale)
+			serveProgramsPayload(c, payload, platform, sortBy, stale, isAdmin)
 			return
 		}
 
@@ -151,73 +199,13 @@ func apiListPrograms(c *gin.Context) {
 		defer refreshProgramsCacheAsync()
 	}
 
-	var allPrograms []ProgramSummary
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	if platform == "all" || platform == "h1" || platform == "hackerone" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			progs, err := fetchH1Programs(bbpOnly, includeScope)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error fetching H1 programs: %v\n", err)
-				return
-			}
-			mu.Lock()
-			allPrograms = append(allPrograms, progs...)
-			mu.Unlock()
-		}()
-	}
-
-	if platform == "all" || platform == "bc" || platform == "bugcrowd" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			progs, err := fetchBCPrograms(bbpOnly, includeScope)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error fetching BC programs: %v\n", err)
-				return
-			}
-			mu.Lock()
-			allPrograms = append(allPrograms, progs...)
-			mu.Unlock()
-		}()
-	}
-
-	if platform == "all" || platform == "it" || platform == "intigriti" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			progs, err := fetchITPrograms(bbpOnly, includeScope)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error fetching Intigriti programs: %v\n", err)
-				return
-			}
-			mu.Lock()
-			allPrograms = append(allPrograms, progs...)
-			mu.Unlock()
-		}()
-	}
-
-	if platform == "all" || platform == "ywh" || platform == "yeswehack" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			progs, err := fetchYWHPrograms(bbpOnly, includeScope)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error fetching YesWeHack programs: %v\n", err)
-				return
-			}
-			mu.Lock()
-			allPrograms = append(allPrograms, progs...)
-			mu.Unlock()
-		}()
-	}
-
-	wg.Wait()
-
+	// Single-flight + short memo: without a DB every request used to run its
+	// own full live fetch (and include_scope=true thousands of scope calls).
+	allPrograms := append([]ProgramSummary(nil), fetchProgramsLiveShared(platform, bbpOnly, includeScope)...)
 	sortPrograms(allPrograms, sortBy)
+	if !isAdmin {
+		redactProgramStats(allPrograms)
+	}
 
 	if allPrograms == nil {
 		allPrograms = []ProgramSummary{}
@@ -237,10 +225,133 @@ func apiListPrograms(c *gin.Context) {
 	})
 }
 
+// liveProgramsMemoTTL is how long a finished live (no-DB) fetch is reused.
+const liveProgramsMemoTTL = 2 * time.Minute
+
+type liveProgramsCall struct {
+	done     chan struct{}
+	programs []ProgramSummary
+	at       time.Time
+}
+
+var (
+	liveProgramsMu    sync.Mutex
+	liveProgramsCalls = map[string]*liveProgramsCall{}
+)
+
+// fetchProgramsLiveShared deduplicates concurrent live fetches per
+// (platform, include_scope) and reuses a finished one for liveProgramsMemoTTL.
+// The returned slice is shared — callers must copy before mutating/sorting.
+func fetchProgramsLiveShared(platform string, bbpOnly, includeScope bool) []ProgramSummary {
+	switch platform {
+	case "all", "h1", "hackerone", "bc", "bugcrowd", "it", "intigriti", "ywh", "yeswehack":
+	default:
+		return nil // unknown filter matches nothing; never key the memo on arbitrary input
+	}
+	key := platform + "|" + strconv.FormatBool(bbpOnly) + "|" + strconv.FormatBool(includeScope)
+	liveProgramsMu.Lock()
+	if call, ok := liveProgramsCalls[key]; ok {
+		select {
+		case <-call.done:
+			if time.Since(call.at) < liveProgramsMemoTTL {
+				liveProgramsMu.Unlock()
+				return call.programs
+			}
+		default:
+			liveProgramsMu.Unlock()
+			<-call.done
+			return call.programs
+		}
+	}
+	call := &liveProgramsCall{done: make(chan struct{})}
+	liveProgramsCalls[key] = call
+	liveProgramsMu.Unlock()
+	defer close(call.done)
+	call.programs = fetchProgramsLive(platform, bbpOnly, includeScope)
+	call.at = time.Now()
+	return call.programs
+}
+
+// fetchProgramsLive is the uncached per-platform fetch behind
+// fetchProgramsLiveShared.
+func fetchProgramsLive(platform string, bbpOnly, includeScope bool) []ProgramSummary {
+	var allPrograms []ProgramSummary
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	if platform == "all" || platform == "h1" || platform == "hackerone" {
+		wg.Add(1)
+		go func() {
+			defer utils.RecoverPanic("programs-live:h1")
+			defer wg.Done()
+			progs, err := fetchH1Programs(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching H1 programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	if platform == "all" || platform == "bc" || platform == "bugcrowd" {
+		wg.Add(1)
+		go func() {
+			defer utils.RecoverPanic("programs-live:bc")
+			defer wg.Done()
+			progs, err := fetchBCPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching BC programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	if platform == "all" || platform == "it" || platform == "intigriti" {
+		wg.Add(1)
+		go func() {
+			defer utils.RecoverPanic("programs-live:it")
+			defer wg.Done()
+			progs, err := fetchITPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching Intigriti programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	if platform == "all" || platform == "ywh" || platform == "yeswehack" {
+		wg.Add(1)
+		go func() {
+			defer utils.RecoverPanic("programs-live:ywh")
+			defer wg.Done()
+			progs, err := fetchYWHPrograms(bbpOnly, includeScope)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching YesWeHack programs: %v\n", err)
+				return
+			}
+			mu.Lock()
+			allPrograms = append(allPrograms, progs...)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	return allPrograms
+}
+
 // serveProgramsPayload filters the cached payload by platform, sorts it, and
 // writes the JSON response. Scope is always included in the cache, so the UI
-// can render the full table without per-program follow-up calls.
-func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform, sortBy string, stale bool) {
+// can render the full table without per-program follow-up calls. Non-admins
+// get the rows without the account owner's private stats/account labels.
+func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform, sortBy string, stale, isAdmin bool) {
 	programs := make([]ProgramSummary, 0, len(payload.Programs))
 	for _, p := range payload.Programs {
 		switch platform {
@@ -270,6 +381,9 @@ func serveProgramsPayload(c *gin.Context, payload programsCachePayload, platform
 	}
 
 	sortPrograms(programs, sortBy)
+	if !isAdmin {
+		redactProgramStats(programs)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"programs":       programs,
@@ -328,15 +442,17 @@ func apiProgramScopeSummaries(c *gin.Context) {
 	}
 	var bcTokens []string
 	for _, a := range accounts.For("bc") {
-		if a.Token != "" {
-			bcTokens = append(bcTokens, a.Token)
+		if token, _, _ := accounts.BugcrowdSession(a, false); token != "" {
+			bcTokens = append(bcTokens, token)
 		}
 	}
 
 	for _, item := range req.Programs {
 		item.Platform = strings.ToLower(strings.TrimSpace(item.Platform))
 		item.Handle = strings.TrimSpace(item.Handle)
-		if item.Platform == "" || item.Handle == "" {
+		// The handle goes into an upstream API path sent with the operator's
+		// credentials — never let "../me/reports" style values through.
+		if item.Platform == "" || !validProgramHandle(item.Handle) {
 			continue
 		}
 
@@ -353,6 +469,7 @@ func apiProgramScopeSummaries(c *gin.Context) {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(item programScopeRequestItem, cacheKey string) {
+			defer utils.RecoverPanic("program-summaries:fetch")
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -593,6 +710,7 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p *ProgramSummary) {
+			defer utils.RecoverPanic("programs:h1-scope")
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -609,6 +727,7 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 				// discover a new one. ScopeTargets is just the count; it is not a
 				// substitute.
 				p.Assets = summary.Assets
+				p.AssetTypes = summary.AssetTypes
 				// Persist last-known-good — failed/rate-limited fetches don't
 				// reach here, so a transient 429 never overwrites real data.
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
@@ -630,7 +749,13 @@ func enrichH1ScopeCounts(programs []ProgramSummary, auth string) {
 // 429s are retried with exponential backoff (honoring Retry-After when supplied) so
 // the warmer doesn't routinely leave hundreds of programs with stale empty scopes.
 func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
-	url := fmt.Sprintf("https://api.hackerone.com/v1/hackers/programs/%s/structured_scopes?page%%5Bsize%%5D=100", handle)
+	// handle reaches this from request bodies (program-summaries, scope debug):
+	// validate + escape so "../me/reports#" can't retarget the authenticated
+	// call to another H1 API endpoint.
+	if !validProgramHandle(handle) {
+		return ProgramSummary{}, false
+	}
+	url := h1StructuredScopesURL(handle)
 	client := &http.Client{Timeout: 15 * time.Second}
 
 	var body []byte
@@ -680,6 +805,7 @@ func fetchH1ScopeSummary(handle, auth string) (ProgramSummary, bool) {
 			target := attrs.Get("asset_identifier").Str
 			if target != "" {
 				summary.Assets = append(summary.Assets, target)
+				summary.AssetTypes = append(summary.AssetTypes, attrs.Get("asset_type").Str)
 			}
 			updatedAt := firstGJSONString(attrs, "updated_at", "created_at", "last_updated_at")
 			if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
@@ -705,7 +831,14 @@ func fetchBCPrograms(bbpOnly, includeScope bool) ([]ProgramSummary, error) {
 	idx := map[string]int{}
 	var firstErr error
 	for _, a := range accts {
-		progs, err := fetchBCProgramsWithToken(a.Token, bbpOnly, includeScope)
+		token, _, detail := accounts.BugcrowdSession(a, false)
+		if token == "" {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("bugcrowd/%s: %s", a.Label, detail)
+			}
+			continue
+		}
+		progs, err := fetchBCProgramsWithToken(token, bbpOnly, includeScope)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -746,7 +879,7 @@ func fetchBCProgramsWithToken(token string, bbpOnly, includeScope bool) ([]Progr
 			if err != nil {
 				break
 			}
-			req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+			req.Header.Set("Cookie", bugcrowd.CookieHeader(token))
 			req.Header.Set("User-Agent", "AutoAR/1.0")
 			req.Header.Set("Accept", "application/json")
 
@@ -819,6 +952,7 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p *ProgramSummary) {
+			defer utils.RecoverPanic("programs:bc-scope")
 			defer wg.Done()
 			defer func() { <-sem }()
 			time.Sleep(500 * time.Millisecond) // extra spacing for BC
@@ -832,6 +966,7 @@ func enrichBCScopeCounts(programs []ProgramSummary, token string) {
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
 				p.LatestTargetBrief = summary.LatestTargetBrief
 				p.Assets = summary.Assets // see enrichH1ScopeCounts — the pipeline needs this
+				p.AssetTypes = summary.AssetTypes
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
 					Platform: p.Platform, Handle: p.Handle,
 					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
@@ -849,7 +984,13 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 	if idx := strings.Index(programURL, "/engagements/"); idx >= 0 {
 		briefPath = programURL[idx:]
 	}
-	if briefPath == "" && handle != "" {
+	// programURL can come from a request body and is fetched with the
+	// operator's BC session cookie: only a plain /engagements/<slug>[/…] path
+	// (no "..", query, fragment or odd characters) is allowed.
+	if briefPath != "" && !validBCBriefPath(briefPath) {
+		briefPath = ""
+	}
+	if briefPath == "" && validProgramHandle(handle) {
 		briefPath = "/engagements/" + handle
 	}
 	if briefPath == "" {
@@ -862,7 +1003,7 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 	if err != nil {
 		return summary
 	}
-	req.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	req.Header.Set("Cookie", bugcrowd.CookieHeader(token))
 	req.Header.Set("User-Agent", "AutoAR/1.0")
 
 	resp, err := client.Do(req)
@@ -892,8 +1033,14 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 	}
 
 	scopeURL := "https://bugcrowd.com" + parsed + ".json"
-	scopeReq, _ := http.NewRequest("GET", scopeURL, nil)
-	scopeReq.Header.Set("Cookie", "_crowdcontrol_session_key="+token)
+	// An unchecked NewRequest error here (malformed path from the brief page)
+	// was a nil-pointer panic inside an unrecovered enrichment goroutine —
+	// i.e. a process crash.
+	scopeReq, err := http.NewRequest("GET", scopeURL, nil)
+	if err != nil || !strings.HasPrefix(parsed, "/") {
+		return summary
+	}
+	scopeReq.Header.Set("Cookie", bugcrowd.CookieHeader(token))
 	scopeReq.Header.Set("User-Agent", "AutoAR/1.0")
 	scopeResp, scopeErr := client.Do(scopeReq)
 	if scopeErr != nil {
@@ -909,6 +1056,7 @@ func fetchBCScopeSummary(handle, programURL, token string) ProgramSummary {
 				target := firstGJSONString(t, "uri", "name", "target")
 				if target != "" {
 					summary.Assets = append(summary.Assets, target)
+					summary.AssetTypes = append(summary.AssetTypes, firstGJSONString(t, "category", "type"))
 				}
 				updatedAt := firstGJSONString(t, "updatedAt", "updated_at", "lastUpdatedAt", "createdAt", "created_at")
 				if target != "" && (summary.LatestTarget == "" || isNewerProgramTime(updatedAt, summary.LatestTargetUpdatedAt)) {
@@ -1090,6 +1238,7 @@ func enrichITScopeCounts(programs []ProgramSummary, token string) {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p *ProgramSummary) {
+			defer utils.RecoverPanic("programs:it-scope")
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -1110,6 +1259,7 @@ func enrichITScopeCounts(programs []ProgramSummary, token string) {
 				// not just on real scope changes.
 				p.LatestTargetUpdatedAt = summary.LatestTargetUpdatedAt
 				p.Assets = summary.Assets // see enrichH1ScopeCounts — the pipeline needs this
+				p.AssetTypes = summary.AssetTypes
 				_ = db.UpsertProgramScope(db.PersistedProgramScope{
 					Platform: p.Platform, Handle: p.Handle,
 					ScopeTargets: p.ScopeTargets, LatestTarget: p.LatestTarget,
@@ -1125,12 +1275,12 @@ func enrichITScopeCounts(programs []ProgramSummary, token string) {
 // ProgramSummary.ID by fetchITPrograms.
 func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSummary {
 	summary := ProgramSummary{Platform: "it"}
-	if programID == "" {
+	if !validProgramHandle(programID) {
 		return summary
 	}
 
 	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequest("GET", intigritiAPIBase+"/programs/"+programID, nil)
+		req, err := http.NewRequest("GET", intigritiAPIBase+"/programs/"+url.PathEscape(programID), nil)
 		if err != nil {
 			return summary
 		}
@@ -1161,6 +1311,7 @@ func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSu
 			target := strings.TrimSpace(v.Get("endpoint").Str)
 			if target != "" {
 				summary.Assets = append(summary.Assets, target)
+				summary.AssetTypes = append(summary.AssetTypes, v.Get("type.value").Str)
 			}
 			// Per-asset timestamp (try common IT field names). Use the LATEST one
 			// across all assets so the watch fires only when scope genuinely changes
@@ -1178,6 +1329,43 @@ func fetchITScopeSummary(client *http.Client, token, programID string) ProgramSu
 		return summary
 	}
 	return summary
+}
+
+// validProgramHandle accepts platform program handles/slugs/ids
+// (^[A-Za-z0-9_.-]+$, not all dots). Handles are interpolated into upstream
+// API paths sent with the operator's credentials, so anything else — '/',
+// '%', '#', '?', "..", whitespace — is rejected outright.
+func validProgramHandle(h string) bool {
+	if h == "" || len(h) > 128 || strings.Trim(h, ".") == "" {
+		return false
+	}
+	for _, r := range h {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '.' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// validBCBriefPath accepts "/engagements/<seg>[/<seg>…]" where every segment
+// is a validProgramHandle (so no "..", query, fragment or encoded bytes).
+func validBCBriefPath(p string) bool {
+	rest := strings.TrimPrefix(p, "/engagements/")
+	if rest == p || rest == "" {
+		return false
+	}
+	for _, seg := range strings.Split(strings.TrimSuffix(rest, "/"), "/") {
+		if !validProgramHandle(seg) {
+			return false
+		}
+	}
+	return true
+}
+
+// h1StructuredScopesURL builds the H1 structured-scopes URL for a validated
+// handle (path-escaped as defense in depth).
+func h1StructuredScopesURL(handle string) string {
+	return "https://api.hackerone.com/v1/hackers/programs/" + url.PathEscape(handle) + "/structured_scopes?page%5Bsize%5D=100"
 }
 
 func firstGJSONString(result gjson.Result, paths ...string) string {

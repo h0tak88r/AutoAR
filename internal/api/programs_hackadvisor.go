@@ -45,6 +45,19 @@ func hasHackAdvisorToken() bool {
 	return hackAdvisorToken() != ""
 }
 
+// validHAHandle accepts HackAdvisor program ids (decimal digits only).
+func validHAHandle(h string) bool {
+	if h == "" || len(h) > 20 {
+		return false
+	}
+	for _, r := range h {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // nativePlatformTitles are the HackAdvisor platform names AutoAR already fetches
 // directly (with the user's own tokens, incl. private invites). By default we
 // skip these from HackAdvisor to avoid duplicate rows; set
@@ -143,7 +156,9 @@ func fetchHackAdvisorPrograms(bbpOnly bool) ([]ProgramSummary, error) {
 // the caller doesn't cache/persist an empty result.
 func fetchHAScopeSummary(handle string) (ProgramSummary, bool) {
 	token := hackAdvisorToken()
-	if token == "" || strings.TrimSpace(handle) == "" {
+	// HackAdvisor handles are numeric ids; anything else (e.g. "../me") would
+	// retarget the authenticated request, so reject it before building a URL.
+	if token == "" || !validHAHandle(handle) {
 		return ProgramSummary{}, false
 	}
 	url := fmt.Sprintf("%s/programs/%s/scope/", hackAdvisorBase, handle)

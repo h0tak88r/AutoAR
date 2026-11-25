@@ -2,6 +2,7 @@ package subdomain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -151,16 +152,44 @@ func RunSubdomainWithOptions(subdomain string, opts RunOptions) (*Result, error)
 			var wrappedFn func() error
 			if timeout > 0 {
 				wrappedFn = func() error {
-					ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+					// The phase runs on a child of the SCAN's context (captured here,
+					// where the scan ID is registered), so a UI cancel or the scan
+					// deadline stops it, and the phase timeout cancels it too.
+					ctx, cancel := context.WithTimeout(utils.CurrentScanContext(), time.Duration(timeout)*time.Second)
 					defer cancel()
+					scanID, phaseKey := utils.GetCurrentScanID(), utils.GetCurrentPhaseKey()
 					done := make(chan error, 1)
-					go func() { done <- fn() }()
+					go func() {
+						// Goroutine IDs are goroutine-local: without re-registering, fn
+						// (e.g. the nuclei phase) saw no scan ID, built its engine on
+						// context.Background() and kept sweeping/alerting after the scan
+						// was cancelled or this phase timed out.
+						if scanID != "" {
+							utils.SetGoroutineScanID(scanID)
+							defer utils.ClearGoroutineScanID()
+						}
+						if phaseKey != "" {
+							utils.SetGoroutinePhaseKey(phaseKey)
+							defer utils.ClearGoroutinePhaseKey()
+						}
+						utils.SetGoroutineScanContext(ctx)
+						defer utils.ClearGoroutineScanContext()
+						defer func() {
+							if r := recover(); r != nil {
+								done <- fmt.Errorf("phase %s panicked: %v", key, r)
+							}
+						}()
+						done <- fn()
+					}()
 					select {
 					case err := <-done:
 						return err
 					case <-ctx.Done():
-						logger.GetLogger().Infof("[WARN] phase %s timed out after %ds", key, timeout)
-						return fmt.Errorf("phase %s timed out", key)
+						if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+							logger.GetLogger().Infof("[WARN] phase %s timed out after %ds", key, timeout)
+							return fmt.Errorf("phase %s timed out", key)
+						}
+						return fmt.Errorf("phase %s stopped: %w", key, ctx.Err())
 					}
 				}
 			} else {

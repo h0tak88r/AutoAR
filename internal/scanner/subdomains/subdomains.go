@@ -171,6 +171,10 @@ func EnumerateFresh(domain string, threads int) ([]string, error) {
 // in-flight blocking read.
 var passiveSourceClient = &http.Client{Timeout: 30 * time.Second}
 
+// maxPassiveSourceBytes caps each passive-source response body: a hostile or
+// broken source (or a huge crt.sh dump) must not be read unbounded into memory.
+const maxPassiveSourceBytes = 32 << 20
+
 // getSubdomainsFromAPIs collects subdomains from multiple passive DNS and CT sources in parallel
 func getSubdomainsFromAPIs(domain string) []string {
 	var results []string
@@ -195,7 +199,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		addMatches(subdomainRe.FindAllString(string(body), -1))
 	}()
 
@@ -209,7 +213,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		var crtData []map[string]interface{}
 		if json.Unmarshal(body, &crtData) == nil {
 			for _, entry := range crtData {
@@ -241,7 +245,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		var data map[string]interface{}
 		if json.Unmarshal(body, &data) != nil {
 			return
@@ -285,7 +289,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		var entries []map[string]interface{}
 		if json.Unmarshal(body, &entries) != nil {
 			return
@@ -318,7 +322,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		var data map[string]interface{}
 		if json.Unmarshal(body, &data) != nil {
 			return
@@ -351,7 +355,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		addMatches(subdomainRe.FindAllString(string(body), -1))
 	}()
 
@@ -371,7 +375,7 @@ func getSubdomainsFromAPIs(domain string) []string {
 			return
 		}
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPassiveSourceBytes))
 		addMatches(subdomainRe.FindAllString(string(body), -1))
 	}()
 

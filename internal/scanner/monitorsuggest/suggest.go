@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -217,7 +216,7 @@ func RankWithAI(domain string, candidates []Candidate) ([]Suggestion, error) {
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	if os.Getenv("OPENROUTER_API_KEY") == "" && os.Getenv("OPENCODE_API_KEY") == "" && os.Getenv("GEMINI_API_KEY") == "" {
+	if !brain.Available() {
 		return heuristicRank(domain, candidates), nil
 	}
 
@@ -234,7 +233,7 @@ Rules:
 
 	user := fmt.Sprintf("Target domain context: %s\n\nCandidates (JSON):\n%s", domain, string(payload))
 
-	reply, err := brain.ChatWithAI(nil, user, system)
+	reply, err := brain.Complete(context.Background(), system, user, brain.Options{Feature: "monitor"})
 	if err != nil {
 		return heuristicRank(domain, candidates), nil
 	}

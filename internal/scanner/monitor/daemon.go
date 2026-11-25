@@ -89,8 +89,12 @@ func checkAllURLTargets() {
 		return
 	}
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	// SSRF guard: only public http(s) URLs, every redirect hop re-validated.
+	client := utils.NewPublicHTTPClient(20 * time.Second)
 	var wg sync.WaitGroup
+	// Bound concurrency: thousands of targets must not mean thousands of
+	// simultaneous 20-second fetches.
+	sem := make(chan struct{}, 20)
 	for _, t := range targets {
 		if !t.IsRunning {
 			continue
@@ -99,6 +103,8 @@ func checkAllURLTargets() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			defer utils.RecoverPanic("url-monitor:check:" + t.URL)
 			checkTarget(client, t)
 		}()
@@ -109,6 +115,10 @@ func checkAllURLTargets() {
 // checkTarget fetches a single URL. For strategy "hash" it compares SHA-256 of the body;
 // for "regex" it compares the first regex match (or full match) to the stored baseline.
 func checkTarget(client *http.Client, t db.MonitorTarget) {
+	if err := utils.ValidatePublicHTTPURL(t.URL); err != nil {
+		logger.GetLogger().Infof("[URL-MONITOR] refusing to fetch %s: %v", t.URL, err)
+		return
+	}
 	resp, err := client.Get(t.URL)
 	if err != nil {
 		logger.GetLogger().Infof("[URL-MONITOR] Failed to fetch %s: %v", t.URL, err)
@@ -116,7 +126,8 @@ func checkTarget(client *http.Client, t db.MonitorTarget) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Cap the body: a hostile endpoint streaming endlessly would otherwise exhaust memory.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 	if err != nil {
 		logger.GetLogger().Infof("[URL-MONITOR] Failed to read body for %s: %v", t.URL, err)
 		return

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -38,17 +39,16 @@ func stdLog(scanID, format string, args ...interface{}) {
 
 // scanTimeoutFor returns the wall-clock budget for a scan type.
 //
-// The 6h default is sized for a single-domain scan. Fleet-wide jobs (the root
-// pipeline walks thousands of roots) legitimately run far longer, and sharing
-// the single-domain budget meant the pipeline was killed mid-collection every
-// time — a 3511-root run reached 1567 roots in 6h and never got as far as
-// nuclei, so six hours of enumeration produced zero template results. These
-// jobs still get a ceiling, just one matched to their scale.
+// The 24h default matches the "whole working day" ceiling the operator asked
+// for: a fleet-wide global nuclei run over every live host legitimately needs
+// far more than the old 6h single-domain budget (a 432k-target watcher run
+// was killed at exactly 6h with 13 hits already captured). Pipeline/collect
+// jobs share the same ceiling via `long`.
 //
 // AUTOAR_SCAN_TIMEOUT overrides the default; AUTOAR_PIPELINE_TIMEOUT overrides
 // the long-job budget.
 func scanTimeoutFor(scanType string) time.Duration {
-	def, long := 6*time.Hour, 24*time.Hour
+	def, long := 24*time.Hour, 24*time.Hour
 	if d := os.Getenv("AUTOAR_SCAN_TIMEOUT"); d != "" {
 		if p, err := time.ParseDuration(d); err == nil && p > 0 {
 			def = p
@@ -86,6 +86,11 @@ func updateScanResultWithRetry(scanID, status string) error {
 // reaper would kill scans a few milliseconds into their own startup.
 const orphanGracePeriod = 15 * time.Minute
 
+// scanStopAckWait is how long the runner waits for fn to return after a cancel
+// or timeout before recording the terminal status and leaving fn to wind down
+// (a var so tests can shorten it).
+var scanStopAckWait = 5 * time.Second
+
 // StartOrphanedScanReaper closes scan rows whose worker no longer exists.
 //
 // Until now the only cleanup ran at startup, so a row that lost its worker
@@ -115,49 +120,185 @@ func reapOrphanedScans() {
 	if err != nil {
 		return
 	}
+	closeOrphanedScanRows(rows)
+}
+
+// scanRowLastActivity is the newest timestamp proving an active scan row was
+// alive. Rows written with zero started_at/last_update (CLI-created scans before
+// CreateScan defaulted them) are backfilled from created_at by ListActiveScans.
+func scanRowLastActivity(r *db.ScanRecord) time.Time {
+	last := r.LastUpdate
+	if r.StartedAt.After(last) {
+		last = r.StartedAt
+	}
+	if r.PhaseStartTime != nil && r.PhaseStartTime.After(last) {
+		last = *r.PhaseStartTime
+	}
+	return last
+}
+
+// scanRowOrphaned reports whether an active DB row has no worker in this process
+// and has been idle past the grace period. The scans list and the periodic
+// reaper both use it, so there is one grace window (a 2-minute variant in the
+// list endpoint used to make the reaper's 15 minutes moot).
+func scanRowOrphaned(r *db.ScanRecord, now time.Time) bool {
+	if r == nil || scanWorkerTracked(r.ScanID) {
+		return false // a worker is genuinely running (or queued for) it
+	}
+	last := scanRowLastActivity(r)
+	if last.IsZero() {
+		return false // undatable row — never close it blind
+	}
+	grace := orphanGracePeriod
+	if strings.TrimSpace(r.Command) == "" {
+		// Rows without a stored command come from the CLI (setupCurrentScanManaged),
+		// whose worker lives in ANOTHER process, so ActiveScans can't vouch for it.
+		// Only close one once it has outlived any scan budget.
+		grace += scanTimeoutFor(r.ScanType)
+	}
+	return now.Sub(last) >= grace
+}
+
+// closeOrphanedScanRows marks every orphaned row in rows failed and returns how
+// many it closed.
+func closeOrphanedScanRows(rows []*db.ScanRecord) int {
+	now := time.Now()
+	closed := 0
 	for _, r := range rows {
-		if r == nil || time.Since(r.LastUpdate) < orphanGracePeriod {
+		if !scanRowOrphaned(r, now) {
 			continue
-		}
-		ScansMutex.RLock()
-		_, live := ActiveScans[r.ScanID]
-		ScansMutex.RUnlock()
-		if live {
-			continue // a worker is genuinely running it
 		}
 		if dbErr := updateScanResultWithRetry(r.ScanID, "failed"); dbErr != nil {
 			log.Printf("[reaper] could not close orphaned scan %s: %v", r.ScanID, dbErr)
 			continue
 		}
+		closed++
 		log.Printf("[reaper] closed orphaned scan %s (%s): status %q with no running worker, idle %s",
-			r.ScanID, r.ScanType, r.Status, time.Since(r.LastUpdate).Round(time.Minute))
+			r.ScanID, r.ScanType, r.Status, now.Sub(scanRowLastActivity(r)).Round(time.Minute))
 	}
+	return closed
 }
 
 // runScanInProcess is the generic in-process scan runner. fn should call the
 // module's Go API directly. target is used for display and notifications.
 func RunScanInProcess(scanID, scanType, target string, fn func() error) {
+	RunScanInProcessWithCommand(scanID, scanType, target,
+		fmt.Sprintf("inprocess:%s target=%s", scanType, target), fn)
+}
+
+// RunScanInProcessWithCommand is RunScanInProcess with an explicit stored
+// command string. Use it when rescan needs more than scanType+target to replay
+// the scan (e.g. nuclei scans also need the template).
+func RunScanInProcessWithCommand(scanID, scanType, target, command string, fn func() error) {
+	runScanInProcessImpl(scanID, scanType, target, command, false, false, fn)
+}
+
+// ResumeScanInProcess resumes an existing (failed/timed_out/cancelled) scan under
+// its SAME scan id, so the workflow's per-phase IsPhaseCompleted checks skip the
+// phases already recorded in completed_phases and execution continues where it
+// stopped. Only meaningful for phase-checkpointed workflows (domain_run/subdomain_run).
+// It blocks for the whole run; HTTP handlers use startResumeScan instead, which
+// claims the scan synchronously so a second click is refused up front.
+func ResumeScanInProcess(scanID, scanType, target string, fn func() error) {
+	runScanInProcessImpl(scanID, scanType, target, fmt.Sprintf("inprocess:%s target=%s (resumed)", scanType, target), true, false, fn)
+}
+
+// errScanRunInFlight is returned by startResumeScan when the scan ID already has
+// a run queued, running, or still winding down after a timeout/cancel.
+var errScanRunInFlight = errors.New("scan already has a run in progress")
+
+// startResumeScan claims scanID synchronously (in the request goroutine) and only
+// then launches the resumed run, so a double-clicked Resume — or a Resume issued
+// while the previous run's worker is still stopping — is refused instead of
+// starting a second workflow on the same scan ID. command is shown while running;
+// initiator is the dashboard user, recorded only once the claim is held (a
+// refused click must not overwrite or consume the queued run's initiator).
+func startResumeScan(scanID, scanType, target, command, initiator string, fn func() error) error {
+	if !claimScanRun(scanID) {
+		return errScanRunInFlight
+	}
+	// A lingering entry (even with a terminal status) means a worker of this scan
+	// is still alive in this process; never run a second one alongside it.
+	ScansMutex.RLock()
+	_, lingering := ActiveScans[scanID]
+	ScansMutex.RUnlock()
+	if lingering {
+		releaseScanRun(scanID)
+		return errScanRunInFlight
+	}
+	recordScanInitiator(scanID, initiator)
+	go runScanInProcessImpl(scanID, scanType, target, command, true, true, fn)
+	return nil
+}
+
+// runScanInProcessImpl runs one scan. claimed reports whether the caller already
+// holds the scan's run claim (startResumeScan); otherwise it is taken here. The
+// claim is held until fn has truly exited, so no second run of the same scan ID
+// can start while this worker is alive.
+func runScanInProcessImpl(scanID, scanType, target, command string, resume, claimed bool, fn func() error) {
 	startedAt := time.Now()
+
+	if !claimed && !claimScanRun(scanID) {
+		log.Printf("[runner] ABORT: scan %s (%s) already has a run in progress", scanID, scanType)
+		return
+	}
+	defer releaseScanRun(scanID)
 
 	scanSemaphore <- struct{}{}
 	defer func() { <-scanSemaphore }()
 
-	dbRecord := &db.ScanRecord{
-		ScanID:     scanID,
-		ScanType:   scanType,
-		Target:     target,
-		Status:     "running",
-		StartedAt:  startedAt,
-		LastUpdate: startedAt,
-		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
-	}
-	if err := db.CreateScan(dbRecord); err != nil {
-		// Without a DB record the scan would be invisible to the UI — abort rather
-		// than run an orphaned scan whose results can never be retrieved.
-		log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
-		// The deferred release above already frees the acquired slot; releasing
-		// again here would unbalance the semaphore (steal another scan's slot).
-		return
+	if resume {
+		// Reuse the existing row so completed_phases survives (finished phases skip);
+		// clear failed_phases and mark it running again. ReactivateScan only flips a
+		// row still in a resumable state, so a stale request can't revive a scan
+		// that was resumed or deleted in the meantime.
+		if err := db.ReactivateScan(scanID); err != nil {
+			log.Printf("[runner] ABORT resume: reactivate %s (%s) failed: %v", scanID, scanType, err)
+			return
+		}
+		auditActor(takeScanInitiator(scanID), "scan.resume", target, scanType+" ("+scanID+")")
+	} else {
+		meta := takeScanMeta(scanID)
+		dbRecord := &db.ScanRecord{
+			ScanID:     scanID,
+			ScanType:   scanType,
+			Target:     target,
+			Status:     "running",
+			StartedAt:  startedAt,
+			LastUpdate: startedAt,
+			Command:    command,
+			CreatedBy:  takeScanInitiator(scanID), // dashboard user that launched it ("" = system)
+			Name:       meta.name,                 // operator display name ("" = none)
+		}
+		if err := db.CreateScan(dbRecord); err != nil {
+			// Without a DB record the scan would be invisible to the UI — abort rather
+			// than run an orphaned scan whose results can never be retrieved.
+			log.Printf("[runner] ABORT: failed to create DB record for %s (%s): %v", scanID, scanType, err)
+			// The client was already told "started" — leave a failed result behind
+			// so polling /scan/:id/status reports why instead of a bare 404.
+			failedAt := time.Now()
+			apiScansMutex.Lock()
+			storeScanResultLocked(scanID, &ScanResult{
+				ScanID:      scanID,
+				Status:      "failed",
+				ScanType:    scanType,
+				StartedAt:   startedAt,
+				CompletedAt: &failedAt,
+				Error:       "could not record the scan: " + err.Error(),
+			})
+			apiScansMutex.Unlock()
+			// The deferred release above already frees the acquired slot; releasing
+			// again here would unbalance the semaphore (steal another scan's slot).
+			return
+		}
+		auditActor(dbRecord.CreatedBy, "scan.launch", target, scanType+" ("+scanID+")")
+		// CreateScan carries the name; a description (sent with the launch or
+		// by an early edit) is applied once the row exists.
+		if meta.hasDesc && meta.desc != "" {
+			if _, err := db.UpdateScanMeta(scanID, nil, &meta.desc); err != nil {
+				log.Printf("[runner] scan %s: description not saved: %v", scanID, err)
+			}
+		}
 	}
 
 	// Create a cancel context with a configurable maximum duration so that a
@@ -167,17 +308,34 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	ctx, cancelCtx := context.WithTimeout(context.Background(), maxDur)
 	defer cancelCtx() // always release resources
 
-	ScansMutex.Lock()
-	ActiveScans[scanID] = &ScanInfo{
+	// Open this run on the log bus before it becomes visible in ActiveScans, so an
+	// SSE client that sees the scan as active subscribes to a live run.
+	logGen := globalLogBus.Open(scanID)
+
+	// info is THIS run's entry. Every later touch goes through this pointer (never
+	// a fresh ActiveScans[scanID] lookup), and the entry is deleted only while the
+	// map still holds this pointer — a run must never flip or drop another run's
+	// entry for the same scan ID.
+	info := &ScanInfo{
 		ScanID:     scanID,
 		Status:     "running",
 		ScanType:   scanType,
 		Target:     target,
 		StartedAt:  startedAt,
-		Command:    fmt.Sprintf("inprocess:%s target=%s", scanType, target),
+		Command:    command,
+		Ctx:        ctx,       // exposed so in-process modules can wire cancellation into their engines
 		CancelFunc: cancelCtx, // wired so CancelScanByID() can call it
 	}
+	ScansMutex.Lock()
+	ActiveScans[scanID] = info
 	ScansMutex.Unlock()
+	dropEntry := func() {
+		ScansMutex.Lock()
+		if ActiveScans[scanID] == info {
+			delete(ActiveScans, scanID)
+		}
+		ScansMutex.Unlock()
+	}
 
 	utils.SendScanNotification("start", scanID, target, scanType, "running", 0)
 	ScanLogf(scanID, "[%s] scan started for %s", scanType, target)
@@ -222,15 +380,13 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 			// deadline instead of running the full remaining workflow. The scan is
 			// kept in ActiveScans until fn exits (below) so this signal stays live.
 			ScansMutex.Lock()
-			if si := ActiveScans[scanID]; si != nil {
-				si.CancelRequested = true
-			}
+			info.CancelRequested = true
 			ScansMutex.Unlock()
 		}
 		// Wait briefly for fn to acknowledge.
 		select {
 		case err = <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(scanStopAckWait):
 			fnDone = false // still running; the slot is held until it exits (end of func)
 		}
 		if timedOut {
@@ -245,8 +401,7 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	// relabel a timeout as "cancelled by user".
 	if !timedOut {
 		ScansMutex.RLock()
-		si, ok := ActiveScans[scanID]
-		if ok && si != nil && si.CancelRequested {
+		if info.CancelRequested {
 			err = ErrScanCancelled
 		}
 		ScansMutex.RUnlock()
@@ -271,6 +426,17 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 		ScanLogf(scanID, "[%s] scan FAILED: %v", scanType, err)
 		log.Printf("[runner] scan %s (%s) failed: %v", scanID, scanType, err)
 	}
+
+	// Reconcile the in-memory entry's Status with the terminal outcome NOW. When fn
+	// is still winding down (fnDone=false) the entry is intentionally kept below for
+	// the cooperative-stop signal, but it must no longer look "running" — otherwise
+	// ScanIsActiveInMemory reports a timed_out/cancelled/failed scan as active and
+	// every delete endpoint refuses it ("scan is still active; stop it first") until
+	// fn finally exits, up to another full budget (24h/72h). Leave CancelRequested
+	// untouched: IsScanCancelled relies on it, not Status.
+	ScansMutex.Lock()
+	info.Status = status
+	ScansMutex.Unlock()
 
 	// Do NOT discard this error. It is the only write that moves a scan out of
 	// "running", so a silent failure strands the row as permanently active — the
@@ -310,9 +476,7 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	// running (timed out / cancelled but uninterruptible), KEEP the entry so
 	// IsScanCancelled keeps signalling a stop, and retire it after fn exits (below).
 	if fnDone {
-		ScansMutex.Lock()
-		delete(ActiveScans, scanID)
-		ScansMutex.Unlock()
+		dropEntry()
 	}
 
 	apiScansMutex.Lock()
@@ -343,11 +507,12 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 	log.Printf("[runner] scan %s (%s/%s) %s in %s",
 		scanID, scanType, target, status, completedAt.Sub(startedAt).Round(time.Second))
 
-	// Give SSE clients a moment to drain, then close the bus for this scan.
+	// Give SSE clients a moment to drain, then close the bus for this run (a no-op
+	// if a resumed run of the same scan has opened since).
 	go func() {
 		defer utils.RecoverPanic("scan-logbus-close")
 		<-time.After(5 * time.Second)
-		globalLogBus.Close(scanID)
+		globalLogBus.CloseRun(scanID, logGen)
 	}()
 
 	// If fn is still running (it ignored the deadline/cancel), keep holding the
@@ -363,8 +528,6 @@ func RunScanInProcess(scanID, scanType, target string, fn func() error) {
 			log.Printf("[runner] CRITICAL: scan %s (%s) still running %s past its %s deadline — releasing the slot; goroutine leaked",
 				scanID, scanType, maxDur, maxDur)
 		}
-		ScansMutex.Lock()
-		delete(ActiveScans, scanID)
-		ScansMutex.Unlock()
+		dropEntry()
 	}
 }

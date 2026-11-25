@@ -3,11 +3,14 @@ package s3
 import (
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"github.com/h0tak88r/AutoAR/internal/logger"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -175,6 +178,7 @@ func handleDomainEnumAndScan(opts Options, resultsDir string) error {
 		CanRead     bool   `json:"can_read"`
 		CanWrite    bool   `json:"can_write"`
 		CanDelete   bool   `json:"can_delete"`
+		Leftover    string `json:"leftover_object,omitempty"` // write-probe object we could not delete
 	}
 	var allFindings []bucketFinding
 
@@ -183,7 +187,8 @@ func handleDomainEnumAndScan(opts Options, resultsDir string) error {
 		fmt.Fprintf(logFileHandle, "\n--- Scanning bucket: %s (region: %s) ---\n", fb.name, fb.region)
 
 		// Permission probe
-		permList, permRead, permWrite, permDelete := probeBucketPermissions(fb.name, fb.region, logFileHandle)
+		perms := probeBucketPermissions(fb.name, fb.region, logFileHandle)
+		permList, permRead, permWrite, permDelete := perms.List, perms.Read, perms.Write, perms.Delete
 
 		// Try public object listing
 		objectCount := 0
@@ -238,13 +243,14 @@ func handleDomainEnumAndScan(opts Options, resultsDir string) error {
 			Vulnerable:  permList || permRead || permWrite || permDelete || objectCount > 0,
 			Severity:    severity,
 			Module:      "s3-scan",
-			Finding:     fmt.Sprintf("S3 bucket permission exposure (%s)", scanMethod),
+			Finding:     fmt.Sprintf("S3 bucket permission exposure (%s)", scanMethod) + perms.cleanupNote(),
 			ObjectCount: objectCount,
 			ScanMethod:  scanMethod,
 			CanList:     permList,
 			CanRead:     permRead,
 			CanWrite:    permWrite,
 			CanDelete:   permDelete,
+			Leftover:    perms.LeftoverURL,
 		})
 	}
 
@@ -605,7 +611,8 @@ func handleScan(opts Options, resultsDir string) error {
 	}
 
 	// Explicit unauthenticated permission probes for list/read/write/delete semantics.
-	permList, permRead, permWrite, permDelete = probeBucketPermissions(opts.Bucket, opts.Region, logFileHandle)
+	perms := probeBucketPermissions(opts.Bucket, opts.Region, logFileHandle)
+	permList, permRead, permWrite, permDelete = perms.List, perms.Read, perms.Write, perms.Delete
 	if permWrite && scanMethod == "none (not accessible)" {
 		scanMethod = "unauthenticated (writeable)"
 	}
@@ -642,6 +649,7 @@ func handleScan(opts Options, resultsDir string) error {
 			CanRead     bool   `json:"can_read"`
 			CanWrite    bool   `json:"can_write"`
 			CanDelete   bool   `json:"can_delete"`
+			Leftover    string `json:"leftover_object,omitempty"` // write-probe object we could not delete
 		}
 		var findings []s3Finding
 		if objectCount > 0 || permList || permRead || permWrite || permDelete {
@@ -649,6 +657,7 @@ func handleScan(opts Options, resultsDir string) error {
 			if scanMethod != "" {
 				finding = fmt.Sprintf("S3 bucket permission exposure (%s)", scanMethod)
 			}
+			finding += perms.cleanupNote()
 			severity := "info"
 			status := "restricted"
 			if permWrite {
@@ -672,6 +681,7 @@ func handleScan(opts Options, resultsDir string) error {
 				CanRead:     permRead,
 				CanWrite:    permWrite,
 				CanDelete:   permDelete,
+				Leftover:    perms.LeftoverURL,
 			})
 			if err := utils.WriteJSONToScanDir(scanID, "s3-vulnerabilities.json", findings); err != nil {
 				logger.GetLogger().Infof("[WARN] Failed to write S3 JSON: %v", err)
@@ -823,7 +833,110 @@ func bucketListURLs(bucketName, region string) []string {
 	return urls
 }
 
-func probeBucketPermissions(bucketName, region string, logFile io.Writer) (canList, canRead, canWrite, canDelete bool) {
+// envS3WriteProbe opts the permission probe into its write test: PUT a small
+// marker object into the (third-party) bucket, read it back, DELETE it. Off by
+// default — the probe then infers access from list/read only and sends no
+// state-changing request, so nothing can be left behind.
+const envS3WriteProbe = "AUTOAR_S3_WRITE_PROBE"
+
+func s3WriteProbeAllowed() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(envS3WriteProbe)), "true")
+}
+
+// bucketPerms is the outcome of an unauthenticated permission probe.
+type bucketPerms struct {
+	List, Read, Write, Delete bool
+	// LeftoverKey/LeftoverURL name a write-probe object whose DELETE failed even
+	// after a retry: it is still in the third-party bucket and must be removed
+	// manually.
+	LeftoverKey string
+	LeftoverURL string
+}
+
+// cleanupNote is appended to the finding text when the write probe could not
+// remove its marker object.
+func (p bucketPerms) cleanupNote() string {
+	if p.LeftoverKey == "" {
+		return ""
+	}
+	return fmt.Sprintf(" — test object left in bucket: %s (cleanup failed; remove it manually)", p.LeftoverKey)
+}
+
+var s3KeyRe = regexp.MustCompile(`<Key>([^<]+)</Key>`)
+
+// probeBucketBase probes one bucket endpoint. Read-only by default: list
+// (GET ?max-keys=1) and read inferred by HEAD-ing the first listed object. Only
+// with writeProbe does it PUT/GET/DELETE a marker object, verifying the DELETE
+// (one retry) and reporting the key when cleanup fails.
+func probeBucketBase(client *http.Client, base, testKey string, writeProbe bool, logFile io.Writer) bucketPerms {
+	var p bucketPerms
+	do := func(method, u string, body io.Reader) (int, []byte, error) {
+		req, err := http.NewRequest(method, u, body)
+		if err != nil {
+			return 0, nil, err
+		}
+		if body != nil {
+			req.Header.Set("Content-Type", "text/plain")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, nil, err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return resp.StatusCode, data, nil
+	}
+	// list
+	if code, data, err := do("GET", base+"/?max-keys=1", nil); err == nil && code == http.StatusOK {
+		p.List = true
+		// read: HEAD an object that already exists instead of writing our own
+		if m := s3KeyRe.FindSubmatch(data); m != nil {
+			keyPath := (&url.URL{Path: "/" + html.UnescapeString(string(m[1]))}).EscapedPath()
+			if code, _, err := do("HEAD", base+keyPath, nil); err == nil && code == http.StatusOK {
+				p.Read = true
+			}
+		}
+	}
+	if !writeProbe {
+		return p
+	}
+
+	objURL := base + "/" + testKey
+	// write/put
+	if code, _, err := do("PUT", objURL, strings.NewReader("autoar permission test")); err == nil &&
+		(code == http.StatusOK || code == http.StatusCreated || code == http.StatusNoContent) {
+		p.Write = true
+	}
+	if !p.Write {
+		return p
+	}
+	// read back
+	if code, _, err := do("GET", objURL, nil); err == nil && code == http.StatusOK {
+		p.Read = true
+	}
+	// delete cleanup — verified, retried once; a failure is reported, not swallowed
+	deleted := func() bool {
+		code, _, err := do("DELETE", objURL, nil)
+		return err == nil && (code == http.StatusOK || code == http.StatusNoContent || code == http.StatusAccepted)
+	}
+	if deleted() {
+		p.Delete = true
+	} else {
+		time.Sleep(time.Second)
+		if deleted() {
+			p.Delete = true
+		} else {
+			p.LeftoverKey, p.LeftoverURL = testKey, objURL
+			logger.GetLogger().Errorf("[S3] !!! write probe CLEANUP FAILED: test object left in bucket — remove it manually: %s", objURL)
+			if logFile != nil {
+				fmt.Fprintf(logFile, "[ERROR] Write-probe cleanup failed: test object left in bucket: %s — remove it manually\n", objURL)
+			}
+		}
+	}
+	return p
+}
+
+func probeBucketPermissions(bucketName, region string, logFile io.Writer) (perms bucketPerms) {
 	// Resolve the region if the caller didn't supply one, so write/read/delete probes
 	// hit the bucket's real regional endpoint instead of only the global host (which
 	// 301-redirects for buckets outside us-east-1, making every probe read false).
@@ -844,53 +957,21 @@ func probeBucketPermissions(bucketName, region string, logFile io.Writer) (canLi
 		)
 	}
 	testKey := fmt.Sprintf("autoar-perm-test-%d.txt", time.Now().UnixNano())
-	testBody := []byte("autoar permission test")
+	writeProbe := s3WriteProbeAllowed()
 	for _, base := range urls {
-		// list
-		if req, err := http.NewRequest("GET", base+"/?max-keys=1", nil); err == nil {
-			if resp, err := client.Do(req); err == nil {
-				if resp.StatusCode == http.StatusOK {
-					canList = true
-				}
-				resp.Body.Close()
-			}
-		}
-		// write/put
-		if req, err := http.NewRequest("PUT", base+"/"+testKey, strings.NewReader(string(testBody))); err == nil {
-			req.Header.Set("Content-Type", "text/plain")
-			if resp, err := client.Do(req); err == nil {
-				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusNoContent {
-					canWrite = true
-				}
-				resp.Body.Close()
-			}
-		}
-		// read
-		if req, err := http.NewRequest("GET", base+"/"+testKey, nil); err == nil {
-			if resp, err := client.Do(req); err == nil {
-				if resp.StatusCode == http.StatusOK {
-					canRead = true
-				}
-				resp.Body.Close()
-			}
-		}
-		// delete cleanup
-		if req, err := http.NewRequest("DELETE", base+"/"+testKey, nil); err == nil {
-			if resp, err := client.Do(req); err == nil {
-				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusAccepted {
-					canDelete = true
-				}
-				resp.Body.Close()
-			}
-		}
-		if canList || canRead || canWrite || canDelete {
+		perms = probeBucketBase(client, base, testKey, writeProbe, logFile)
+		if perms.List || perms.Read || perms.Write || perms.Delete {
 			break
 		}
 	}
 	if logFile != nil {
-		fmt.Fprintf(logFile, "[INFO] Permission probe: list=%t read=%t write=%t delete=%t\n", canList, canRead, canWrite, canDelete)
+		mode := "read-only (set " + envS3WriteProbe + "=true for the write probe)"
+		if writeProbe {
+			mode = "write probe enabled"
+		}
+		fmt.Fprintf(logFile, "[INFO] Permission probe [%s]: list=%t read=%t write=%t delete=%t\n", mode, perms.List, perms.Read, perms.Write, perms.Delete)
 	}
-	return
+	return perms
 }
 
 // newS3Client creates an S3 client using AWS configuration.

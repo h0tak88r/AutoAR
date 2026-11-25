@@ -26,11 +26,13 @@
         rootMode: false,
         tcpModalOpen: false
     };
+    // Device data (package names, file names, prefs) is device-controlled; escape
+    // quotes too so the result is also safe inside quoted attributes.
     const escapeHtml = (str) => {
         if (!str) return '';
-        const div = document.createElement('div');
-        div.textContent = String(str);
-        return div.innerHTML;
+        return String(str).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
     };
     const escapeShellArg = (str) => {
         if (!str) return '';
@@ -1154,12 +1156,18 @@
                         <div class="app-package">${escapeHtml(a.package)}</div>
                     </div>
                     <div class="app-actions">
-                        <button class="btn btn-sm btn-ghost" onclick="app.downloadApk('${escapeAttr(a.package)}')" title="Download APK">
+                        <button class="btn btn-sm btn-ghost" data-apk-download="${escapeAttr(a.package)}" title="Download APK">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                         </button>
                     </div>
                 </div>
             `).join('');
+            // Package name is read from data-* (HTML-escaping is undone before an
+            // inline onclick's JS runs, so it must not be spliced into one).
+            list.onclick = (e) => {
+                const btn = e.target.closest('[data-apk-download]');
+                if (btn && list.contains(btn)) this.downloadApk(btn.dataset.apkDownload);
+            };
         },
         filterApps(query) {
             const filtered = state.apps.filter(a => 
@@ -1244,7 +1252,7 @@
                     </span>
                     ${segments.map((seg, i) => {
                         const segPath = '/' + segments.slice(0, i + 1).join('/');
-                        return `<span class="path-sep">/</span><span class="path-segment" data-path="${segPath}">${seg}</span>`;
+                        return `<span class="path-sep">/</span><span class="path-segment" data-path="${escapeAttr(segPath)}">${escapeHtml(seg)}</span>`;
                     }).join('')}
                 `;
                 pathBar.querySelectorAll('.path-segment').forEach(seg => {

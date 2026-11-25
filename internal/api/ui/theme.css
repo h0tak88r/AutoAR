@@ -1,0 +1,164 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ Light theme (html[data-theme="light"]) — loaded AFTER styles.css so this
+ block overrides its :root definitions by specificity. Dark stays the default; the toggle in the header flips
+ data-theme and persists the choice in localStorage ("autoar_theme").
+ ───────────────────────────────────────────────────────────────────────────── */
+
+html[data-theme="light"] {
+ color-scheme: light;
+
+ --bg-base: #eef2f7;
+ --bg-surface: #f8fafc;
+ --bg-card: #ffffff;
+ --bg-card-hover: #f1f5f9;
+ --bg-input: #ffffff;
+ --bg-glass: rgba(255, 255, 255, 0.82);
+
+ --border: rgba(15, 23, 42, 0.10);
+ --border-bright: rgba(15, 23, 42, 0.18);
+
+ /* Accents: brand blue, darkened for contrast on white (#2563eb is 5.2:1 on
+    #fff). Was teal, which clashed with the blue mark and the dark sidebar. */
+ --accent-cyan: #2563eb;
+ --accent-cyan-dim: rgba(37, 99, 235, 0.10);
+ --accent-cyan-glow: rgba(37, 99, 235, 0.22);
+ --accent-purple: #4f46e5;
+ --accent-purple-dim: rgba(79, 70, 229, 0.10);
+ --accent-emerald: #047857;
+ --accent-emerald-dim: rgba(5, 150, 105, 0.10);
+ --accent-amber: #b45309;
+ --accent-amber-dim: rgba(180, 83, 9, 0.10);
+ --accent-red: #dc2626;
+ --accent-red-dim: rgba(220, 38, 38, 0.08);
+
+ --text-primary: #0f172a;
+ --text-secondary: #475569;
+ --text-muted: #64748b;
+ --text-faint: #5c6b80;
+ --text-accent: #2563eb;
+
+ /* Brand aliases + steps the dark root defines; light needs its own values
+    (measured on #f8fafc cards). */
+ --accent-primary: #2563eb;
+ --accent-primary-hover: #1d4ed8;
+ --on-accent: #ffffff;
+ --accent-secondary: #4f46e5;
+ --accent-primary-dim: rgba(37, 99, 235, 0.10);
+ --bg-raise: rgba(15, 23, 42, 0.05);
+ --bg-sunken: rgba(15, 23, 42, 0.035);
+ --border-strong: rgba(15, 23, 42, 0.2);
+
+ --shadow-card: 0 4px 18px rgba(15, 23, 42, 0.10);
+ --shadow-glow-cyan: 0 0 16px rgba(37, 99, 235, 0.15);
+ --shadow-glow-purple: 0 0 16px rgba(99, 102, 241, 0.15);
+
+ --verdict-tp: #047857;
+ --verdict-likely: #0284c7;
+ --verdict-review: #b45309;
+ --verdict-fp: #64748b;
+ --verdict-error: #dc2626;
+
+ /* Severity + scope ramps were only defined for dark, so light inherited
+    pastel yellow/green (~1.5:1 on white). These are all >= 4.5:1 on #fff. */
+ --sev-critical: #7e22ce;
+ --sev-high: #dc2626;
+ --sev-medium: #c2410c;
+ --sev-low: #a16207;
+ --sev-info: #64748b;
+ --scope-in: #047857;
+ --scope-out: #dc2626;
+ --scope-paused: #b45309;
+}
+
+/* Light theme keeps a black navigation rail (owner preference): the sidebar
+   re-declares the graphite tokens, so everything inside it (nav, badges,
+   metrics, sign-out) resolves dark while the content area stays light. */
+html[data-theme="light"] .sidebar {
+ color-scheme: dark;
+ --bg-base: #0a0a0a;
+ --bg-surface: #0b0b0c;
+ --bg-card: #18181b;
+ --bg-card-hover: #202024;
+ --bg-input: #111113;
+ --bg-raise: rgba(255, 255, 255, 0.05);
+ --bg-sunken: rgba(0, 0, 0, 0.2);
+ --border: rgba(255, 255, 255, 0.08);
+ --border-bright: rgba(255, 255, 255, 0.14);
+ --border-strong: rgba(255, 255, 255, 0.22);
+ --text-primary: #fafafa;
+ --text-secondary: #a1a1aa;
+ --text-muted: #8b8b94;
+ --text-faint: #71717a;
+ --accent-cyan: #60a5fa;
+ --accent-cyan-dim: rgba(96, 165, 250, 0.14);
+ --accent-primary: #60a5fa;
+ --accent-primary-hover: #93c5fd;
+ --accent-primary-dim: rgba(96, 165, 250, 0.14);
+ --on-accent: #0a0a0a;
+ --accent-purple: #a78bfa;
+ --accent-emerald: #34d399;
+ --shadow-glow-cyan: 0 0 18px rgba(96, 165, 250, 0.25);
+ background: var(--bg-surface);
+ border-right-color: #000;
+}
+
+
+/* ── Midnight: the original navy + cyan dark theme ─────────────────────────
+   Graphite (the :root default) is neutral black + brand blue. Selecting
+   Midnight repoints every token back to the navy surfaces and cyan accent. */
+html[data-theme="midnight"] {
+ --bg-base: #030712;
+ --bg-surface: #0d1117;
+ --bg-card: #111827;
+ --bg-card-hover: #1a2234;
+ --bg-input: #0d1117;
+ --bg-glass: rgba(17, 24, 39, 0.7);
+
+ --border: rgba(255, 255, 255, 0.07);
+ --border-bright: rgba(255, 255, 255, 0.12);
+ --border-strong: rgba(255, 255, 255, 0.2);
+ --bg-raise: rgba(255, 255, 255, 0.03);
+
+ --accent-cyan: #06b6d4;
+ --accent-cyan-dim: rgba(6, 182, 212, 0.15);
+ --accent-cyan-glow: rgba(6, 182, 212, 0.3);
+ --accent-purple: #818cf8;
+ --accent-purple-dim: rgba(129, 140, 248, 0.15);
+
+ --text-primary: #f1f5f9;
+ --text-secondary: #94a3b8;
+ --text-muted: #7d8da3;
+ --text-faint: #8a95a8;
+ --text-accent: #06b6d4;
+
+ --accent-primary: #06b6d4;
+ --accent-primary-hover: #22d3ee;
+ --on-accent: #030712;
+ --accent-secondary: #818cf8;
+ --accent-primary-dim: rgba(6, 182, 212, 0.15);
+
+ --shadow-glow-cyan: 0 0 20px rgba(6, 182, 212, 0.2);
+}
+
+/* Hardcoded dark values that predate the variable system — neutralized in
+ light mode only (dark mode keeps the originals untouched). */
+html[data-theme="light"] textarea.search-input,
+html[data-theme="light"] input.search-input,
+html[data-theme="light"] .auth-card textarea,
+html[data-theme="light"] .auth-card input.auth-input {
+ background: var(--bg-input) !important;
+ color: var(--text-primary) !important;
+}
+html[data-theme="light"] ::placeholder { color: var(--text-muted); opacity: 0.8; }
+html[data-theme="light"] .table th { color: var(--text-secondary); }
+html[data-theme="light"] code, html[data-theme="light"] pre {
+ background: #f1f5f9; color: #0f172a;
+}
+/* Panels that own their code background: the global light <pre> tint above
+   would paint a second box inside them. */
+html[data-theme="light"] .tri-code pre,
+html[data-theme="light"] .tri-details pre { background: transparent; }
+html[data-theme="light"] .agent-code { background: var(--bg-input); }
+/* Scan badges/status pills that bake dark backgrounds inline */
+html[data-theme="light"] .badge { background: var(--bg-card); }
+/* The embedded auditors keep their own styling; nothing to do for them. */

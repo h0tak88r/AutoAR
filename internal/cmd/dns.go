@@ -194,7 +194,8 @@ func init() {
 
 	// Specific flags
 	dnsTakeoverCmd.Flags().StringP("subdomain", "s", "", "Single subdomain to scan")
-	dnsTakeoverCmd.Flags().StringP("live-hosts", "l", "", "Path to live hosts file")
+	// NOTE: no "-l" shorthand — it collides with the global --log-level and panics.
+	dnsTakeoverCmd.Flags().String("live-hosts", "", "Path to live hosts file")
 
 	dnsCF1016Cmd.Flags().StringP("subdomain", "s", "", "Single subdomain to scan")
 	dnsCF1016Cmd.Flags().IntP("threads", "t", 100, "Number of threads")

@@ -96,6 +96,8 @@ keyhack_templates/  # Cloned in Docker from KeysKit repo
 
 # Exclude all markdown files except README.md
 *.md
+!skills/**/SKILL.md
+!skills/**/*.md
 !README.md
 !docs/**/*.md
 !internal/api/ui/adbauditor/docs/
@@ -111,11 +113,28 @@ all-roots.txt
 roots.txt
 # Note: .env already covered above — kept here for clarity
 .evn.example
-.sql.gz
+*.sql.gz
 autoar
-.db-shm
-.db-wal
+*.db-shm
+*.db-wal
 
 /backups/
 nuclei-templates/
 Rules.ymlsupabase_export.sql
+
+# Vulnerability disclosure reports and target-specific validation evidence — never publish
+/reports/
+/validate-*.sh
+/capture-*.sh
+
+# Scheduled-agent state (new-scope auto-runner)
+/.scope-agent-state.json
+!internal/scanner/apidocs/
+!internal/scanner/apidocs/**
+
+# Stray local build output of internal/scanner/entrypoint (a macOS binary was
+# committed here once). The image builds its own entrypoint.
+/entrypoint
+
+# Claude Code agent worktrees (temporary, per-session)
+/.claude/worktrees/

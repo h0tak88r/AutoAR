@@ -7,45 +7,73 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 )
 
-// SendWebhook sends a generic JSON payload to the MONITOR_WEBHOOK_URL if configured.
+// scanWebhookQueueSize bounds the scans-channel backlog. A mass-hit scan
+// enqueues faster than Discord accepts (~5 posts / 2s per webhook); past this
+// depth messages are dropped with a log line instead of piling up goroutines.
+const scanWebhookQueueSize = 500
+
+type scanWebhookMsg struct{ url, content string }
+
+var (
+	scanWebhookOnce  sync.Once
+	scanWebhookQueue = make(chan scanWebhookMsg, scanWebhookQueueSize)
+)
+
+// SendWebhook queues a scan-lifecycle/hit message for the scans webhook
+// (WEBHOOK_SCANS, falling back to MONITOR_WEBHOOK_URL) if configured.
+// The raw senders on this path are scan notifications and scan hits. One
+// sender goroutine drains the queue through the chunking, 429-retrying
+// postDiscordContent: concurrent hit goroutines used to post in parallel,
+// trip Discord's per-webhook rate limit and get dropped, and >2000-char
+// messages were rejected outright.
 func SendWebhook(msg string) {
-	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
-	if webhookURL == "" {
+	webhookURL := PurposeWebhookURL("scans")
+	if webhookURL == "" || strings.TrimSpace(msg) == "" {
 		return
 	}
-
-	payload := map[string]any{"content": msg}
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		GetLogger().Errorf("[WEBHOOK] Failed to marshal payload: %v", err)
-		return
-	}
-
-	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		GetLogger().Errorf("[WEBHOOK] Failed to create request: %v", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		GetLogger().Errorf("[WEBHOOK] Failed to send: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		GetLogger().Errorf("[WEBHOOK] Error %d: %s", resp.StatusCode, string(b))
+	scanWebhookOnce.Do(func() { go scanWebhookSender() })
+	select {
+	case scanWebhookQueue <- scanWebhookMsg{url: webhookURL, content: msg}:
+	default:
+		GetLogger().Errorf("[WEBHOOK] scans queue full (%d pending) — dropping message", scanWebhookQueueSize)
 	}
 }
+
+// scanWebhookSender delivers queued scans-channel messages one at a time.
+func scanWebhookSender() {
+	for m := range scanWebhookQueue {
+		GuardedRun("webhook:scans-sender", func() {
+			if err := sendDiscordChunks(m.url, m.content); err != nil {
+				GetLogger().Errorf("[WEBHOOK] %v", err)
+			}
+		})
+	}
+}
+
+// webhookTokenRE matches the secret token path segment of a Discord (or
+// Discord-compatible) webhook URL.
+var webhookTokenRE = regexp.MustCompile(`(/api/webhooks/[0-9]+/)[A-Za-z0-9._~-]+`)
+
+// RedactWebhookURL masks webhook tokens inside s (a URL or an error string
+// that embeds one, e.g. a *url.Error) so logs never carry a usable webhook.
+func RedactWebhookURL(s string) string {
+	return webhookTokenRE.ReplaceAllString(s, "${1}[redacted]")
+}
+
+// redactedErr wraps a transport error whose text embeds the webhook URL:
+// Error() is redacted, Unwrap keeps errors.Is/As working.
+type redactedErr struct{ err error }
+
+func (e redactedErr) Error() string { return RedactWebhookURL(e.err.Error()) }
+func (e redactedErr) Unwrap() error { return e.err }
 
 // SendScanNotification formats and sends a scan event notification.
 func SendScanNotification(event, scanID, target, scanType, status string, findings int) {
@@ -77,10 +105,15 @@ func SendScanNotification(event, scanID, target, scanType, status string, findin
 	}
 }
 
-// SendWebhookLog sends a plain text log message to the configured webhook.
+// SendWebhookLog sends a plain text log message to the configured scans
+// webhook synchronously and returns the delivery error (nil when no webhook
+// is configured).
 func SendWebhookLog(msg string) error {
-	SendWebhook(msg)
-	return nil
+	webhookURL := PurposeWebhookURL("scans")
+	if webhookURL == "" {
+		return nil
+	}
+	return sendDiscordChunks(webhookURL, msg)
 }
 
 // SendWebhookLogAsync is an asynchronous version of SendWebhookLog.
@@ -97,9 +130,10 @@ func SendWebhookFile(_, _ string) error { return nil }
 // SendWebhookFileAsync is a no-op stub — currently not implemented for generic webhooks.
 func SendWebhookFileAsync(_, _ string) {}
 
-// MonitorWebhookConfigured reports whether MONITOR_WEBHOOK_URL is set.
+// MonitorWebhookConfigured reports whether any monitoring webhook is set
+// (dedicated WEBHOOK_MONITORING or the legacy MONITOR_WEBHOOK_URL fallback).
 func MonitorWebhookConfigured() bool {
-	return strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL")) != ""
+	return PurposeWebhookURL("monitoring") != ""
 }
 
 // SendMonitorWebhook posts msg to MONITOR_WEBHOOK_URL (logs the error on failure).
@@ -119,20 +153,69 @@ func SendMonitorWebhook(msg string) {
 // while short per-URL alerts did.
 const discordContentLimit = 1900
 
-// SendMonitorWebhookErr posts msg to MONITOR_WEBHOOK_URL and returns the delivery
-// error (or a "not configured" error). Messages longer than Discord's limit are
-// split into multiple posts so nothing is dropped.
-func SendMonitorWebhookErr(msg string) error {
-	webhookURL := strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
-	if webhookURL == "" {
-		return fmt.Errorf("MONITOR_WEBHOOK_URL is not set")
+// PurposeWebhookURL resolves the Discord webhook URL for a purpose:
+// "new_scopes" (program/scope announcements), "findings" (AI-validated
+// findings), or "monitoring" (everything else). Each checks its dedicated
+// key first — WEBHOOK_NEW_SCOPES / WEBHOOK_FINDINGS / WEBHOOK_MONITORING,
+// all managed from the Settings page and DB-persisted — and falls back to
+// MONITOR_WEBHOOK_URL so a single-channel setup keeps working unchanged.
+func PurposeWebhookURL(purpose string) string {
+	var dedicated string
+	switch strings.ToLower(strings.TrimSpace(purpose)) {
+	case "scans":
+		dedicated = os.Getenv("WEBHOOK_SCANS")
+	case "new_scopes", "scope":
+		dedicated = os.Getenv("WEBHOOK_NEW_SCOPES")
+	case "findings":
+		dedicated = os.Getenv("WEBHOOK_FINDINGS")
+	default:
+		dedicated = os.Getenv("WEBHOOK_MONITORING")
 	}
+	if u := strings.TrimSpace(dedicated); u != "" {
+		return u
+	}
+	return strings.TrimSpace(os.Getenv("MONITOR_WEBHOOK_URL"))
+}
+
+// SendPurposeWebhookErr posts msg to the webhook configured for the purpose
+// (see PurposeWebhookURL) and returns the delivery error.
+func SendPurposeWebhookErr(purpose, msg string) error {
+	webhookURL := PurposeWebhookURL(purpose)
+	if webhookURL == "" {
+		return fmt.Errorf("no webhook configured for purpose %q", purpose)
+	}
+	return sendDiscordChunks(webhookURL, msg)
+}
+
+// sendDiscordChunks posts msg as one or more ≤discordContentLimit messages.
+func sendDiscordChunks(webhookURL, msg string) error {
 	for _, chunk := range chunkDiscordContent(msg, discordContentLimit) {
 		if err := postDiscordContent(webhookURL, chunk); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// SendScopeWebhookErr posts to the new-scopes channel (WEBHOOK_NEW_SCOPES,
+// falling back to the monitor webhook). Used by the program/scope watcher.
+func SendScopeWebhookErr(msg string) error { return SendPurposeWebhookErr("new_scopes", msg) }
+
+// SendScopeWebhook is the fire-and-forget variant of SendScopeWebhookErr.
+func SendScopeWebhook(msg string) { _ = SendScopeWebhookErr(msg) }
+
+// SendFindingsWebhookErr posts to the AI-findings channel (WEBHOOK_FINDINGS,
+// falling back to the monitor webhook).
+func SendFindingsWebhookErr(msg string) error { return SendPurposeWebhookErr("findings", msg) }
+
+// SendFindingsWebhook is the fire-and-forget variant of SendFindingsWebhookErr.
+func SendFindingsWebhook(msg string) { _ = SendFindingsWebhookErr(msg) }
+
+// SendMonitorWebhookErr posts msg to the monitoring webhook and returns the
+// delivery error (or a "not configured" error). Messages longer than Discord's
+// limit are split into multiple posts so nothing is dropped.
+func SendMonitorWebhookErr(msg string) error {
+	return SendPurposeWebhookErr("monitoring", msg)
 }
 
 // chunkDiscordContent splits content into pieces no larger than max, breaking on
@@ -154,11 +237,16 @@ func chunkDiscordContent(msg string, max int) []string {
 		}
 	}
 	for _, line := range strings.Split(msg, "\n") {
-		// Hard-split any single line longer than max.
+		// Hard-split any single line longer than max (on a rune boundary, so a
+		// multi-byte character is never cut into invalid UTF-8).
 		for len(line) > max {
 			flush()
-			chunks = append(chunks, line[:max])
-			line = line[max:]
+			cut := max
+			for cut > 1 && !utf8.RuneStart(line[cut]) {
+				cut--
+			}
+			chunks = append(chunks, line[:cut])
+			line = line[cut:]
 		}
 		need := len(line)
 		if b.Len() > 0 {
@@ -176,9 +264,19 @@ func chunkDiscordContent(msg string, max int) []string {
 	return chunks
 }
 
+// discordPayload builds the webhook body. allowed_mentions {"parse": []}
+// disables every mention type: alerts embed untrusted text (template names,
+// repo descriptions, program names), and an "@everyone" in any of them must
+// never ping the channel.
+func discordPayload(content string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"content":          content,
+		"allowed_mentions": map[string]any{"parse": []string{}},
+	})
+}
+
 func postDiscordContent(webhookURL, content string) error {
-	payload := map[string]any{"content": content}
-	jsonData, err := json.Marshal(payload)
+	jsonData, err := discordPayload(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
@@ -188,32 +286,44 @@ func postDiscordContent(webhookURL, content string) error {
 	// monitor listing many changes) posts chunks back-to-back; Discord rate-limits
 	// and returns 429, and previously the caller aborted the loop — silently
 	// dropping every remaining chunk. Retrying here keeps the whole alert intact.
+	// Transport errors and 5xx get the same bounded retry with a short backoff.
+	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
 		req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return fmt.Errorf("failed to create webhook POST request: %w", err)
+			return fmt.Errorf("failed to create webhook POST request: %w", redactedErr{err})
 		}
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := client.Do(req)
 		if err != nil {
-			return fmt.Errorf("failed to send webhook alert: %w", err)
+			// *url.Error embeds the full webhook URL (token included) — redact.
+			lastErr = fmt.Errorf("failed to send webhook alert: %w", redactedErr{err})
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+			continue
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			wait := parseRetryAfter(resp.Header.Get("Retry-After"))
 			resp.Body.Close()
+			lastErr = fmt.Errorf("webhook still rate-limited after retries")
 			time.Sleep(wait)
 			continue
 		}
-		if resp.StatusCode >= 400 {
-			b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode >= 500 {
 			resp.Body.Close()
-			return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(b))
+			lastErr = fmt.Errorf("webhook returned status %d", resp.StatusCode)
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, RedactWebhookURL(string(b)))
 		}
 		resp.Body.Close()
 		return nil
 	}
-	return fmt.Errorf("webhook still rate-limited after retries")
+	return lastErr
 }
 
 // parseRetryAfter reads Discord's Retry-After header (seconds, may be fractional),

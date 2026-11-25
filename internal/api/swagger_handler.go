@@ -251,9 +251,15 @@ func openapiSpecHandler(c *gin.Context) {
 					"responses": gin.H{"200": gin.H{"description": "Scan started"}},
 				},
 			},
+			"/scan/clientside": gin.H{
+				"post": gin.H{
+					"summary":   "Client-side scan: JS secrets + DOM XSS / postMessage / open-redirect / prototype-pollution sink candidates (domain = every subdomain, host = that app only)",
+					"responses": gin.H{"200": gin.H{"description": "Scan started"}},
+				},
+			},
 			"/scan/js": gin.H{
 				"post": gin.H{
-					"summary":   "Analyze JavaScript",
+					"summary":   "Old name of /scan/clientside",
 					"responses": gin.H{"200": gin.H{"description": "Scan started"}},
 				},
 			},

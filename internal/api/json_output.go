@@ -16,52 +16,52 @@ type SubdomainResult struct {
 
 // URLResult represents a URL result
 type URLResult struct {
-	URL       string `json:"url"`
-	IsLive    bool   `json:"is_live"`
-	StatusCode int   `json:"status_code"`
-	Title     string `json:"title,omitempty"`
-	Tech      string `json:"tech,omitempty"`
+	URL        string `json:"url"`
+	IsLive     bool   `json:"is_live"`
+	StatusCode int    `json:"status_code"`
+	Title      string `json:"title,omitempty"`
+	Tech       string `json:"tech,omitempty"`
 }
 
 // NucleiResult represents a Nuclei finding
 type NucleiResult struct {
-	TemplateID   string `json:"template_id,omitempty"`
-	Severity     string `json:"severity,omitempty"`
-	URL          string `json:"url,omitempty"`
-	MatchedAt    string `json:"matched_at,omitempty"`
-	Description  string `json:"description,omitempty"`
-	Info         NucleiInfo `json:"info,omitempty"`
+	TemplateID  string     `json:"template_id,omitempty"`
+	Severity    string     `json:"severity,omitempty"`
+	URL         string     `json:"url,omitempty"`
+	MatchedAt   string     `json:"matched_at,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Info        NucleiInfo `json:"info,omitempty"`
 }
 
 type NucleiInfo struct {
-	Name      string `json:"name,omitempty"`
-	Severity  string `json:"severity,omitempty"`
-	SeverityCSS string `json:"severity_css,omitempty"`
-	Author    string `json:"author,omitempty"`
-	Reference []string `json:"reference,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Severity    string   `json:"severity,omitempty"`
+	SeverityCSS string   `json:"severity_css,omitempty"`
+	Author      string   `json:"author,omitempty"`
+	Reference   []string `json:"reference,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 // VulnerabilityResult represents a generic vulnerability finding
 type VulnerabilityResult struct {
-	Type      string `json:"type"`
-	Severity  string `json:"severity"`
-	URL       string `json:"url,omitempty"`
-	Target    string `json:"target,omitempty"`
-	Source    string `json:"source,omitempty"`
-	File      string `json:"file,omitempty"`
+	Type     string `json:"type"`
+	Severity string `json:"severity"`
+	URL      string `json:"url,omitempty"`
+	Target   string `json:"target,omitempty"`
+	Source   string `json:"source,omitempty"`
+	File     string `json:"file,omitempty"`
 }
 
 // ScanResults represents a collection of results for a scan
 type ScanResults struct {
-	ScanID     string            `json:"scan_id"`
-	Target     string            `json:"target"`
-	ScanType   string            `json:"scan_type"`
-	Generated  string            `json:"generated"`
-	Subdomains []SubdomainResult `json:"subdomains,omitempty"`
-	URLs       []URLResult       `json:"urls,omitempty"`
-	Vulnerabilities []VulnerabilityResult `json:"vulnerabilities,omitempty"`
-	Files      map[string]interface{} `json:"files,omitempty"`
+	ScanID          string                 `json:"scan_id"`
+	Target          string                 `json:"target"`
+	ScanType        string                 `json:"scan_type"`
+	Generated       string                 `json:"generated"`
+	Subdomains      []SubdomainResult      `json:"subdomains,omitempty"`
+	URLs            []URLResult            `json:"urls,omitempty"`
+	Vulnerabilities []VulnerabilityResult  `json:"vulnerabilities,omitempty"`
+	Files           map[string]interface{} `json:"files,omitempty"`
 }
 
 // writeJSONResults writes structured JSON results to a file
@@ -76,10 +76,10 @@ func writeJSONResults(scanID, fileName string, jsonData interface{}) error {
 // writeSubdomainResults writes subdomain results as JSON
 func writeSubdomainResults(scanID, target string, results []SubdomainResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "subdomain",
-		Generated: time.Now().Format(time.RFC3339),
+		ScanID:     scanID,
+		Target:     target,
+		ScanType:   "subdomain",
+		Generated:  time.Now().Format(time.RFC3339),
 		Subdomains: results,
 	}
 	return writeJSONResults(scanID, "subdomains.json", output)
@@ -88,11 +88,11 @@ func writeSubdomainResults(scanID, target string, results []SubdomainResult) err
 // writeURLResults writes URL results as JSON
 func writeURLResults(scanID, target string, results []URLResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "urls",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "urls",
 		Generated: time.Now().Format(time.RFC3339),
-		URLs:     results,
+		URLs:      results,
 	}
 	return writeJSONResults(scanID, "urls.json", output)
 }
@@ -100,15 +100,15 @@ func writeURLResults(scanID, target string, results []URLResult) error {
 // writeNucleiResults writes Nuclei findings as JSON
 func writeNucleiResults(scanID, target string, findings []NucleiResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "nuclei",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "nuclei",
 		Generated: time.Now().Format(time.RFC3339),
 		Vulnerabilities: []VulnerabilityResult{
 			{
-				Type:      "nuclei_vulnerability",
-				Severity:  "vulnerability",
-				Source:    "nuclei",
+				Type:     "nuclei_vulnerability",
+				Severity: "vulnerability",
+				Source:   "nuclei",
 			},
 		},
 	}
@@ -116,12 +116,12 @@ func writeNucleiResults(scanID, target string, findings []NucleiResult) error {
 	// Map to a unified format
 	for _, f := range findings {
 		output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-			Type:    "nuclei_template",
+			Type:     "nuclei_template",
 			Severity: f.Severity,
-			URL:     f.URL,
+			URL:      f.URL,
 			Target:   target,
-			Source:  "nuclei",
-			File:    fmt.Sprintf("nuclei-%s.json", f.TemplateID),
+			Source:   "nuclei",
+			File:     fmt.Sprintf("nuclei-%s.json", f.TemplateID),
 		})
 	}
 
@@ -131,10 +131,10 @@ func writeNucleiResults(scanID, target string, findings []NucleiResult) error {
 // writeVulnerabilityResults writes generic vulnerability findings as JSON
 func writeVulnerabilityResults(scanID, target string, findings []VulnerabilityResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "vulnerability",
-		Generated: time.Now().Format(time.RFC3339),
+		ScanID:          scanID,
+		Target:          target,
+		ScanType:        "vulnerability",
+		Generated:       time.Now().Format(time.RFC3339),
 		Vulnerabilities: findings,
 	}
 	return writeJSONResults(scanID, "vulnerabilities.json", output)
@@ -150,21 +150,21 @@ type PortsResult struct {
 
 func writePortsResults(scanID, target string, ports []PortsResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "ports",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "ports",
 		Generated: time.Now().Format(time.RFC3339),
 	}
 
 	// Map ports to vulnerabilities
 	for _, p := range ports {
 		output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-			Type:    "open_port",
+			Type:     "open_port",
 			Severity: "info",
-			URL:     "",
-			Target:  fmt.Sprintf("port:%d", p.Port),
-			Source:  "ports",
-			File:    "ports.json",
+			URL:      "",
+			Target:   fmt.Sprintf("port:%d", p.Port),
+			Source:   "ports",
+			File:     "ports.json",
 		})
 	}
 
@@ -181,22 +181,22 @@ type GFResult struct {
 
 func writeGFResults(scanID, target string, results []GFResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "gf",
-		Generated: time.Now().Format(time.RFC3339),
+		ScanID:          scanID,
+		Target:          target,
+		ScanType:        "gf",
+		Generated:       time.Now().Format(time.RFC3339),
 		Vulnerabilities: []VulnerabilityResult{},
 	}
 
 	// Map GF results to vulnerabilities
 	for _, r := range results {
 		output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-			Type:    "gf_pattern",
+			Type:     "gf_pattern",
 			Severity: r.Severity,
-			URL:     r.URL,
-			Target:  target,
-			Source:  "gf",
-			File:    fmt.Sprintf("gf-%s.json", r.Pattern),
+			URL:      r.URL,
+			Target:   target,
+			Source:   "gf",
+			File:     fmt.Sprintf("gf-%s.json", r.Pattern),
 		})
 	}
 
@@ -205,17 +205,17 @@ func writeGFResults(scanID, target string, results []GFResult) error {
 
 // writeTechResults writes technology detection results as JSON
 type TechResult struct {
-	URL    string `json:"url"`
-	Tech   string `json:"technology"`
-	Version string `json:"version,omitempty"`
+	URL      string `json:"url"`
+	Tech     string `json:"technology"`
+	Version  string `json:"version,omitempty"`
 	Category string `json:"category,omitempty"`
 }
 
 func writeTechResults(scanID, target string, results []TechResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "tech",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "tech",
 		Generated: time.Now().Format(time.RFC3339),
 	}
 
@@ -233,10 +233,10 @@ func writeTechResults(scanID, target string, results []TechResult) error {
 // writeZerodaysResults writes ZeroDays CVE scan results as JSON
 func writeZerodaysResults(scanID, target string, cves []VulnerabilityResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "zerodays",
-		Generated: time.Now().Format(time.RFC3339),
+		ScanID:          scanID,
+		Target:          target,
+		ScanType:        "zerodays",
+		Generated:       time.Now().Format(time.RFC3339),
 		Vulnerabilities: cves,
 	}
 	return writeJSONResults(scanID, "zerodays-results.json", output)
@@ -244,29 +244,29 @@ func writeZerodaysResults(scanID, target string, cves []VulnerabilityResult) err
 
 // writeS3Results writes S3 scan results as JSON
 type S3Result struct {
-	Bucket   string `json:"bucket"`
-	Objects  int    `json:"objects"`
-	Public   bool   `json:"public"`
-	URL      string `json:"url,omitempty"`
+	Bucket  string `json:"bucket"`
+	Objects int    `json:"objects"`
+	Public  bool   `json:"public"`
+	URL     string `json:"url,omitempty"`
 }
 
 func writeS3Results(scanID, target string, results []S3Result) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "s3",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "s3",
 		Generated: time.Now().Format(time.RFC3339),
 	}
 
 	for _, r := range results {
 		if r.Public {
 			output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-				Type:    "s3_bucket_public",
+				Type:     "s3_bucket_public",
 				Severity: "high",
-				URL:     r.URL,
-				Target:  r.Bucket,
-				Source:  "s3",
-				File:    "s3-vulnerabilities.json",
+				URL:      r.URL,
+				Target:   r.Bucket,
+				Source:   "s3",
+				File:     "s3-vulnerabilities.json",
 			})
 		}
 	}
@@ -285,21 +285,21 @@ type GitHubResult struct {
 
 func writeGitHubResults(scanID, repo string, results []GitHubResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   repo,
-		ScanType: "github",
+		ScanID:    scanID,
+		Target:    repo,
+		ScanType:  "github",
 		Generated: time.Now().Format(time.RFC3339),
 	}
 
 	// Map GitHub results to vulnerabilities
 	for _, r := range results {
 		output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-			Type:    fmt.Sprintf("github_%s", r.Type),
+			Type:     fmt.Sprintf("github_%s", r.Type),
 			Severity: "secrets",
-			URL:     r.Path,
-			Target:  repo,
-			Source:  "github",
-			File:    "github-secrets.json",
+			URL:      r.Path,
+			Target:   repo,
+			Source:   "github",
+			File:     "github-secrets.json",
 		})
 	}
 
@@ -308,29 +308,29 @@ func writeGitHubResults(scanID, repo string, results []GitHubResult) error {
 
 // writeDNSResults writes DNS takeover results as JSON
 type DNSResult struct {
-	Domain     string `json:"domain"`
-	CNAME      string `json:"cname,omitempty"`
+	Domain      string `json:"domain"`
+	CNAME       string `json:"cname,omitempty"`
 	Fingerprint string `json:"fingerprint,omitempty"`
-	Vulnerable bool   `json:"vulnerable"`
+	Vulnerable  bool   `json:"vulnerable"`
 }
 
 func writeDNSResults(scanID, target string, results []DNSResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "dns",
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  "dns",
 		Generated: time.Now().Format(time.RFC3339),
 	}
 
 	for _, r := range results {
 		if r.Vulnerable {
 			output.Vulnerabilities = append(output.Vulnerabilities, VulnerabilityResult{
-				Type:    "dns_takeover",
+				Type:     "dns_takeover",
 				Severity: "critical",
-				URL:     r.Domain,
-				Target:  r.Domain,
-				Source:  "dns",
-				File:    "dns-takeover-vulnerabilities.json",
+				URL:      r.Domain,
+				Target:   r.Domain,
+				Source:   "dns",
+				File:     "dns-takeover-vulnerabilities.json",
 			})
 		}
 	}
@@ -341,10 +341,10 @@ func writeDNSResults(scanID, target string, results []DNSResult) error {
 // writeReflectionResults writes XSS reflection scan results as JSON
 func writeReflectionResults(scanID, target string, findings []VulnerabilityResult) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: "reflection",
-		Generated: time.Now().Format(time.RFC3339),
+		ScanID:          scanID,
+		Target:          target,
+		ScanType:        "reflection",
+		Generated:       time.Now().Format(time.RFC3339),
 		Vulnerabilities: findings,
 	}
 	return writeJSONResults(scanID, "xss-reflection-vulnerabilities.json", output)
@@ -353,9 +353,9 @@ func writeReflectionResults(scanID, target string, findings []VulnerabilityResul
 // writeScanResults creates a comprehensive scan results structure
 func writeScanResults(scanID, target, scanType string, data map[string]interface{}) error {
 	output := ScanResults{
-		ScanID:   scanID,
-		Target:   target,
-		ScanType: scanType,
+		ScanID:    scanID,
+		Target:    target,
+		ScanType:  scanType,
 		Generated: time.Now().Format(time.RFC3339),
 	}
 

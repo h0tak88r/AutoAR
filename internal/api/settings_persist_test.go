@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
@@ -48,5 +49,26 @@ func TestHydrateEnvFromDB(t *testing.T) {
 	}
 	if got := os.Getenv("CHAOS_API_KEY"); got != "from-dokploy-env" {
 		t.Errorf("CHAOS_API_KEY = %q, want container env preserved %q", got, "from-dokploy-env")
+	}
+}
+
+func TestCountTokenPrefixes(t *testing.T) {
+	cases := []struct {
+		name string
+		v    string
+		want int
+	}{
+		{"empty", "", 0},
+		{"plain value", "some-random-key", 0},
+		{"one github pat", "ghp_" + strings.Repeat("a", 36), 1},
+		{"one fine-grained", "github_pat_" + strings.Repeat("b", 40), 1},
+		{"one openai-style", "sk-or-v1-abcdef", 1},
+		{"glued pair (the live incident)", "ghp_" + strings.Repeat("a", 36) + "ghp_" + strings.Repeat("c", 36), 2},
+		{"mixed glue", "sk-abcghp_" + strings.Repeat("d", 36), 2},
+	}
+	for _, tc := range cases {
+		if got := countTokenPrefixes(tc.v); got != tc.want {
+			t.Errorf("%s: countTokenPrefixes = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }

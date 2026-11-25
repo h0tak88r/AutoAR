@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 func main() {
@@ -51,22 +52,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	var cmd *exec.Cmd
 	switch mode {
 	case "api", "discord", "both":
 		fmt.Println("[entrypoint] Launching API Server...")
-		cmd = exec.Command("/usr/local/bin/autoar", "api")
 	default:
 		fmt.Fprintf(os.Stderr, "[entrypoint] Error: Invalid AUTOAR_MODE '%s'\n", mode)
 		fmt.Fprintf(os.Stderr, "[entrypoint] Valid modes: api\n")
 		os.Exit(1)
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
-
-	if err := cmd.Run(); err != nil {
+	// Replace this process with the server (exec, not fork) so autoar becomes
+	// tini's direct child and receives SIGTERM itself on `docker stop` — with a
+	// child process the signal stopped here and the API's graceful shutdown
+	// (db.Close, scan cleanup) never ran.
+	if err := syscall.Exec("/usr/local/bin/autoar", []string{"autoar", "api"}, os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "[entrypoint] Error: %v\n", err)
 		os.Exit(1)
 	}

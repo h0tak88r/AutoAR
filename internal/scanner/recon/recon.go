@@ -25,8 +25,8 @@ type Result struct {
 }
 
 // RunFullRecon runs subdomains, livehosts, tech, cnames and URL collection in a
-// single pipeline. The URL phase produces urls/all-urls.txt, which downstream
-// scanners (gf, sqlmap, …) consume — this is what the retired fastlook module did.
+// single pipeline. The URL phase produces urls/all-urls.txt and urls/js-urls.txt,
+// which downstream scanners (gf, sqlmap, JS scans, …) consume.
 func RunFullRecon(domain string, threads int) (*Result, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("domain is required")

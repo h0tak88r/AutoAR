@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
@@ -38,6 +39,8 @@ type Result struct {
 	TablePath  string
 	LogPath    string
 	TargetName string
+	ReconPath  string // recon.md digest (repo-mode scans only)
+	ReconCount int    // recon pattern findings (0 in org mode)
 }
 
 // Run executes the appropriate TruffleHog command based on Options.
@@ -114,8 +117,11 @@ func Run(opts Options) (*Result, error) {
 		if strings.Contains(line, `"level":`) || strings.Contains(line, `"logger":`) {
 			logLines = append(logLines, line)
 		} else if strings.HasPrefix(line, "{") {
-			// Actual finding JSON
-			jsonLines = append(jsonLines, line)
+			// Actual finding JSON — stripped of the plaintext secret before it
+			// touches disk (secrets.json is indexed for org scans).
+			if clean, ok := sanitizeTruffleHogLine(line); ok {
+				jsonLines = append(jsonLines, clean)
+			}
 		} else {
 			// Catch-all: plain text → log
 			logLines = append(logLines, line)
@@ -141,6 +147,33 @@ func Run(opts Options) (*Result, error) {
 		TargetName: target,
 	}
 
+	// Repo-mode extra: pre-chewed recon pass over the actual source tree.
+	// TruffleHog only reports secrets; this extracts the endpoints / infra /
+	// debug surface / tech stack / comment leads a hunter would grep for by
+	// hand. Failures are logged, never fatal — secrets results stand alone.
+	if opts.Mode == ModeRepo || opts.Mode == ModeExperimental {
+		sourceDir := filepath.Join(baseDir, "source")
+		cloneURL := normalizeRepo(opts.Repo)
+		if !strings.Contains(cloneURL, "://") {
+			cloneURL = "https://github.com/" + cloneURL + ".git"
+		}
+		logger.GetLogger().Infof("[REPO-RECON] cloning %s for recon pass…", cloneURL)
+		if cerr := shallowClone(cloneURL, sourceDir); cerr != nil {
+			logger.GetLogger().Infof("[REPO-RECON] clone failed, recon skipped: %v", cerr)
+		} else if n, digest, rerr := ReconScan(sourceDir, baseDir); rerr != nil {
+			logger.GetLogger().Infof("[REPO-RECON] recon scan failed: %v", rerr)
+		} else {
+			result.ReconPath = digest
+			result.ReconCount = n
+			publishRecon(baseDir, reconIndexDir(utils.GetResultsDir(), opts.Repo))
+		}
+		// The checkout is only recon input: never leave a third-party repo
+		// under results/ (the artifact indexer would copy and index every file).
+		if rmErr := os.RemoveAll(sourceDir); rmErr != nil {
+			logger.GetLogger().Infof("[REPO-RECON] could not remove clone %s: %v", sourceDir, rmErr)
+		}
+	}
+
 	// Write JSON results to scan directory (local-first)
 	if scanID := utils.GetCurrentScanID(); scanID != "" && result != nil {
 		data, readErr := os.ReadFile(result.JSONPath)
@@ -157,6 +190,7 @@ func Run(opts Options) (*Result, error) {
 				if err := json.Unmarshal([]byte(line), &native); err != nil {
 					continue
 				}
+				stripPlaintextSecrets(native) // github-secrets.json → dashboard/DB/R2
 				var secret TruffleHogSecret
 				if err := json.Unmarshal([]byte(line), &secret); err != nil {
 					continue
@@ -204,6 +238,80 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+// plaintextSecretFields are the TruffleHog result fields that carry the secret
+// itself. They are dropped before anything is persisted (secrets.json in the
+// results tree, github-secrets.json → dashboard/DB/R2); detector, location,
+// Verified and Redacted (or a masked stand-in) are kept.
+var plaintextSecretFields = []string{"Raw", "RawV2"}
+
+// stripPlaintextSecrets removes plaintextSecretFields from a TruffleHog result,
+// filling an empty Redacted with a masked form of Raw so the finding still says
+// which credential it is.
+func stripPlaintextSecrets(native map[string]interface{}) {
+	if red, _ := native["Redacted"].(string); strings.TrimSpace(red) == "" {
+		if raw, _ := native["Raw"].(string); raw != "" {
+			native["Redacted"] = utils.MaskSecret(raw)
+		}
+	}
+	for _, k := range plaintextSecretFields {
+		delete(native, k)
+	}
+}
+
+// sanitizeTruffleHogLine re-encodes one TruffleHog JSON result without its
+// plaintext secret fields. ok is false for lines that are not a JSON object
+// (they cannot be sanitized, so they are not persisted).
+func sanitizeTruffleHogLine(line string) (string, bool) {
+	var native map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &native); err != nil {
+		return "", false
+	}
+	stripPlaintextSecrets(native)
+	b, err := json.Marshal(native)
+	if err != nil {
+		return "", false
+	}
+	return string(b), true
+}
+
+// reconIndexDir is where the API's artifact indexer looks for a repo scan
+// (indexScanArtifacts: <results>/github/repos/<repo as submitted>). The scan's
+// own dir uses the sanitized "owner-repo" segment, so recon.md never reached
+// the dashboard. Returns "" when the submitted repo would escape github/repos.
+func reconIndexDir(resultsDir, repo string) string {
+	root := filepath.Join(resultsDir, "github", "repos")
+	dir := filepath.Join(root, strings.TrimSpace(repo))
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return dir
+}
+
+// publishRecon mirrors recon.md / recon.json (only those — not secrets.json or
+// logs) from the scan dir into the indexer's dir.
+func publishRecon(fromDir, indexDir string) {
+	if indexDir == "" {
+		return
+	}
+	if a, b := filepath.Clean(fromDir), filepath.Clean(indexDir); a == b {
+		return
+	}
+	if err := os.MkdirAll(indexDir, 0o755); err != nil {
+		logger.GetLogger().Infof("[REPO-RECON] could not create index dir %s: %v", indexDir, err)
+		return
+	}
+	for _, name := range []string{"recon.md", "recon.json"} {
+		data, err := os.ReadFile(filepath.Join(fromDir, name))
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(indexDir, name), data, 0o644); err != nil {
+			logger.GetLogger().Infof("[REPO-RECON] could not publish %s: %v", name, err)
+		}
+	}
 }
 
 func buildTrufflehogCommand(ctx context.Context, opts Options) (*exec.Cmd, error) {

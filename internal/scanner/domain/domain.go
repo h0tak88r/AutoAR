@@ -128,7 +128,7 @@ func RunDomain(opts ScanOptions) (*Result, error) {
 		{"tech", "Technology detection", func() error { _, err := tech.DetectTech(domain, 150); return err }, 0},
 		{"ports", "Port scanning", func() error { _, err := ports.ScanPorts(domain, 150); return err }, 0},
 		{"urls", "URL collection", func() error { _, err := urls.CollectURLs(domain, 150, false); return err }, 0},
-		{"jsscan", "JavaScript scan", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 150}); return err }, 0},
+		{"jsscan", "Client-side scan (JS secrets + sinks)", func() error { _, err := jsscan.Run(jsscan.Options{Domain: domain, Threads: 150}); return err }, 0},
 		{"dns", "DNS takeover scan", func() error { return dns.Takeover(domain) }, 0},
 		{"mcp-discovery", "MCP server discovery", func() error {
 			lh := ""

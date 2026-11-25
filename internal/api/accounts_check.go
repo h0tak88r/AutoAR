@@ -13,14 +13,11 @@ import (
 	"github.com/h0tak88r/AutoAR/internal/db"
 )
 
-// A browser-like UA for the Bugcrowd session-cookie check (its edge rejects
-// obviously-scripted clients). This authenticates to Bugcrowd as the researcher
-// to list *their own* programs — a normal platform interaction, not target probing.
-const acctCheckUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-
-// GET /api/accounts/:id/check — validate one stored account's credentials against
-// its platform with a single lightweight authenticated request. Returns a status:
-// valid | invalid | blocked | unsupported | error.
+// GET /api/accounts/:id/check[?force=1] — validate one stored account's
+// credentials against its platform with a single lightweight authenticated
+// request. Returns a status: valid | invalid | blocked | unsupported | error.
+// A Bugcrowd account with email + password signs in again when its session
+// has expired; force=1 (the Test button) retries a sign-in that failed lately.
 func apiCheckBBPAccount(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -43,19 +40,29 @@ func apiCheckBBPAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 		return
 	}
-	status, detail := checkAccountCredential(*acct)
+	status, detail := checkAccountCredential(*acct, c.Query("force") == "1")
+	// A Bugcrowd check may have signed in again and saved a new session.
+	refreshed := false
+	if accounts.Canonical(acct.Platform) == "bc" {
+		if rows, err := db.ListBBPAccounts("bc"); err == nil {
+			for _, r := range rows {
+				refreshed = refreshed || (r.ID == id && r.Token != acct.Token)
+			}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"id":       id,
-		"platform": acct.Platform,
-		"status":   status,
-		"detail":   detail,
-		"valid":    status == "valid",
+		"id":        id,
+		"platform":  acct.Platform,
+		"status":    status,
+		"detail":    detail,
+		"valid":     status == "valid",
+		"refreshed": refreshed,
 	})
 }
 
 // checkAccountCredential makes one minimal authenticated call per platform and
 // classifies the outcome. It never returns program data — only a status.
-func checkAccountCredential(a db.BBPAccount) (status, detail string) {
+func checkAccountCredential(a db.BBPAccount, force bool) (status, detail string) {
 	client := &http.Client{
 		Timeout: 12 * time.Second,
 		// Don't follow redirects: an expired Bugcrowd session 302s to the login
@@ -99,7 +106,7 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		if a.Email != "" && a.Password != "" {
 			jwt, rerr := ywhReauth(a.Email, a.Password, a.TOTPSecret)
 			if rerr != nil {
-				return "invalid", "re-auth failed: "+trimErr(rerr.Error())
+				return "invalid", "re-auth failed: " + trimErr(rerr.Error())
 			}
 			if a.ID > 0 {
 				if err := db.UpdateBBPAccountToken(a.ID, jwt); err != nil {
@@ -114,16 +121,13 @@ func checkAccountCredential(a db.BBPAccount) (status, detail string) {
 		return "invalid", "JWT expired — add email/password (+2FA) to auto-refresh"
 
 	case "bc":
-		if a.Token == "" {
-			return "invalid", "missing session cookie"
+		// The session is checked against /dashboard (see bugcrowd.CheckSession);
+		// an expired one is renewed from the email + password + 2FA secret.
+		_, st, d := accounts.BugcrowdSession(accounts.FromDB(a), force)
+		if st == "refreshed" {
+			return "valid", d
 		}
-		// /dashboard requires an authenticated session: a valid _crowdcontrol_session_key
-		// returns 200, an expired/invalid one 302-redirects to /user/sign_in. (The public
-		// engagements.json list is NOT auth-gated, so it can't tell a good token from a bad one.)
-		req, _ := http.NewRequest("GET", "https://bugcrowd.com/dashboard", nil)
-		req.Header.Set("Cookie", "_crowdcontrol_session_key="+a.Token)
-		req.Header.Set("User-Agent", acctCheckUA)
-		return interpretBugcrowd(client.Do(req))
+		return st, d
 
 	default:
 		return "unsupported", "no validity check for this platform"
@@ -142,28 +146,6 @@ func interpretAPI(resp *http.Response, err error) (string, string) {
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
 		return "invalid", fmt.Sprintf("credential rejected (%d)", resp.StatusCode)
 	case resp.StatusCode == 429:
-		return "blocked", "rate limited (429) — try again shortly"
-	default:
-		return "error", fmt.Sprintf("unexpected status %d", resp.StatusCode)
-	}
-}
-
-// interpretBugcrowd handles the cookie-auth case against /dashboard: a valid
-// session returns 200; an expired/invalid one 302-redirects to the login page
-// (redirects are not followed, so we see the 3xx directly).
-func interpretBugcrowd(resp *http.Response, err error) (string, string) {
-	if err != nil {
-		return "error", trimErr(err.Error())
-	}
-	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case 200:
-		return "valid", "session authenticated (200)"
-	case 301, 302, 303, 307, 308, 401:
-		return "invalid", "session cookie expired or invalid — re-grab it"
-	case 403, 406:
-		return "blocked", "Bugcrowd WAF/IP block — try again later"
-	case 429:
 		return "blocked", "rate limited (429) — try again shortly"
 	default:
 		return "error", fmt.Sprintf("unexpected status %d", resp.StatusCode)

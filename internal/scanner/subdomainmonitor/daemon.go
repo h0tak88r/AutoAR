@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"strconv"
 	"sync"
 	"time"
 
@@ -48,21 +49,30 @@ func StartDaemon() error {
 	logger.GetLogger().Infoln("[INFO] Starting subdomain monitoring daemon...")
 
 	daemonWg.Add(1)
-	go func() {
-		defer daemonWg.Done()
-		defer utils.RecoverPanic("subdomain-monitor:loop")
-		runDaemonLoop()
-	}()
+	go superviseLoop(stopDaemon)
 
 	return nil
+}
+
+// superviseLoop runs the daemon loop. However the loop ends (stop, or a panic
+// that escaped a tick), it clears daemonRunning so IsDaemonRunning tells the
+// truth and StartDaemon can start it again.
+func superviseLoop(stop chan struct{}) {
+	defer daemonWg.Done()
+	defer utils.RecoverPanic("subdomain-monitor:loop")
+	defer func() {
+		daemonMutex.Lock()
+		daemonRunning = false
+		daemonMutex.Unlock()
+	}()
+	runDaemonLoop(stop)
 }
 
 // StopDaemon stops the subdomain monitoring daemon
 func StopDaemon() error {
 	daemonMutex.Lock()
-	defer daemonMutex.Unlock()
-
 	if !daemonRunning {
+		daemonMutex.Unlock()
 		return fmt.Errorf("daemon is not running")
 	}
 
@@ -73,9 +83,10 @@ func StopDaemon() error {
 			close(stopDaemon)
 		}
 	})
-
+	daemonMutex.Unlock()
+	// Wait outside daemonMutex: the loop goroutine takes it on exit to clear
+	// daemonRunning.
 	daemonWg.Wait()
-	daemonRunning = false
 
 	logger.GetLogger().Infoln("[OK] Subdomain monitoring daemon stopped")
 	return nil
@@ -88,19 +99,182 @@ func IsDaemonRunning() bool {
 	return daemonRunning
 }
 
+// tickInterval / tickFn drive the loop (vars so tests can run it fast).
+var (
+	tickInterval = 60 * time.Second
+	tickFn       = checkAllRunningTargets
+)
+
 // runDaemonLoop is the main daemon loop that checks targets periodically
-func runDaemonLoop() {
-	ticker := time.NewTicker(60 * time.Second)
+func runDaemonLoop(stop chan struct{}) {
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-stopDaemon:
+		case <-stop:
 			return
 		case <-ticker.C:
-			checkAllRunningTargets()
+			// Per-tick panic barrier: one bad cycle must not end the loop.
+			utils.GuardedRun("subdomain-monitor:tick", tickFn)
 		}
 	}
+}
+
+// minCheckInterval floors a target's interval (the API accepts 1s): each run
+// re-enumerates passively and probes every known host.
+const minCheckInterval = 300 * time.Second
+
+// minRetryDelay is the first backoff step after a failed run.
+const minRetryDelay = 5 * time.Minute
+
+// effectiveInterval is the target's interval, floored at minCheckInterval.
+func effectiveInterval(seconds int) time.Duration {
+	d := time.Duration(seconds) * time.Second
+	if d < minCheckInterval {
+		d = minCheckInterval
+	}
+	return d
+}
+
+// failureBackoff is the wait after n consecutive failed runs: 5m, 10m, 20m, …
+// capped at the target's interval.
+func failureBackoff(n int, interval time.Duration) time.Duration {
+	d := minRetryDelay
+	for i := 1; i < n && d < interval; i++ {
+		d *= 2
+	}
+	if d > interval {
+		d = interval
+	}
+	return d
+}
+
+// Failed runs never advance last_run_at, so without this a failing target was
+// re-run on every 60s tick. Attempts are tracked in memory and failures back off.
+var (
+	retryMu    sync.Mutex
+	retryState = map[int]retryInfo{}
+)
+
+type retryInfo struct {
+	failures int
+	next     time.Time
+}
+
+// retryDue reports whether a target that recently failed may run again.
+func retryDue(id int, now time.Time) bool {
+	retryMu.Lock()
+	defer retryMu.Unlock()
+	st, ok := retryState[id]
+	return !ok || !now.Before(st.next)
+}
+
+// recordAttempt clears the failure state on success, or schedules the next
+// retry after failureBackoff.
+func recordAttempt(id int, ok bool, interval time.Duration, now time.Time) {
+	retryMu.Lock()
+	defer retryMu.Unlock()
+	if ok {
+		delete(retryState, id)
+		return
+	}
+	st := retryState[id]
+	st.failures++
+	st.next = now.Add(failureBackoff(st.failures, interval))
+	retryState[id] = st
+}
+
+// Per-feature baselines. A feature's first successful run records what exists
+// silently; only later runs alert. Keying this off LastRunAt alone flooded when
+// a feature was enabled on an existing target (last_run_at already set) or when
+// the baseline run's enumeration/JS diff failed (last_run_at set anyway). The
+// set of baselined features per target lives in one settings row.
+const (
+	settingBaselines = "SUBDOMAIN_MONITOR_BASELINES"
+	featureReenum    = "reenumerate"
+	featureJS        = "js"
+)
+
+var baselineMu sync.Mutex
+
+func readBaselines() (map[string]map[string]bool, error) {
+	all := map[string]map[string]bool{}
+	v, err := db.GetSetting(settingBaselines)
+	if err != nil {
+		return nil, err
+	}
+	if v != "" {
+		if err := json.Unmarshal([]byte(v), &all); err != nil {
+			return nil, err
+		}
+	}
+	return all, nil
+}
+
+// loadBaselines returns the target's baselined features (empty on error, which
+// errs toward a silent baseline run rather than a flood).
+func loadBaselines(id int) map[string]bool {
+	baselineMu.Lock()
+	defer baselineMu.Unlock()
+	all, err := readBaselines()
+	if err != nil {
+		logger.GetLogger().Infof("[WARN] Subdomain monitor: could not read baselines: %v", err)
+		return map[string]bool{}
+	}
+	out := map[string]bool{}
+	for k, v := range all[strconv.Itoa(id)] {
+		out[k] = v
+	}
+	return out
+}
+
+// saveBaselines replaces the target's baselined-feature set (a read failure
+// aborts the write so other targets' markers are never clobbered).
+func saveBaselines(id int, features map[string]bool) error {
+	baselineMu.Lock()
+	defer baselineMu.Unlock()
+	all, err := readBaselines()
+	if err != nil {
+		return err
+	}
+	key := strconv.Itoa(id)
+	if len(features) == 0 {
+		delete(all, key)
+	} else {
+		all[key] = features
+	}
+	b, err := json.Marshal(all)
+	if err != nil {
+		return err
+	}
+	return db.SetSetting(settingBaselines, string(b))
+}
+
+// nextBaselines computes a target's baselined features after a successful run:
+// a feature is marked once its step completed with usable data, and forgotten
+// when the feature is disabled (re-enabling it baselines again).
+func nextBaselines(prev map[string]bool, checkNew, monitorJS, reenumOK, jsOK bool) map[string]bool {
+	next := map[string]bool{}
+	if checkNew && (prev[featureReenum] || reenumOK) {
+		next[featureReenum] = true
+	}
+	if monitorJS && (prev[featureJS] || jsOK) {
+		next[featureJS] = true
+	}
+	return next
+}
+
+func sameFeatures(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // checkAllRunningTargets checks all running subdomain monitor targets
@@ -124,10 +298,13 @@ func checkAllRunningTargets() {
 		} else {
 			lastCheck = target.CreatedAt // first run ever
 		}
-		interval := time.Duration(target.Interval) * time.Second
+		interval := effectiveInterval(target.Interval)
 
 		if now.Before(lastCheck.Add(interval)) {
 			continue // not time yet
+		}
+		if !retryDue(target.ID, now) {
+			continue // recent failure — backing off
 		}
 
 		// Skip if a scan for this target is already in flight (it outran its
@@ -147,20 +324,25 @@ func checkAllRunningTargets() {
 				delete(monitorInFlight, t.ID)
 				monitorInFlightMu.Unlock()
 			}()
+			ok := false // stays false on panic, so a panicking target backs off too
+			defer func() { recordAttempt(t.ID, ok, effectiveInterval(t.Interval), time.Now()) }()
 			logger.GetLogger().Infof("[INFO] Running subdomain monitoring for %s (interval: %ds)", t.Domain, t.Interval)
 
-			// First run for this target establishes a baseline (no new_subdomain /
-			// new_js_endpoint spam); LastRunAt is nil until the post-run update below.
-			isBaseline := t.LastRunAt == nil
+			// Each feature's first successful run establishes its baseline (no
+			// new_subdomain / new_js_endpoint spam) — tracked per feature, not by
+			// LastRunAt, so enabling a feature later or a failed baseline run can't
+			// flood the next run.
+			baselines := loadBaselines(t.ID)
 
 			result, err := MonitorSubdomains(MonitorOptions{
-				Domain:           t.Domain,
-				Threads:          t.Threads,
-				CheckNew:         t.CheckNew,
-				Reenumerate:      t.CheckNew, // "detect new subs" also drives passive re-enumeration
-				MonitorJS:        t.MonitorJS,
-				SuppressBaseline: isBaseline,
-				Notify:           true,
+				Domain:               t.Domain,
+				Threads:              t.Threads,
+				CheckNew:             t.CheckNew,
+				Reenumerate:          t.CheckNew, // "detect new subs" also drives passive re-enumeration
+				MonitorJS:            t.MonitorJS,
+				SuppressEnumBaseline: !baselines[featureReenum],
+				SuppressJSBaseline:   !baselines[featureJS],
+				Notify:               true,
 			})
 			if err != nil {
 				logger.GetLogger().Infof("[ERROR] Failed to monitor subdomains for %s: %v", t.Domain, err)
@@ -170,6 +352,13 @@ func checkAllRunningTargets() {
 			// Update last_run_at (the fix for the timer bug)
 			if err := db.UpdateSubdomainMonitorLastRun(t.ID); err != nil {
 				logger.GetLogger().Infof("[WARN] Failed to update last_run_at for %s: %v", t.Domain, err)
+			} else {
+				ok = true
+			}
+			if next := nextBaselines(baselines, t.CheckNew, t.MonitorJS, result.ReenumOK, result.JSDiffOK); !sameFeatures(next, baselines) {
+				if err := saveBaselines(t.ID, next); err != nil {
+					logger.GetLogger().Infof("[WARN] Failed to save monitor baselines for %s: %v", t.Domain, err)
+				}
 			}
 
 			totalChanges := len(result.NewSubdomains) + len(result.StatusChanges) +

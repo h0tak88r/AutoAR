@@ -1,469 +1,570 @@
 (() => {
-  const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
-  const fmtDate = (...args) => (typeof window.fmtDate === 'function' ? window.fmtDate(...args) : String(args[0] ?? ''));
-  const fmtInterval = (...args) => (typeof window.fmtInterval === 'function' ? window.fmtInterval(...args) : String(args[0] ?? ''));
-  const timeAgo = (...args) => (typeof window.timeAgo === 'function' ? window.timeAgo(...args) : String(args[0] ?? ''));
-  const humanChangeType = (...args) => (typeof window.humanChangeType === 'function' ? window.humanChangeType(...args) : String(args[0] ?? ''));
+ const esc = (...args) => (typeof window.esc === 'function' ? window.esc(...args) : String(args[0] ?? ''));
+ const fmtDate = (...args) => (typeof window.fmtDate === 'function' ? window.fmtDate(...args) : String(args[0] ?? ''));
+ const fmtInterval = (...args) => (typeof window.fmtInterval === 'function' ? window.fmtInterval(...args) : String(args[0] ?? ''));
+ const timeAgo = (...args) => (typeof window.timeAgo === 'function' ? window.timeAgo(...args) : String(args[0] ?? ''));
+ const humanChangeType = (...args) => (typeof window.humanChangeType === 'function' ? window.humanChangeType(...args) : String(args[0] ?? ''));
 
-  async function loadMonitor() {
-    const [targets, subTargets, changes] = await Promise.allSettled([
-      window.apiFetch('/api/monitor/targets'),
-      window.apiFetch('/api/monitor/subdomain-targets'),
-      window.apiFetch('/api/monitor/changes'),
-    ]);
-    window.state.monitorTargets = targets.status === 'fulfilled' ? (targets.value.targets || []) : [];
-    window.state.subMonitorTargets = subTargets.status === 'fulfilled' ? (subTargets.value.targets || []) : [];
-    window.state.monitorChanges = changes.status === 'fulfilled' ? (changes.value.changes || []) : [];
-    if (window.state.view === 'monitor') renderMonitor();
-  }
+ async function loadMonitor() {
+ const [targets, subTargets, hunterTargets, changes] = await Promise.allSettled([
+ window.apiFetch('/api/monitor/targets'),
+ window.apiFetch('/api/monitor/subdomain-targets'),
+ window.apiFetch('/api/monitor/hunter-targets'),
+ window.apiFetch('/api/monitor/changes'),
+ ]);
+ window.state.monitorTargets = targets.status === 'fulfilled' ? (targets.value.targets || []) : [];
+ window.state.subMonitorTargets = subTargets.status === 'fulfilled' ? (subTargets.value.targets || []) : [];
+ window.state.hunterMonitorTargets = hunterTargets.status === 'fulfilled' ? (hunterTargets.value.targets || []) : [];
+ window.state.monitorChanges = changes.status === 'fulfilled' ? (changes.value.changes || []) : [];
+ if (window.state.view === 'monitor') renderMonitor();
+ }
 
-  function syncMonitorUrlPatternVisibility() {
-    const strat = document.getElementById('monitor-url-strategy');
-    const wrap = document.getElementById('monitor-url-pattern-wrap');
-    if (!strat || !wrap) return;
-    wrap.style.display = strat.value === 'regex' ? 'block' : 'none';
-  }
+ function syncMonitorUrlPatternVisibility() {
+ const strat = document.getElementById('monitor-url-strategy');
+ const wrap = document.getElementById('monitor-url-pattern-wrap');
+ if (!strat || !wrap) return;
+ wrap.style.display = strat.value === 'regex' ? 'block' : 'none';
+ }
 
-  async function quickAddUrlMonitor() {
-    const urlEl = document.getElementById('monitor-url-input');
-    const stratEl = document.getElementById('monitor-url-strategy');
-    const patEl = document.getElementById('monitor-url-pattern');
-    const startEl = document.getElementById('monitor-url-autostart');
-    if (!urlEl) return;
-    const rawUrl = urlEl.value.trim();
-    if (!rawUrl) {
-      window.showToast('error', 'URL required', 'Enter a page to watch for changes.');
-      return;
-    }
-    const strategy = stratEl ? stratEl.value : 'hash';
-    const pattern = patEl ? patEl.value.trim() : '';
-    const start = startEl ? startEl.checked : true;
-    try {
-      await window.apiPost('/api/monitor/url-targets', {
-        url: rawUrl,
-        strategy,
-        pattern: strategy === 'regex' ? pattern : '',
-        start,
-      });
-      window.showToast('success', 'URL monitor added', start ? 'The URL worker is checking in the background.' : 'Saved; enable from CLI with monitor updates start if needed.');
-      urlEl.value = '';
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Could not add URL monitor', e.message);
-    }
-  }
+ async function quickAddUrlMonitor() {
+ const urlEl = document.getElementById('monitor-url-input');
+ const stratEl = document.getElementById('monitor-url-strategy');
+ const patEl = document.getElementById('monitor-url-pattern');
+ const startEl = document.getElementById('monitor-url-autostart');
+ if (!urlEl) return;
+ const rawUrl = urlEl.value.trim();
+ if (!rawUrl) {
+ window.showToast('error', 'URL required', 'Enter a page to watch for changes.');
+ return;
+ }
+ const strategy = stratEl ? stratEl.value : 'hash';
+ const pattern = patEl ? patEl.value.trim() : '';
+ const start = startEl ? startEl.checked : true;
+ try {
+ await window.apiPost('/api/monitor/url-targets', {
+ url: rawUrl,
+ strategy,
+ pattern: strategy === 'regex' ? pattern : '',
+ start,
+ });
+ window.showToast('success', 'URL monitor added', start ? 'The URL worker is checking in the background.' : 'Saved; enable from CLI with monitor updates start if needed.');
+ urlEl.value = '';
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Could not add URL monitor', e.message);
+ }
+ }
 
-  async function quickAddSubdomainMonitor() {
-    const dEl = document.getElementById('monitor-sub-domain-input');
-    const intEl = document.getElementById('monitor-sub-interval');
-    const thEl = document.getElementById('monitor-sub-threads');
-    const cnEl = document.getElementById('monitor-sub-checknew');
-    const jsEl = document.getElementById('monitor-sub-monitorjs');
-    const stEl = document.getElementById('monitor-sub-autostart');
-    if (!dEl) return;
-    const domain = dEl.value.trim().toLowerCase();
-    if (!domain) {
-      window.showToast('error', 'Domain required', 'Enter a root domain (e.g. example.com).');
-      return;
-    }
-    const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 86400) : 86400;
-    const threads = thEl ? Math.min(500, Math.max(1, parseInt(thEl.value, 10) || 100)) : 100;
-    const check_new = cnEl ? cnEl.checked : true;
-    const monitor_js = jsEl ? jsEl.checked : false;
-    const start = stEl ? stEl.checked : true;
-    try {
-      await window.apiPost('/api/monitor/subdomain-targets', {
-        domain,
-        interval_seconds,
-        threads,
-        check_new,
-        monitor_js,
-        start,
-      });
-      window.showToast('success', 'Subdomain monitor added', start ? 'The subdomain monitor daemon will run on your interval.' : 'Saved; start from CLI when ready.');
-      dEl.value = '';
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Could not add subdomain monitor', e.message);
-    }
-  }
+ async function quickAddSubdomainMonitor() {
+ const dEl = document.getElementById('monitor-sub-domain-input');
+ const intEl = document.getElementById('monitor-sub-interval');
+ const thEl = document.getElementById('monitor-sub-threads');
+ const cnEl = document.getElementById('monitor-sub-checknew');
+ const jsEl = document.getElementById('monitor-sub-monitorjs');
+ const stEl = document.getElementById('monitor-sub-autostart');
+ if (!dEl) return;
+ const domain = dEl.value.trim().toLowerCase();
+ if (!domain) {
+ window.showToast('error', 'Domain required', 'Enter a root domain (e.g. example.com).');
+ return;
+ }
+ const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 86400) : 86400;
+ const threads = thEl ? Math.min(500, Math.max(1, parseInt(thEl.value, 10) || 100)) : 100;
+ const check_new = cnEl ? cnEl.checked : true;
+ const monitor_js = jsEl ? jsEl.checked : false;
+ const start = stEl ? stEl.checked : true;
+ try {
+ await window.apiPost('/api/monitor/subdomain-targets', {
+ domain,
+ interval_seconds,
+ threads,
+ check_new,
+ monitor_js,
+ start,
+ });
+ window.showToast('success', 'Subdomain monitor added', start ? 'The subdomain monitor daemon will run on your interval.' : 'Saved; start from CLI when ready.');
+ dEl.value = '';
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Could not add subdomain monitor', e.message);
+ }
+ }
 
-  async function runMonitorAISuggest() {
-    const inp = document.getElementById('monitor-ai-domain');
-    const btn = document.getElementById('monitor-ai-suggest-btn');
-    const meta = document.getElementById('monitor-ai-suggest-meta');
-    const box = document.getElementById('monitor-ai-suggest-results');
-    if (!inp) return;
-    const domain = inp.value.trim();
-    if (!domain) {
-      window.showToast('error', 'Domain required', 'e.g. example.com');
-      return;
-    }
-    if (btn) btn.disabled = true;
-    if (meta) {
-      meta.style.display = 'block';
-      meta.textContent = 'Probing common release/changelog paths (may take up to a minute)…';
-    }
-    if (box) {
-      box.style.display = 'none';
-      box.innerHTML = '';
-    }
-    try {
-      const res = await window.apiPost('/api/monitor/suggest-from-domain', { domain });
-      window.state._monitorSuggestCache = res;
-      if (meta) {
-        const mode = res.ai ? 'AI-ranked' : 'Heuristic ranking (set OPENROUTER_API_KEY on the API server for AI)';
-        meta.textContent = `${mode} · ${res.candidates_probed || 0} HTML pages found`;
-      }
-      renderMonitorAISuggestResults(res);
-    } catch (e) {
-      if (meta) meta.textContent = '';
-      window.showToast('error', 'Suggest failed', e.message);
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
+ async function quickAddHunterMonitor() {
+ const uEl = document.getElementById('monitor-hunter-username-input');
+ const intEl = document.getElementById('monitor-hunter-interval');
+ const stEl = document.getElementById('monitor-hunter-autostart');
+ if (!uEl) return;
+ const username = uEl.value.trim().replace(/^@/, '');
+ if (!username) {
+ window.showToast('error', 'Username required', 'Enter a HackerOne username (e.g. 0x88).');
+ return;
+ }
+ const interval_seconds = intEl ? Math.max(60, parseInt(intEl.value, 10) || 3600) : 3600;
+ const start = stEl ? stEl.checked : true;
+ try {
+ await window.apiPost('/api/monitor/hunter-targets', {
+ username,
+ interval_seconds,
+ start,
+ });
+ window.showToast('success', 'Hunter monitor added', start ? 'Watching for new resolved reports and reputation gains.' : 'Saved; resume when ready.');
+ uEl.value = '';
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Could not add hunter monitor', e.message);
+ }
+ }
 
-  function renderMonitorAISuggestResults(res) {
-    const box = document.getElementById('monitor-ai-suggest-results');
-    if (!box) return;
-    const rows = res.suggestions || [];
-    if (!rows.length) {
-      box.style.display = 'block';
-      box.innerHTML = '<div class="empty-state" style="padding:12px"><div class="empty-title">No pages found</div><div style="font-size:12px;color:var(--text-muted)">Try another domain or add a URL manually above.</div></div>';
-      return;
-    }
-    let html = '<table class="data-table"><thead><tr><th style="width:36px"></th><th>URL</th><th>Score</th><th>Strategy</th><th>Reason</th></tr></thead><tbody>';
-    rows.forEach((r, i) => {
-      const url = r.URL || r.url || '';
-      const strat = (r.Strategy || r.strategy || 'hash').toLowerCase();
-      const score = r.Score ?? r.score ?? 0;
-      const reason = r.Reason || r.reason || '';
-      const title = r.Title || r.title || '';
-      html += `<tr data-index="${i}">
-        <td><input type="checkbox" class="monitor-suggest-cb" data-url="${esc(url)}" data-strategy="${esc(strat)}" checked /></td>
-        <td><span style="font-size:12px;color:var(--accent-cyan)">${esc(url)}</span>${title ? `<div style="font-size:11px;color:var(--text-muted)">${esc(title)}</div>` : ''}</td>
-        <td>${esc(String(score))}</td>
-        <td><span class="scan-type">${esc(strat)}</span></td>
-        <td style="font-size:11px;color:var(--text-muted)">${esc(reason).slice(0, 200)}</td>
-      </tr>`;
-    });
-    html += '</tbody></table>';
-    html += '<div style="margin-top:12px"><button type="button" class="btn btn-primary" onclick="window.MonitorPage.addSelectedMonitorSuggestions()">Add selected as monitors</button></div>';
-    box.innerHTML = html;
-    box.style.display = 'block';
-  }
+ async function pauseHunterMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/hunter-targets/${encodeURIComponent(id)}/pause`, {});
+ window.showToast('success', 'Hunter monitor paused', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Pause failed', e.message);
+ }
+ }
 
-  async function addSelectedMonitorSuggestions() {
-    const cbs = Array.from(document.querySelectorAll('.monitor-suggest-cb:checked'));
-    if (!cbs.length) {
-      window.showToast('error', 'None selected', 'Check at least one URL.');
-      return;
-    }
-    let ok = 0;
-    for (const cb of cbs) {
-      const url = cb.getAttribute('data-url');
-      const strategy = cb.getAttribute('data-strategy') || 'hash';
-      try {
-        await window.apiPost('/api/monitor/url-targets', {
-          url,
-          strategy,
-          pattern: '',
-          start: true,
-        });
-        ok++;
-      } catch (e) {
-        window.showToast('error', 'Add failed', `${url}: ${e.message}`);
-        return;
-      }
-    }
-    window.showToast('success', 'Monitors added', `${ok} URL monitor(s) started.`);
-    const resBox = document.getElementById('monitor-ai-suggest-results');
-    if (resBox) resBox.style.display = 'none';
-    const meta = document.getElementById('monitor-ai-suggest-meta');
-    if (meta) meta.style.display = 'none';
-    await loadMonitor();
-    window.loadStats();
-  }
+ async function resumeHunterMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/hunter-targets/${encodeURIComponent(id)}/resume`, {});
+ window.showToast('success', 'Hunter monitor resumed', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Resume failed', e.message);
+ }
+ }
 
-  async function pauseUrlMonitor(id) {
-    try {
-      await window.apiPost(`/api/monitor/url-targets/${encodeURIComponent(id)}/pause`, {});
-      window.showToast('success', 'Monitor paused', 'URL checks are stopped for this target.');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Pause failed', e.message);
-    }
-  }
+ async function deleteHunterMonitor(id) {
+ if (!await window.uiConfirm('Remove this hunter monitor?')) return;
+ try {
+ await window.apiDelete(`/api/monitor/hunter-targets/${encodeURIComponent(id)}`);
+ window.showToast('success', 'Monitor removed', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Delete failed', e.message);
+ }
+ }
 
-  async function resumeUrlMonitor(id) {
-    try {
-      await window.apiPost(`/api/monitor/url-targets/${encodeURIComponent(id)}/resume`, {});
-      window.showToast('success', 'Monitor resumed', 'The URL worker will pick this target up.');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Resume failed', e.message);
-    }
-  }
+ async function runMonitorAISuggest() {
+ const inp = document.getElementById('monitor-ai-domain');
+ const btn = document.getElementById('monitor-ai-suggest-btn');
+ const meta = document.getElementById('monitor-ai-suggest-meta');
+ const box = document.getElementById('monitor-ai-suggest-results');
+ if (!inp) return;
+ const domain = inp.value.trim();
+ if (!domain) {
+ window.showToast('error', 'Domain required', 'e.g. example.com');
+ return;
+ }
+ if (btn) btn.disabled = true;
+ if (meta) {
+ meta.style.display = 'block';
+ meta.textContent = 'Probing common release/changelog paths (may take up to a minute)…';
+ }
+ if (box) {
+ box.style.display = 'none';
+ box.innerHTML = '';
+ }
+ try {
+ const res = await window.apiPost('/api/monitor/suggest-from-domain', { domain });
+ window.state._monitorSuggestCache = res;
+ if (meta) {
+ const mode = res.ai ? 'AI-ranked' : 'Heuristic ranking (add an AI provider key in Settings AI Providers for AI ranking)';
+ meta.textContent = `${mode} · ${res.candidates_probed || 0} HTML pages found`;
+ }
+ renderMonitorAISuggestResults(res);
+ } catch (e) {
+ if (meta) meta.textContent = '';
+ window.showToast('error', 'Suggest failed', e.message);
+ } finally {
+ if (btn) btn.disabled = false;
+ }
+ }
 
-  async function deleteUrlMonitor(id) {
-    if (!confirm('Remove this URL monitor? It will be deleted from the database.')) return;
-    try {
-      await window.apiDelete(`/api/monitor/url-targets/${encodeURIComponent(id)}`);
-      window.showToast('success', 'Monitor removed', '');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Delete failed', e.message);
-    }
-  }
+ function renderMonitorAISuggestResults(res) {
+ const box = document.getElementById('monitor-ai-suggest-results');
+ if (!box) return;
+ const rows = res.suggestions || [];
+ if (!rows.length) {
+ box.style.display = 'block';
+ box.innerHTML = '<div class="empty-state" style="padding:12px"><div class="empty-title">No pages found</div><div style="font-size:12px;color:var(--text-muted)">Try another domain or add a URL manually above.</div></div>';
+ return;
+ }
+ let html = '<table class="data-table"><thead><tr><th style="width:36px"></th><th>URL</th><th>Score</th><th>Strategy</th><th>Reason</th></tr></thead><tbody>';
+ rows.forEach((r, i) => {
+ const url = r.URL || r.url || '';
+ const strat = (r.Strategy || r.strategy || 'hash').toLowerCase();
+ const score = r.Score ?? r.score ?? 0;
+ const reason = r.Reason || r.reason || '';
+ const title = r.Title || r.title || '';
+ html += `<tr data-index="${i}">
+ <td><input type="checkbox" class="monitor-suggest-cb" data-url="${esc(url)}" data-strategy="${esc(strat)}" checked /></td>
+ <td><span style="font-size:12px;color:var(--accent-cyan)">${esc(url)}</span>${title ? `<div style="font-size:11px;color:var(--text-muted)">${esc(title)}</div>` : ''}</td>
+ <td>${esc(String(score))}</td>
+ <td><span class="scan-type">${esc(strat)}</span></td>
+ <td style="font-size:11px;color:var(--text-muted)">${esc(reason).slice(0, 200)}</td>
+ </tr>`;
+ });
+ html += '</tbody></table>';
+ html += '<div style="margin-top:12px"><button type="button" class="btn btn-primary" onclick="window.MonitorPage.addSelectedMonitorSuggestions()">Add selected as monitors</button></div>';
+ box.innerHTML = html;
+ box.style.display = 'block';
+ }
 
-  async function pauseSubdomainMonitor(id) {
-    try {
-      await window.apiPost(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}/pause`, {});
-      window.showToast('success', 'Subdomain monitor paused', '');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Pause failed', e.message);
-    }
-  }
+ async function addSelectedMonitorSuggestions() {
+ const cbs = Array.from(document.querySelectorAll('.monitor-suggest-cb:checked'));
+ if (!cbs.length) {
+ window.showToast('error', 'None selected', 'Check at least one URL.');
+ return;
+ }
+ let ok = 0;
+ for (const cb of cbs) {
+ const url = cb.getAttribute('data-url');
+ const strategy = cb.getAttribute('data-strategy') || 'hash';
+ try {
+ await window.apiPost('/api/monitor/url-targets', {
+ url,
+ strategy,
+ pattern: '',
+ start: true,
+ });
+ ok++;
+ } catch (e) {
+ window.showToast('error', 'Add failed', `${url}: ${e.message}`);
+ return;
+ }
+ }
+ window.showToast('success', 'Monitors added', `${ok} URL monitor(s) started.`);
+ const resBox = document.getElementById('monitor-ai-suggest-results');
+ if (resBox) resBox.style.display = 'none';
+ const meta = document.getElementById('monitor-ai-suggest-meta');
+ if (meta) meta.style.display = 'none';
+ await loadMonitor();
+ window.loadStats();
+ }
 
-  async function resumeSubdomainMonitor(id) {
-    try {
-      await window.apiPost(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}/resume`, {});
-      window.showToast('success', 'Subdomain monitor resumed', '');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Resume failed', e.message);
-    }
-  }
+ async function pauseUrlMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/url-targets/${encodeURIComponent(id)}/pause`, {});
+ window.showToast('success', 'Monitor paused', 'URL checks are stopped for this target.');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Pause failed', e.message);
+ }
+ }
 
-  async function deleteSubdomainMonitor(id) {
-    if (!confirm('Remove this subdomain monitor?')) return;
-    try {
-      await window.apiDelete(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}`);
-      window.showToast('success', 'Monitor removed', '');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Delete failed', e.message);
-    }
-  }
+ async function resumeUrlMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/url-targets/${encodeURIComponent(id)}/resume`, {});
+ window.showToast('success', 'Monitor resumed', 'The URL worker will pick this target up.');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Resume failed', e.message);
+ }
+ }
 
-  async function clearMonitorChangeHistory() {
-    if (!confirm('Clear all monitor change history? URL monitor “Changes” counters reset to 0. This cannot be undone.')) return;
-    try {
-      await window.apiDelete('/api/monitor/changes');
-      window.showToast('success', 'History cleared', '');
-      await loadMonitor();
-      window.loadStats();
-    } catch (e) {
-      window.showToast('error', 'Clear failed', e.message);
-    }
-  }
+ async function deleteUrlMonitor(id) {
+ if (!await window.uiConfirm('Remove this URL monitor? It will be deleted from the database.')) return;
+ try {
+ await window.apiDelete(`/api/monitor/url-targets/${encodeURIComponent(id)}`);
+ window.showToast('success', 'Monitor removed', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Delete failed', e.message);
+ }
+ }
 
-  function formatMonitorDetailPreview(detail) {
-    if (!detail || typeof detail !== 'string') return '';
-    try {
-      const o = JSON.parse(detail);
-      if (o.strategy === 'regex') {
-        const om = String(o.old_match ?? '');
-        const nm = String(o.new_match ?? '');
-        return `regex: "${om.slice(0, 60)}${om.length > 60 ? '…' : ''}" → "${nm.slice(0, 60)}${nm.length > 60 ? '…' : ''}"`;
-      }
-      if (o.old_hash && o.new_hash) {
-        return `hash: ${String(o.old_hash).slice(0, 10)}… → ${String(o.new_hash).slice(0, 10)}…`;
-      }
-      if (o.endpoint) {
-        const src = o.source_js ? ` (in ${String(o.source_js).slice(0, 80)})` : '';
-        return `${String(o.endpoint).slice(0, 120)}${src}`;
-      }
-      if (Array.isArray(o.assets)) {
-        const head = o.assets.slice(0, 5).join(', ');
-        const more = o.assets.length > 5 ? ` +${o.assets.length - 5} more` : '';
-        const prog = o.name || o.program || '';
-        return `${prog ? prog + ': ' : ''}${head}${more}`;
-      }
-    } catch (e) { /* use raw */ }
-    return detail;
-  }
+ async function pauseSubdomainMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}/pause`, {});
+ window.showToast('success', 'Subdomain monitor paused', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Pause failed', e.message);
+ }
+ }
 
-  // ── Collapsible panels ────────────────────────────────────────────────────
-  // Open/closed state is remembered per section so the page comes back the way
-  // the user left it. Keys are the data-acc values in index.html.
-  const ACC_KEY = 'autoar.monitor.acc';
+ async function resumeSubdomainMonitor(id) {
+ try {
+ await window.apiPost(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}/resume`, {});
+ window.showToast('success', 'Subdomain monitor resumed', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Resume failed', e.message);
+ }
+ }
 
-  function accLoad() {
-    try { return JSON.parse(localStorage.getItem(ACC_KEY) || '{}'); } catch (e) { return {}; }
-  }
-  function accSave(state) {
-    try { localStorage.setItem(ACC_KEY, JSON.stringify(state)); } catch (e) { /* storage may be unavailable */ }
-  }
+ async function deleteSubdomainMonitor(id) {
+ if (!await window.uiConfirm('Remove this subdomain monitor?')) return;
+ try {
+ await window.apiDelete(`/api/monitor/subdomain-targets/${encodeURIComponent(id)}`);
+ window.showToast('success', 'Monitor removed', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Delete failed', e.message);
+ }
+ }
 
-  function setAccOpen(toggle, open) {
-    const panel = document.getElementById(toggle.getAttribute('aria-controls'));
-    if (!panel) return;
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    panel.classList.toggle('open', open);
-    const head = toggle.closest('.card-header');
-    if (head) head.classList.toggle('collapsed', !open);
-  }
+ async function clearMonitorChangeHistory() {
+ if (!await window.uiConfirm('Clear all monitor change history? URL monitor “Changes” counters reset to 0. This cannot be undone.')) return;
+ try {
+ await window.apiDelete('/api/monitor/changes');
+ window.showToast('success', 'History cleared', '');
+ await loadMonitor();
+ window.loadStats();
+ } catch (e) {
+ window.showToast('error', 'Clear failed', e.message);
+ }
+ }
 
-  let accWired = false;
-  function wireMonitorAccordionsOnce() {
-    if (accWired) return;
-    const view = document.getElementById('view-monitor');
-    if (!view) return;
-    accWired = true;
+ function formatMonitorDetailPreview(detail) {
+ if (!detail || typeof detail !== 'string') return '';
+ try {
+ const o = JSON.parse(detail);
+ if (o.strategy === 'regex') {
+ const om = String(o.old_match ?? '');
+ const nm = String(o.new_match ?? '');
+ return `regex: "${om.slice(0, 60)}${om.length > 60 ? '…' : ''}" "${nm.slice(0, 60)}${nm.length > 60 ? '…' : ''}"`;
+ }
+ if (o.old_hash && o.new_hash) {
+ return `hash: ${String(o.old_hash).slice(0, 10)}… ${String(o.new_hash).slice(0, 10)}…`;
+ }
+ if (o.endpoint) {
+ const src = o.source_js ? ` (in ${String(o.source_js).slice(0, 80)})` : '';
+ return `${String(o.endpoint).slice(0, 120)}${src}`;
+ }
+ if (Array.isArray(o.assets)) {
+ const head = o.assets.slice(0, 5).join(', ');
+ const more = o.assets.length > 5 ? ` +${o.assets.length - 5} more` : '';
+ const prog = o.name || o.program || '';
+ return `${prog ? prog + ': ' : ''}${head}${more}`;
+ }
+ } catch (e) { /* use raw */ }
+ return detail;
+ }
 
-    const saved = accLoad();
-    view.querySelectorAll('.acc-toggle[data-acc]').forEach((t) => {
-      const key = t.getAttribute('data-acc');
-      // Fall back to whatever the markup declares when nothing is stored yet.
-      const open = Object.prototype.hasOwnProperty.call(saved, key)
-        ? !!saved[key]
-        : t.getAttribute('aria-expanded') === 'true';
-      setAccOpen(t, open);
-    });
+ // ── Collapsible panels ────────────────────────────────────────────────────
+ // Open/closed state is remembered per section so the page comes back the way
+ // the user left it. Keys are the data-acc values in index.html.
+ const ACC_KEY = 'autoar.monitor.acc';
 
-    view.addEventListener('click', (e) => {
-      const t = e.target.closest('.acc-toggle[data-acc]');
-      if (!t || !view.contains(t)) return;
-      const open = t.getAttribute('aria-expanded') !== 'true';
-      setAccOpen(t, open);
-      const state = accLoad();
-      state[t.getAttribute('data-acc')] = open;
-      accSave(state);
-    });
-  }
+ function accLoad() {
+ try { return JSON.parse(localStorage.getItem(ACC_KEY) || '{}'); } catch (e) { return {}; }
+ }
+ function accSave(state) {
+ try { localStorage.setItem(ACC_KEY, JSON.stringify(state)); } catch (e) { /* storage may be unavailable */ }
+ }
 
-  function setAccChip(id, text, on) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = text;
-    el.classList.toggle('on', !!on);
-  }
+ function setAccOpen(toggle, open) {
+ const panel = document.getElementById(toggle.getAttribute('aria-controls'));
+ if (!panel) return;
+ toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+ panel.classList.toggle('open', open);
+ const head = toggle.closest('.card-header');
+ if (head) head.classList.toggle('collapsed', !open);
+ }
 
-  // Summary shown in the header so a collapsed panel still tells you the state.
-  function targetsChip(list) {
-    if (!list || !list.length) return { text: 'none', on: false };
-    const running = list.filter(t => !!(t.IsRunning ?? t.is_running)).length;
-    return { text: `${running}/${list.length} running`, on: running > 0 };
-  }
+ let accWired = false;
+ function wireMonitorAccordionsOnce() {
+ if (accWired) return;
+ const view = document.getElementById('view-monitor');
+ if (!view) return;
+ accWired = true;
 
-  function renderMonitor() {
-    wireMonitorAccordionsOnce();
+ const saved = accLoad();
+ view.querySelectorAll('.acc-toggle[data-acc]').forEach((t) => {
+ const key = t.getAttribute('data-acc');
+ // Fall back to whatever the markup declares when nothing is stored yet.
+ const open = Object.prototype.hasOwnProperty.call(saved, key)
+ ? !!saved[key]
+ : t.getAttribute('aria-expanded') === 'true';
+ setAccOpen(t, open);
+ });
 
-    const urlContainer = document.getElementById('monitor-url-container');
-    const subContainer = document.getElementById('monitor-sub-container');
-    const feedContainer = document.getElementById('monitor-changes-feed');
-    if (!urlContainer || !subContainer || !feedContainer) return;
+ view.addEventListener('click', (e) => {
+ const t = e.target.closest('.acc-toggle[data-acc]');
+ if (!t || !view.contains(t)) return;
+ const open = t.getAttribute('aria-expanded') !== 'true';
+ setAccOpen(t, open);
+ const state = accLoad();
+ state[t.getAttribute('data-acc')] = open;
+ accSave(state);
+ });
+ }
 
-    const targets = window.state.monitorTargets;
-    { const c = targetsChip(targets); setAccChip('monitor-url-chip', c.text, c.on); }
-    if (!targets.length) {
-      urlContainer.innerHTML = window.emptyState('', 'No URL monitors yet', 'Use Quick launch above, or CLI: autoar monitor updates add -u <url>');
-    } else {
-      urlContainer.innerHTML = `<table class="data-table">
-        <thead><tr><th>URL</th><th>Strategy</th><th>Status</th><th>Changes</th><th>Last Run</th><th>Actions</th></tr></thead>
-        <tbody>${targets.map((t) => {
-        const id = t.ID ?? t.id;
-        const running = !!(t.IsRunning || t.is_running);
-        const pauseResume = running
-          ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseUrlMonitor(${id})">Pause</button>`
-          : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeUrlMonitor(${id})">Resume</button>`;
-        return `<tr>
-          <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(t.URL || t.url || '')}</span></td>
-          <td><span class="scan-type">${esc(t.Strategy || t.strategy || 'hash')}</span></td>
-          <td>${running
-            ? `<span class="badge badge-monitor-on">* running</span>`
-            : `<span class="badge badge-monitor-off">stopped</span>`}</td>
-          <td style="font-size:12px;color:var(--text-muted)">${t.ChangeCount || t.change_count || 0}</td>
-          <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
-          <td style="white-space:nowrap">${pauseResume}
-            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteUrlMonitor(${id})">Delete</button></td>
-        </tr>`;
-      }).join('')}</tbody>
-      </table>`;
-    }
+ function setAccChip(id, text, on) {
+ const el = document.getElementById(id);
+ if (!el) return;
+ el.textContent = text;
+ el.classList.toggle('on', !!on);
+ }
 
-    const subTargets = window.state.subMonitorTargets;
-    { const c = targetsChip(subTargets); setAccChip('monitor-sub-chip', c.text, c.on); }
-    if (!subTargets.length) {
-      subContainer.innerHTML = window.emptyState('', 'No subdomain monitors yet', 'Use Quick launch above, or CLI: autoar monitor subdomains manage add -d <domain>');
-    } else {
-      subContainer.innerHTML = `<table class="data-table">
-        <thead><tr><th>Domain</th><th>Interval</th><th>Status</th><th>Last Run</th><th>Actions</th></tr></thead>
-        <tbody>${subTargets.map((t) => {
-        const id = t.ID ?? t.id;
-        const running = !!(t.IsRunning || t.is_running);
-        const pauseResume = running
-          ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseSubdomainMonitor(${id})">Pause</button>`
-          : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeSubdomainMonitor(${id})">Resume</button>`;
-        return `<tr>
-          <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-purple)">${esc(t.Domain || t.domain || '')}</span></td>
-          <td style="font-size:12px;color:var(--text-muted)">${fmtInterval(t.Interval || t.interval)}</td>
-          <td>${running
-            ? `<span class="badge badge-monitor-on">* running</span>`
-            : `<span class="badge badge-monitor-off">stopped</span>`}</td>
-          <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
-          <td style="white-space:nowrap">${pauseResume}
-            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteSubdomainMonitor(${id})">Delete</button></td>
-        </tr>`;
-      }).join('')}</tbody>
-      </table>`;
-    }
+ // Summary shown in the header so a collapsed panel still tells you the state.
+ function targetsChip(list) {
+ if (!list || !list.length) return { text: 'none', on: false };
+ const running = list.filter(t => !!(t.IsRunning ?? t.is_running)).length;
+ return { text: `${running}/${list.length} running`, on: running > 0 };
+ }
 
-    const changes = window.state.monitorChanges;
-    setAccChip('monitor-changes-chip', changes.length ? `${changes.length} recent` : 'none', changes.length > 0);
-    if (!changes.length) {
-      feedContainer.innerHTML = window.emptyState('', 'No changes recorded', 'Changes will appear here once monitors run.');
-    } else {
-      feedContainer.innerHTML = changes.map(c => changeItemHtml(c)).join('');
-    }
-  }
+ function renderMonitor() {
+ wireMonitorAccordionsOnce();
 
-  function changeItemHtml(c) {
-    const ctype = c.ChangeType || c.change_type || '';
-    const domain = c.Domain || c.domain || '';
-    const detail = c.Detail || c.detail || '';
-    const at = c.DetectedAt || c.detected_at || '';
-    const detailPreview = formatMonitorDetailPreview(detail);
-    const iconMap = {
-      new_subdomain: '', became_live: '', became_dead: '',
-      content_changed: '', status_changed: '', new_js_endpoint: '', new_program_asset: '',
-    };
-    return `<div class="change-item">
-      <div class="change-dot ${ctype}"></div>
-      <div class="change-body">
-        <div class="change-title">${iconMap[ctype] || ''} ${esc(humanChangeType(ctype))}</div>
-        <div class="change-detail">${esc(domain)}${detailPreview ? ` — ${esc(detailPreview).slice(0, 200)}` : ''}</div>
-      </div>
-      <div class="change-time">${timeAgo(at)}</div>
-    </div>`;
-  }
+ const urlContainer = document.getElementById('monitor-url-container');
+ const subContainer = document.getElementById('monitor-sub-container');
+ const hunterContainer = document.getElementById('monitor-hunter-container');
+ const feedContainer = document.getElementById('monitor-changes-feed');
+ if (!urlContainer || !subContainer || !hunterContainer || !feedContainer) return;
 
-  window.MonitorPage = {
-    loadMonitor,
-    syncMonitorUrlPatternVisibility,
-    quickAddUrlMonitor,
-    quickAddSubdomainMonitor,
-    runMonitorAISuggest,
-    renderMonitorAISuggestResults,
-    addSelectedMonitorSuggestions,
-    pauseUrlMonitor,
-    resumeUrlMonitor,
-    deleteUrlMonitor,
-    pauseSubdomainMonitor,
-    resumeSubdomainMonitor,
-    deleteSubdomainMonitor,
-    clearMonitorChangeHistory,
-    renderMonitor,
-  };
+ const targets = window.state.monitorTargets;
+ { const c = targetsChip(targets); setAccChip('monitor-url-chip', c.text, c.on); }
+ if (!targets.length) {
+ urlContainer.innerHTML = window.emptyState('', 'No URL monitors yet', 'Use Quick launch above, or CLI: autoar monitor updates add -u <url>');
+ } else {
+ urlContainer.innerHTML = `<table class="data-table">
+ <thead><tr><th>URL</th><th>Strategy</th><th>Status</th><th>Changes</th><th>Last Run</th><th>Actions</th></tr></thead>
+ <tbody>${targets.map((t) => {
+ const id = t.ID ?? t.id;
+ const running = !!(t.IsRunning || t.is_running);
+ const pauseResume = running
+ ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseUrlMonitor(${id})">Pause</button>`
+ : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeUrlMonitor(${id})">Resume</button>`;
+ return `<tr>
+ <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${esc(t.URL || t.url || '')}</span></td>
+ <td><span class="scan-type">${esc(t.Strategy || t.strategy || 'hash')}</span></td>
+ <td>${running
+ ? `<span class="badge badge-monitor-on">* running</span>`
+ : `<span class="badge badge-monitor-off">stopped</span>`}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${t.ChangeCount || t.change_count || 0}</td>
+ <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
+ <td style="white-space:nowrap">${pauseResume}
+ <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteUrlMonitor(${id})">Delete</button></td>
+ </tr>`;
+ }).join('')}</tbody>
+ </table>`;
+ }
+
+ const subTargets = window.state.subMonitorTargets;
+ { const c = targetsChip(subTargets); setAccChip('monitor-sub-chip', c.text, c.on); }
+ if (!subTargets.length) {
+ subContainer.innerHTML = window.emptyState('', 'No subdomain monitors yet', 'Use Quick launch above, or CLI: autoar monitor subdomains manage add -d <domain>');
+ } else {
+ subContainer.innerHTML = `<table class="data-table">
+ <thead><tr><th>Domain</th><th>Interval</th><th>Status</th><th>Last Run</th><th>Actions</th></tr></thead>
+ <tbody>${subTargets.map((t) => {
+ const id = t.ID ?? t.id;
+ const running = !!(t.IsRunning || t.is_running);
+ const pauseResume = running
+ ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseSubdomainMonitor(${id})">Pause</button>`
+ : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeSubdomainMonitor(${id})">Resume</button>`;
+ return `<tr>
+ <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-purple)">${esc(t.Domain || t.domain || '')}</span></td>
+ <td style="font-size:12px;color:var(--text-muted)">${fmtInterval(t.Interval || t.interval)}</td>
+ <td>${running
+ ? `<span class="badge badge-monitor-on">* running</span>`
+ : `<span class="badge badge-monitor-off">stopped</span>`}</td>
+ <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
+ <td style="white-space:nowrap">${pauseResume}
+ <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteSubdomainMonitor(${id})">Delete</button></td>
+ </tr>`;
+ }).join('')}</tbody>
+ </table>`;
+ }
+
+ const hunterTargets = window.state.hunterMonitorTargets;
+ { const c = targetsChip(hunterTargets); setAccChip('monitor-hunter-chip', c.text, c.on); }
+ if (!hunterTargets.length) {
+ hunterContainer.innerHTML = window.emptyState('', 'No hunters tracked yet', 'Add a HackerOne username above to get notified of new resolved reports or reputation gains.');
+ } else {
+ hunterContainer.innerHTML = `<table class="data-table">
+ <thead><tr><th>Username</th><th>Reputation</th><th>Rank</th><th>Signal</th><th>Status</th><th>Last Checked</th><th>Actions</th></tr></thead>
+ <tbody>${hunterTargets.map((t) => {
+ const id = t.ID ?? t.id;
+ const username = t.Username || t.username || '';
+ const reputation = t.LastReputation ?? t.last_reputation;
+ const rank = t.LastRank ?? t.last_rank;
+ const signal = t.LastSignal ?? t.last_signal;
+ const running = !!(t.IsRunning ?? t.is_running);
+ const pauseResume = running
+ ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.pauseHunterMonitor(${id})">Pause</button>`
+ : `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.MonitorPage.resumeHunterMonitor(${id})">Resume</button>`;
+ return `<tr>
+ <td><a href="https://hackerone.com/${encodeURIComponent(username)}" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan);text-decoration:none">@${esc(username)}</a></td>
+ <td style="font-size:12px;color:var(--text-muted)">${reputation != null ? Math.round(reputation) : '—'}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${rank != null ? '#' + Math.round(rank) : '—'}</td>
+ <td style="font-size:12px;color:var(--text-muted)">${signal != null ? signal : '—'}</td>
+ <td>${running
+ ? `<span class="badge badge-monitor-on">* running</span>`
+ : `<span class="badge badge-monitor-off">stopped</span>`}</td>
+ <td style="font-size:11px;color:var(--text-muted)">${fmtDate(t.LastRunAt || t.last_run_at)}</td>
+ <td style="white-space:nowrap">${pauseResume}
+ <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-left:4px;color:var(--danger,#f87171)" onclick="window.MonitorPage.deleteHunterMonitor(${id})">Delete</button></td>
+ </tr>`;
+ }).join('')}</tbody>
+ </table>`;
+ }
+
+ const changes = window.state.monitorChanges;
+ setAccChip('monitor-changes-chip', changes.length ? `${changes.length} recent` : 'none', changes.length > 0);
+ if (!changes.length) {
+ feedContainer.innerHTML = window.emptyState('', 'No changes recorded', 'Changes will appear here once monitors run.');
+ } else {
+ feedContainer.innerHTML = changes.map(c => changeItemHtml(c)).join('');
+ }
+ }
+
+ function changeItemHtml(c) {
+ const ctype = c.ChangeType || c.change_type || '';
+ const domain = c.Domain || c.domain || '';
+ const detail = c.Detail || c.detail || '';
+ const at = c.DetectedAt || c.detected_at || '';
+ const detailPreview = formatMonitorDetailPreview(detail);
+ const iconMap = {
+ new_subdomain: '', became_live: '', became_dead: '',
+ content_changed: '', status_changed: '', new_js_endpoint: '', new_program_asset: '',
+ };
+ return `<div class="change-item">
+ <div class="change-dot ${ctype}"></div>
+ <div class="change-body">
+ <div class="change-title">${iconMap[ctype] || ''} ${esc(humanChangeType(ctype))}</div>
+ <div class="change-detail">${esc(domain)}${detailPreview ? ` — ${esc(detailPreview).slice(0, 200)}` : ''}</div>
+ </div>
+ <div class="change-time">${timeAgo(at)}</div>
+ </div>`;
+ }
+
+ window.MonitorPage = {
+ loadMonitor,
+ syncMonitorUrlPatternVisibility,
+ quickAddUrlMonitor,
+ quickAddSubdomainMonitor,
+ runMonitorAISuggest,
+ renderMonitorAISuggestResults,
+ addSelectedMonitorSuggestions,
+ pauseUrlMonitor,
+ resumeUrlMonitor,
+ deleteUrlMonitor,
+ pauseSubdomainMonitor,
+ resumeSubdomainMonitor,
+ deleteSubdomainMonitor,
+ quickAddHunterMonitor,
+ pauseHunterMonitor,
+ resumeHunterMonitor,
+ deleteHunterMonitor,
+ clearMonitorChangeHistory,
+ renderMonitor,
+ };
 })();

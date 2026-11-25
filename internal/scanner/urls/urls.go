@@ -139,8 +139,9 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	allFile := filepath.Join(urlsDir, "all-urls.txt")
 	jsFile := filepath.Join(urlsDir, "js-urls.txt")
 
-	// Check if URLs already exist and have content - if so, skip collection
-	if info, err := os.Stat(allFile); err == nil && info.Size() > 0 {
+	// Reuse a recent collection by this collector version (see URLsCacheFresh);
+	// older or stamp-less ones are redone.
+	if info, err := os.Stat(allFile); err == nil && info.Size() > 0 && URLsCacheFresh(urlsDir) {
 		if jsInfo, err := os.Stat(jsFile); err == nil && jsInfo.Size() >= 0 {
 			// URLs already collected, read and return them
 			allURLs, _ := readLines(allFile)
@@ -205,7 +206,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	allURLs, _ := readLines(allFile)
 	jsURLs, _ := readLines(jsFile)
 	for _, u := range allURLs {
-		if strings.Contains(strings.ToLower(u), ".js") {
+		if IsJSURL(u) {
 			jsURLs = append(jsURLs, u)
 		}
 	}
@@ -220,6 +221,7 @@ func CollectURLs(domain string, threads int, skipSubdomainEnum bool) (*Result, e
 	total := len(allURLs)
 	jsCount := len(jsURLs)
 	logger.GetLogger().Infof("[OK] Found %d total URLs; %d JavaScript URLs for %s", total, jsCount, domain)
+	writeURLsStamp(urlsDir)
 
 	interestingFile := filepath.Join(urlsDir, "interesting-urls.txt")
 	interesting := FilterInterestingURLs(allURLs)
@@ -410,15 +412,15 @@ func uniqueStrings(in []string) []string {
 // If skipSubdomainEnum is true, queries are made for the specific subdomain instead of *.domain patterns
 func collectExternalURLs(domain string, skipSubdomainEnum bool) []string {
 	var allURLs []string
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := archiveClient(60 * time.Second)
 
 	// VirusTotal
 	if urls := collectVirusTotalURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
-	// Wayback Machine
-	if urls := collectWaybackURLs(client, domain, skipSubdomainEnum); len(urls) > 0 {
+	// Wayback Machine — a root-domain CDX listing can take minutes.
+	if urls := collectWaybackURLs(archiveClient(3*time.Minute), domain, skipSubdomainEnum); len(urls) > 0 {
 		allURLs = append(allURLs, urls...)
 	}
 
@@ -506,14 +508,14 @@ func collectWaybackURLs(client *http.Client, domain string, skipSubdomainEnum bo
 	var url string
 	if skipSubdomainEnum {
 		// For subdomain mode, query the specific subdomain directly
-		url = fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=%s/*&output=text&fl=original&collapse=urlkey", domain)
+		url = fmt.Sprintf("%s/cdx/search/cdx?url=%s/*&output=text&fl=original&collapse=urlkey", waybackBase, domain)
 	} else {
 		// For domain mode, use wildcard pattern
-		url = fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", domain)
+		url = fmt.Sprintf("%s/cdx/search/cdx?url=*.%s/*&output=text&fl=original&collapse=urlkey", waybackBase, domain)
 	}
 	logger.GetLogger().Infof("[INFO] Fetching URLs from Wayback Machine for %s", domain)
 
-	resp, err := client.Get(url)
+	resp, err := archiveGet(client, url, "Wayback Machine")
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] Wayback Machine API request failed: %v", err)
 		return nil
@@ -525,21 +527,10 @@ func collectWaybackURLs(client *http.Client, domain string, skipSubdomainEnum bo
 		return nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	urls, err := readLinesPartial(resp.Body)
 	if err != nil {
-		logger.GetLogger().Infof("[WARN] Failed to read Wayback Machine response: %v", err)
-		return nil
+		logger.GetLogger().Infof("[WARN] Wayback Machine listing cut off (%v) — keeping the %d URLs read", err, len(urls))
 	}
-
-	lines := strings.Split(string(body), "\n")
-	var urls []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			urls = append(urls, line)
-		}
-	}
-
 	logger.GetLogger().Infof("[OK] Wayback Machine: Found %d URLs", len(urls))
 	return urls
 }
@@ -550,10 +541,10 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 	var url string
 	if skipSubdomainEnum {
 		// For subdomain mode, query the specific subdomain
-		url = fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+		url = fmt.Sprintf("%s/api/v1/search/?q=domain:%s&size=10000", urlscanBase, domain)
 	} else {
 		// For domain mode, use domain pattern
-		url = fmt.Sprintf("https://urlscan.io/api/v1/search/?q=domain:%s&size=10000", domain)
+		url = fmt.Sprintf("%s/api/v1/search/?q=domain:%s&size=10000", urlscanBase, domain)
 	}
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -568,7 +559,7 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 
 	logger.GetLogger().Infof("[INFO] Fetching URLs from URLScan.io for %s", domain)
 
-	resp, err := client.Do(req)
+	resp, err := archiveDo(client, req, "URLScan.io")
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] URLScan.io API request failed: %v", err)
 		return nil
@@ -612,11 +603,16 @@ func collectURLScanURLs(client *http.Client, domain string, skipSubdomainEnum bo
 
 // collectOTXURLs fetches URLs from AlienVault OTX API
 func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
-	// OTX API works with both domains and subdomains
-	url := fmt.Sprintf("https://otx.alienvault.com/api/v1/indicators/domain/%s/url_list?limit=500", domain)
+	// A host's URLs live under the hostname indicator; the domain indicator
+	// covers a registrable domain and its subdomains.
+	kind := "domain"
+	if skipSubdomainEnum {
+		kind = "hostname"
+	}
+	url := fmt.Sprintf("%s/api/v1/indicators/%s/%s/url_list?limit=500", otxBase, kind, domain)
 	logger.GetLogger().Infof("[INFO] Fetching URLs from AlienVault OTX for %s", domain)
 
-	resp, err := client.Get(url)
+	resp, err := archiveGet(client, url, "AlienVault OTX")
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] OTX API request failed: %v", err)
 		return nil
@@ -658,42 +654,43 @@ func collectOTXURLs(client *http.Client, domain string, skipSubdomainEnum bool) 
 
 // collectCommonCrawlURLs fetches URLs from Common Crawl API
 func collectCommonCrawlURLs(client *http.Client, domain string, skipSubdomainEnum bool) []string {
-	// Use a recent Common Crawl index (update this periodically)
+	if commonCrawlDown() {
+		logger.GetLogger().Infof("[INFO] Common Crawl skipped (failing recently)")
+		return nil
+	}
+	index := latestCommonCrawlIndex(client)
 	var url string
 	if skipSubdomainEnum {
 		// For subdomain mode, query the specific subdomain directly
-		url = fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+		url = fmt.Sprintf("%s/%s-index?url=%s/*&output=json&fl=timestamp,url,mime,status,digest", commonCrawlBase, index, domain)
 	} else {
 		// For domain mode, use wildcard pattern
-		url = fmt.Sprintf("https://index.commoncrawl.org/CC-MAIN-2023-06-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", domain)
+		url = fmt.Sprintf("%s/%s-index?url=*.%s/*&output=json&fl=timestamp,url,mime,status,digest", commonCrawlBase, index, domain)
 	}
-	logger.GetLogger().Infof("[INFO] Fetching URLs from Common Crawl for %s", domain)
+	logger.GetLogger().Infof("[INFO] Fetching URLs from Common Crawl (%s) for %s", index, domain)
 
-	resp, err := client.Get(url)
+	resp, err := archiveGet(client, url, "Common Crawl")
 	if err != nil {
 		logger.GetLogger().Infof("[WARN] Common Crawl API request failed: %v", err)
+		markCommonCrawlDown()
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		logger.GetLogger().Infof("[WARN] Common Crawl API returned status %d", resp.StatusCode)
+		if resp.StatusCode >= 500 {
+			markCommonCrawlDown()
+		}
 		return nil
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	lines, err := readLinesPartial(resp.Body)
 	if err != nil {
-		logger.GetLogger().Infof("[WARN] Failed to read Common Crawl response: %v", err)
-		return nil
+		logger.GetLogger().Infof("[WARN] Common Crawl listing cut off (%v) — keeping the %d lines read", err, len(lines))
 	}
-
-	lines := strings.Split(string(body), "\n")
 	var urls []string
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
 
 		var entry struct {
 			URL string `json:"url"`

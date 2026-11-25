@@ -18,6 +18,58 @@ var (
 	ScansMutex  sync.RWMutex
 )
 
+// scanRunClaims marks scan IDs that have a run in flight: claimed synchronously
+// by whoever starts the run (the resume handler, or the runner for a fresh scan)
+// and released only once the worker goroutine has really exited. ActiveScans
+// alone can't guard a resume: nothing is registered there until a semaphore slot
+// frees up (so a double-clicked Resume launched two runs), and a wedged worker's
+// entry is flipped to a terminal status (so ScanIsActiveInMemory says "not
+// active" while the old goroutine is still running on the same scan ID).
+var (
+	scanRunClaimsMu sync.Mutex
+	scanRunClaims   = map[string]struct{}{}
+)
+
+// claimScanRun reserves scanID for one run. It returns false when another run of
+// the same scan ID is queued, running, or still winding down.
+func claimScanRun(scanID string) bool {
+	scanRunClaimsMu.Lock()
+	defer scanRunClaimsMu.Unlock()
+	if _, busy := scanRunClaims[scanID]; busy {
+		return false
+	}
+	scanRunClaims[scanID] = struct{}{}
+	return true
+}
+
+// releaseScanRun drops the claim taken by claimScanRun.
+func releaseScanRun(scanID string) {
+	scanRunClaimsMu.Lock()
+	delete(scanRunClaims, scanID)
+	scanRunClaimsMu.Unlock()
+}
+
+// scanRunInFlight reports whether a run of scanID is claimed (queued or running).
+func scanRunInFlight(scanID string) bool {
+	scanRunClaimsMu.Lock()
+	defer scanRunClaimsMu.Unlock()
+	_, busy := scanRunClaims[scanID]
+	return busy
+}
+
+// scanWorkerTracked reports whether this process still has a worker for scanID:
+// a claimed run (possibly still queued for a slot) or any ActiveScans entry,
+// including one kept with a terminal status while its goroutine winds down.
+func scanWorkerTracked(scanID string) bool {
+	if scanRunInFlight(scanID) {
+		return true
+	}
+	ScansMutex.RLock()
+	_, ok := ActiveScans[scanID]
+	ScansMutex.RUnlock()
+	return ok
+}
+
 func init() {
 	// Register the cancel-check hook so utils.IsScanCancelled (called from
 	// RunWorkflowPhase) can inspect the api-layer CancelRequested flag without
@@ -28,21 +80,26 @@ func init() {
 		si, ok := ActiveScans[scanID]
 		return ok && si != nil && si.CancelRequested
 	})
+	// Register the scan-context resolver so scanner modules (nuclei etc.) can
+	// build their engines on the scan's lifetime context via
+	// utils.CurrentScanContext() — cancel/timeout then genuinely stops them.
+	utils.RegisterScanContextResolver(scanContext)
 }
 
 type ScanInfo struct {
-	ScanID      string
-	Type        string
-	ScanType    string // For API compatibility
-	Target      string
-	Status      string
-	StartTime   time.Time
-	StartedAt   time.Time // For API compatibility
-	CompletedAt *time.Time
-	Command     string
-	CancelFunc  context.CancelFunc // Function to cancel the scan
-	ExecCmd     *exec.Cmd          `json:"-"` // API executeScan: child process (kill / pause via signals)
-	CancelRequested bool           `json:"-"` // API: user requested stop; Wait() will mark cancelled
+	ScanID          string
+	Type            string
+	ScanType        string // For API compatibility
+	Target          string
+	Status          string
+	StartTime       time.Time
+	StartedAt       time.Time // For API compatibility
+	CompletedAt     *time.Time
+	Command         string
+	CancelFunc      context.CancelFunc // Function to cancel the scan
+	Ctx             context.Context    `json:"-"` // scan lifetime context — in-process modules (nuclei) read it so cancel actually stops them
+	ExecCmd         *exec.Cmd          `json:"-"` // API executeScan: child process (kill / pause via signals)
+	CancelRequested bool               `json:"-"` // API: user requested stop; Wait() will mark cancelled
 
 	// Progress tracking
 	CurrentPhase    int       // Current phase number (1-based)
@@ -56,6 +113,20 @@ type ScanInfo struct {
 	FilesUploaded int       // Number of files uploaded
 	ErrorCount    int       // Number of errors encountered
 	LastUpdate    time.Time // Last progress update time
+}
+
+// scanContext returns the live lifetime context of a running in-process scan,
+// or context.Background() when the scan isn't tracked. In-process modules pass
+// this into their engines so CancelScanByID/timeout genuinely stop the work
+// (a nuclei engine built on context.Background() ignores UI cancels and keeps
+// sweeping hosts + firing webhooks).
+func scanContext(scanID string) context.Context {
+	ScansMutex.RLock()
+	defer ScansMutex.RUnlock()
+	if si, ok := ActiveScans[scanID]; ok && si.Ctx != nil {
+		return si.Ctx
+	}
+	return context.Background()
 }
 
 // CancelScanByID stops a running scan

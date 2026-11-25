@@ -57,15 +57,21 @@ func apiScanAssets(c *gin.Context) {
 
 	// Slice for pagination
 	start := (page - 1) * perPage
-	if start < 0 { start = 0 }
+	if start < 0 {
+		start = 0
+	}
 	end := start + perPage
-	
+
 	if start >= total {
 		start = 0
-		if total > 0 { end = total } else { end = 0 }
+		if total > 0 {
+			end = total
+		} else {
+			end = 0
+		}
 		pagedAssets := []AssetEntry{}
 		if total > 0 && start < total { // should not happen with start=0
-             // ...
+			// ...
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"scan_id":  scanID,
@@ -159,7 +165,9 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 			for _, s := range dbEntries {
 				e := getOrCreate(s.Subdomain) // belongsToScan guard already in getOrCreate
-				if e == nil { continue }
+				if e == nil {
+					continue
+				}
 				e.IsLive = s.IsLive
 				if s.HTTPSURL != "" {
 					e.URL = s.HTTPSURL
@@ -456,7 +464,6 @@ func buildAssets(scanID string) []AssetEntry {
 			}
 		}
 	}
-
 
 	// ── 5. Build sorted slice ────────────────────────────────────────────────
 	result := make([]AssetEntry, 0, len(byHost))

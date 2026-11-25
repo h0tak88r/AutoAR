@@ -40,7 +40,7 @@ func TestExtractTOTPSecret(t *testing.T) {
 	cases := map[string]string{
 		"GEZDGNBVGY3TQOJQ": "GEZDGNBVGY3TQOJQ", // bare seed → unchanged
 		"otpauth://totp/YesWeHack:me@x.com?secret=GEZDGNBVGY3TQOJQ&issuer=YesWeHack&digits=6": "GEZDGNBVGY3TQOJQ",
-		"secret=GEZDGNBVGY3TQOJQ&period=30": "GEZDGNBVGY3TQOJQ",
+		"secret=GEZDGNBVGY3TQOJQ&period=30":                                                   "GEZDGNBVGY3TQOJQ",
 	}
 	for in, want := range cases {
 		if got := extractTOTPSecret(in); got != want {

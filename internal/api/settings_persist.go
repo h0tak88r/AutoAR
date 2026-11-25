@@ -1,12 +1,16 @@
 package api
 
 import (
+	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/h0tak88r/AutoAR/internal/db"
 	"github.com/h0tak88r/AutoAR/internal/envloader"
+	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
 // persistedEnvKeys are the env-backed settings that must outlive a container
@@ -22,14 +26,30 @@ var persistedEnvKeys = []string{
 	"MONITOR_WEBHOOK_URL",
 	"OPENROUTER_API_KEY", "OPENCODE_API_KEY", "GEMINI_API_KEY",
 	"OPENROUTER_MODEL", "OPENCODE_MODEL",
+	// AI provider selection + the official DeepSeek default (Settings ▸ AI
+	// Providers). ZHIPU_API_KEY powers the Z.ai option.
+	"AI_PROVIDER", "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL",
+	"ZHIPU_API_KEY", "ZAI_MODEL", "GEMINI_MODEL",
 	"H1_USERNAME", "H1_TOKEN",
 	"BUGCROWD_TOKEN", "INTIGRITI_TOKEN", "YWH_TOKEN",
 	"HACKADVISOR_TOKEN", "HACKADVISOR_INCLUDE_NATIVE",
 	"CHAOS_API_KEY",
 	"SHODAN_API_KEY", "SHODAN_API_KEYS",
+	// ProjectDiscovery Cloud key — powers the nuclei template watch (falls back
+	// to CHAOS_API_KEY when unset).
+	"PDCP_API_KEY",
+	// Nuclei template blocklist (comma-separated IDs) for templates with
+	// known-broken matchers — see nucleiTemplateBlocked.
+	"NUCLEI_TEMPLATE_IGNORE",
 	// Cloudflare R2 storage — managed from Settings ▸ System ▸ Cloudflare R2.
 	"USE_R2_STORAGE", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_KEY",
 	"R2_BUCKET_NAME", "R2_PUBLIC_URL",
+	// Global wall-clock scan ceilings (Go duration strings, e.g. "72h").
+	// Managed from Settings ▸ Timeouts; 0 in the UI resets to the 24h default.
+	"AUTOAR_SCAN_TIMEOUT", "AUTOAR_PIPELINE_TIMEOUT",
+	// Purpose-routed Discord webhooks — Settings ▸ Notifications. Each falls
+	// back to MONITOR_WEBHOOK_URL when unset.
+	"WEBHOOK_SCANS", "WEBHOOK_NEW_SCOPES", "WEBHOOK_MONITORING", "WEBHOOK_FINDINGS",
 }
 
 // subfinderProviderKeys are the subfinder passive-source API keys manageable from
@@ -91,6 +111,13 @@ var persistedEnvSet = func() map[string]bool {
 // DB table for durability across redeployments. Use this in place of a bare
 // envloader.UpdateEnv for any value that must survive a container restart.
 func saveEnvSetting(key, value string) {
+	// Values are written to .env as KEY="value" lines; a CR/LF/NUL would let a
+	// settings field smuggle extra lines (e.g. AUTOAR_API_AUTH_DISABLED=true)
+	// into .env that take effect on the next restart. No setting is multi-line.
+	if strings.ContainsAny(value, "\r\n\x00") {
+		log.Printf("[settings] rejected %s: value contains a line break or NUL", key)
+		return
+	}
 	_ = envloader.UpdateEnv(key, value) // immediate: .env + os.Setenv
 	if persistedEnvSet[key] {
 		if err := db.SetSetting(key, value); err != nil {
@@ -147,8 +174,14 @@ func HydrateEnvFromDB() {
 		return
 	}
 	n := 0
+	var overridden []string
 	for _, k := range persistedEnvKeys {
 		if v, ok := all[k]; ok {
+			// A different, non-empty container value is silently shadowed by
+			// the DB — warn by KEY name only (never values).
+			if ev := strings.TrimSpace(os.Getenv(k)); ev != "" && ev != strings.TrimSpace(v) {
+				overridden = append(overridden, k)
+			}
 			_ = os.Setenv(k, v)
 			n++
 		}
@@ -156,4 +189,46 @@ func HydrateEnvFromDB() {
 	if n > 0 {
 		log.Printf("[settings] hydrated %d persisted setting(s) from DB", n)
 	}
+	if len(overridden) > 0 {
+		sort.Strings(overridden)
+		log.Printf("[settings] WARNING: container env differs from the value saved in Settings for %s — the saved (DB) value wins; "+
+			"change it in Settings or remove the env var to silence this", strings.Join(overridden, ", "))
+	}
+}
+
+// credentialTokenPrefixes are the distinctive leading markers of token formats
+// the settings page accepts. One credential field must hold at most ONE token:
+// the UI pre-fills the current value, so pasting a new token at the end of the
+// field glues old+new into a single string that no separator can split — it
+// then 401s forever while looking configured (seen live with GITHUB_TOKEN).
+var credentialTokenPrefixes = []string{
+	"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", // GitHub
+	"sk-", // OpenAI-style / OpenRouter / DeepSeek
+}
+
+// countTokenPrefixes reports how many token-start markers appear in a value.
+// >1 in one field is always a paste accident, never a valid credential.
+func countTokenPrefixes(v string) int {
+	n := 0
+	for _, p := range credentialTokenPrefixes {
+		n += strings.Count(v, p)
+	}
+	return n
+}
+
+// validateWebhookURL accepts only a public https URL for a notification
+// webhook. The server POSTs to it, so an http:// or internal/loopback/metadata
+// target would let a settings write probe the deployment's private network.
+func validateWebhookURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return fmt.Errorf("webhook URL must use https")
+	}
+	if err := utils.ValidatePublicHTTPURL(raw); err != nil {
+		return fmt.Errorf("webhook URL must point to a public host: %v", err)
+	}
+	return nil
 }

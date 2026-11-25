@@ -51,9 +51,9 @@ func hasCreds(a Account) bool {
 		return a.Username != "" && a.Token != ""
 	case "immunefi":
 		return true // no auth
-	case "ywh":
+	case "ywh", "bc": // a JWT / session, or email+password to sign in (see BugcrowdSession)
 		return a.Token != "" || (a.Email != "" && a.Password != "")
-	default: // bc, it
+	default: // it
 		return a.Token != ""
 	}
 }
@@ -142,6 +142,7 @@ func envMigrated() bool {
 // boot. An env credential already present as a DB account (same token) is skipped.
 func MigrateEnvAccounts() {
 	if envMigrated() {
+		backfillEnvTOTP()
 		return
 	}
 	for _, p := range []string{"h1", "bc", "it", "ywh"} {
@@ -163,7 +164,8 @@ func MigrateEnvAccounts() {
 		}
 		if _, err := db.UpsertBBPAccount(db.BBPAccount{
 			Platform: p, Label: "default", Username: env.Username,
-			Token: env.Token, Email: env.Email, Password: env.Password, Enabled: true,
+			Token: env.Token, Email: env.Email, Password: env.Password,
+			TOTPSecret: env.TOTPSecret, Enabled: true,
 		}); err != nil {
 			// Do NOT mark the migration done if a persist failed — otherwise a
 			// partial failure (the account write fails but the marker write succeeds)
@@ -175,6 +177,45 @@ func MigrateEnvAccounts() {
 		}
 	}
 	_ = db.SetSetting(envMigratedMarker, "done")
+	_ = db.SetSetting(envTOTPBackfillMarker, "done") // TOTP was copied above
+}
+
+const envTOTPBackfillMarker = "bbp_env_totp_backfilled"
+
+// backfillEnvTOTP repairs deployments migrated before the env→DB migration
+// copied YWH_TOTP_SECRET: the YWH account that came from the env (same token or
+// email) gets the env 2FA seed when its own is still empty, so YWH auto-reauth
+// keeps working. One-shot (settings marker); never overwrites a stored seed.
+func backfillEnvTOTP() {
+	if v, _ := db.GetSetting(envTOTPBackfillMarker); v == "done" {
+		return
+	}
+	env := envAccount("ywh")
+	if env.TOTPSecret == "" {
+		_ = db.SetSetting(envTOTPBackfillMarker, "done")
+		return
+	}
+	rows, err := db.ListBBPAccounts("ywh")
+	if err != nil {
+		return // retry next boot
+	}
+	for _, r := range rows {
+		if r.TOTPSecret != "" {
+			continue
+		}
+		sameToken := env.Token != "" && r.Token == env.Token
+		sameEmail := env.Email != "" && strings.EqualFold(r.Email, env.Email)
+		if !sameToken && !sameEmail {
+			continue
+		}
+		r.TOTPSecret = env.TOTPSecret
+		if _, err := db.UpsertBBPAccount(r); err != nil {
+			log.Printf("[accounts] YWH 2FA seed backfill for %q failed, will retry next boot: %v", r.Label, err)
+			return
+		}
+		log.Printf("[accounts] copied YWH_TOTP_SECRET into the migrated YWH account %q", r.Label)
+	}
+	_ = db.SetSetting(envTOTPBackfillMarker, "done")
 }
 
 // Labels returns the account labels for a platform (for source tagging).

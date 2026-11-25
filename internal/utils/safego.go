@@ -23,3 +23,19 @@ func RecoverPanic(label string) {
 		GetLogger().Errorf("[panic] %s: %v\n%s", label, r, debug.Stack())
 	}
 }
+
+// GuardedRun runs fn with a per-call panic recovery and returns whether it
+// completed without panic. Unlike a deferred RecoverPanic at the top of a
+// goroutine (which saves the process but lets the goroutine — and its ticker
+// loop — die), GuardedRun is for the BODY of a loop tick: the enclosing
+// goroutine keeps ticking after a panic, so one bad cycle can't silently kill
+// a background daemon until the next restart.
+func GuardedRun(label string, fn func()) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			GetLogger().Errorf("[panic] %s: %v\n%s", label, r, debug.Stack())
+		}
+	}()
+	fn()
+	return true
+}

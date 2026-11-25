@@ -60,10 +60,10 @@ func TestCheckAuthBindSafety(t *testing.T) {
 
 func TestIssueVerifyRoundtripAndRevocation(t *testing.T) {
 	t.Setenv("AUTOAR_JWT_SECRET", "test-secret-at-least-32-bytes-long-xxxxx")
-	t.Setenv("DASHBOARD_USER", "")
-	t.Setenv("DASHBOARD_PASSWORD", "")
+	t.Setenv("DASHBOARD_USER", "admin")
+	t.Setenv("DASHBOARD_PASSWORD", fixturePW("env"))
 
-	tok, err := issueLocalJWT("admin")
+	tok, err := issueLocalJWT("admin", roleAdmin, tokenModeEnv)
 	if err != nil {
 		t.Fatalf("issueLocalJWT: %v", err)
 	}
@@ -71,14 +71,14 @@ func TestIssueVerifyRoundtripAndRevocation(t *testing.T) {
 		t.Fatalf("verifyLocalJWT of fresh token: %v", err)
 	}
 
-	// Revoke everything issued before now+1h → the token must be rejected.
-	tokensRevokedBeforeMu.Lock()
-	tokensRevokedBefore = time.Now().Add(time.Hour)
-	tokensRevokedBeforeMu.Unlock()
+	// Revoke this subject's sessions issued before now+1h → the token must be rejected.
+	envTokensValidAfterMu.Lock()
+	envTokensValidAfter["admin"] = time.Now().Add(time.Hour).Unix()
+	envTokensValidAfterMu.Unlock()
 	defer func() {
-		tokensRevokedBeforeMu.Lock()
-		tokensRevokedBefore = time.Time{}
-		tokensRevokedBeforeMu.Unlock()
+		envTokensValidAfterMu.Lock()
+		delete(envTokensValidAfter, "admin")
+		envTokensValidAfterMu.Unlock()
 	}()
 	if err := verifyLocalJWT(tok); err == nil {
 		t.Error("expected revoked token to fail verification")

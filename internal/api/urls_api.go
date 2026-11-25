@@ -101,13 +101,12 @@ func apiScanURLs(c *gin.Context) {
 	}
 
 	total := len(filtered)
-	start := (page - 1) * limit
+	// pageBounds is overflow-safe: (page-1)*limit on a huge ?page= used to go
+	// negative and panic the slice below. Out-of-range pages still fall back
+	// to the first page, as before.
+	start, end := pageBounds(page, limit, total)
 	if start >= total {
-		start = 0
-	}
-	end := start + limit
-	if end > total {
-		end = total
+		start, end = pageBounds(1, limit, total)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

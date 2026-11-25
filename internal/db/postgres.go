@@ -377,12 +377,68 @@ func (p *PostgresDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
 
+	-- Hunter monitor: track a HackerOne username's public reputation/signal/rank
+	-- and resolved-report hacktivity, alerting on Discord when either changes.
+	CREATE TABLE IF NOT EXISTS hunter_monitor_targets (
+		id               BIGSERIAL PRIMARY KEY,
+		username         TEXT NOT NULL UNIQUE,
+		user_id          TEXT NOT NULL DEFAULT '',
+		interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		is_running       BOOLEAN NOT NULL DEFAULT TRUE,
+		last_reputation  DOUBLE PRECISION,
+		last_signal      DOUBLE PRECISION,
+		last_rank        DOUBLE PRECISION,
+		last_run_at      TIMESTAMP,
+		created_at       TIMESTAMP DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS hunter_monitor_seen_reports (
+		id             BIGSERIAL PRIMARY KEY,
+		target_id      BIGINT NOT NULL REFERENCES hunter_monitor_targets(id) ON DELETE CASCADE,
+		report_id      TEXT NOT NULL,
+		program_handle TEXT NOT NULL DEFAULT '',
+		program_name   TEXT NOT NULL DEFAULT '',
+		resolved_at    TIMESTAMP,
+		first_seen_at  TIMESTAMP DEFAULT NOW(),
+		UNIQUE(target_id, report_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_hunter_monitor_seen_target ON hunter_monitor_seen_reports(target_id);
+
+	-- JS file monitor: per-domain inventory of discovered JS files with content hashes,
+	-- extracted endpoints and secrets, diffed every interval (new file / content change alerts).
+	CREATE TABLE IF NOT EXISTS js_monitor_targets (
+		id SERIAL PRIMARY KEY,
+		domain VARCHAR(255) NOT NULL UNIQUE,
+		interval_seconds INTEGER DEFAULT 21600,
+		threads INTEGER DEFAULT 30,
+		is_running BOOLEAN DEFAULT TRUE,
+		last_run_at TIMESTAMP,
+		created_at TIMESTAMP DEFAULT NOW(),
+		updated_at TIMESTAMP DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_targets_is_running ON js_monitor_targets(is_running);
+
+	CREATE TABLE IF NOT EXISTS js_monitor_files (
+		id BIGSERIAL PRIMARY KEY,
+		target_id INTEGER NOT NULL REFERENCES js_monitor_targets(id) ON DELETE CASCADE,
+		domain TEXT NOT NULL DEFAULT '',
+		url TEXT NOT NULL UNIQUE,
+		sha256 VARCHAR(64) NOT NULL DEFAULT '',
+		endpoints TEXT NOT NULL DEFAULT '[]',
+		secrets TEXT NOT NULL DEFAULT '[]',
+		content_length BIGINT DEFAULT 0,
+		last_status INTEGER DEFAULT 0,
+		first_seen TIMESTAMP DEFAULT NOW(),
+		last_seen TIMESTAMP DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_files_target ON js_monitor_files(target_id);
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id SERIAL PRIMARY KEY,
 		scan_id VARCHAR(255) NOT NULL UNIQUE,
 		scan_type VARCHAR(50) NOT NULL,
-		target VARCHAR(255) NOT NULL,
+		target TEXT NOT NULL,
 		status VARCHAR(50) NOT NULL,
 		channel_id VARCHAR(100),
 		thread_id VARCHAR(100),
@@ -400,6 +456,7 @@ func (p *PostgresDB) InitSchema() error {
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
 		result_url TEXT,
+		created_by TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMP DEFAULT NOW(),
 		updated_at TIMESTAMP DEFAULT NOW()
 	);
@@ -429,6 +486,9 @@ func (p *PostgresDB) InitSchema() error {
 	
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
+	-- Covering index for per-domain count aggregates (index-only scans):
+	-- ListDomainsWithCounts and the liveOnly COUNT both avoid heap fetches.
+	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_live ON subdomains(domain_id, is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	CREATE INDEX IF NOT EXISTS idx_updates_targets_url ON updates_targets(url);
@@ -461,6 +521,30 @@ func (p *PostgresDB) InitSchema() error {
 		enabled     BOOLEAN NOT NULL DEFAULT TRUE,
 		created_at  TIMESTAMP DEFAULT NOW(),
 		UNIQUE(platform, label)
+	);
+
+	-- Dashboard login accounts (multi-user auth: role admin/viewer).
+	CREATE TABLE IF NOT EXISTS users (
+		id            BIGSERIAL PRIMARY KEY,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL DEFAULT 'member',
+		disabled      BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at    TIMESTAMP DEFAULT NOW(),
+		updated_at    TIMESTAMP DEFAULT NOW(),
+		last_login_at TIMESTAMP,
+		tokens_valid_after BIGINT NOT NULL DEFAULT 0
+	);
+
+	-- Admin activity log (who did what).
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id     BIGSERIAL PRIMARY KEY,
+		ts     TIMESTAMP DEFAULT NOW(),
+		actor  TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '',
+		ip     TEXT NOT NULL DEFAULT ''
 	);
 
 	-- Bug-bounty program catalog for keyword/domain lookup.
@@ -516,6 +600,22 @@ func (p *PostgresDB) InitSchema() error {
 	}
 
 	// Migrate legacy DBs: CREATE TABLE IF NOT EXISTS does not add new columns to existing scans tables.
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT ''`)
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`)
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`)
+	// scans.target was VARCHAR(255) on Postgres only (TEXT on SQLite), so a long
+	// URL target failed CreateScan on PG — after the client had been told
+	// "started". varchar→text is binary-compatible (no table rewrite, the
+	// target index stays valid); check first so boots don't take the ALTER lock
+	// when there is nothing to do.
+	var targetType string
+	if qerr := p.pool.QueryRow(p.ctx, `
+		SELECT data_type FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'scans' AND column_name = 'target'`).Scan(&targetType); qerr == nil && targetType == "character varying" {
+		if _, aerr := p.pool.Exec(p.ctx, `ALTER TABLE scans ALTER COLUMN target TYPE TEXT`); aerr != nil {
+			logger.GetLogger().Warnf("[WARN] Could not widen scans.target to TEXT: %v", aerr)
+		}
+	}
 	_, err = p.pool.Exec(p.ctx, `ALTER TABLE scans ADD COLUMN IF NOT EXISTS result_url TEXT`)
 	if err != nil {
 		return fmt.Errorf("failed to migrate scans.result_url: %v", err)
@@ -526,7 +626,10 @@ func (p *PostgresDB) InitSchema() error {
 	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE scan_artifacts ADD COLUMN IF NOT EXISTS category TEXT`)
 
 	// Migrate bbp_accounts: totp_secret for YWH auto-reauth (email+password+2FA).
-	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE bbp_accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT NOT NULL DEFAULT ''`)
+	_, _ = p.pool.Exec(p.ctx, `UPDATE users SET role = 'member' WHERE role = 'viewer'`)
+_, _ = p.pool.Exec(p.ctx, `ALTER TABLE bbp_accounts ADD COLUMN IF NOT EXISTS totp_secret TEXT NOT NULL DEFAULT ''`)
+	// Migrate users: per-user session revocation cutoff (unix seconds).
+	_, _ = p.pool.Exec(p.ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_valid_after BIGINT NOT NULL DEFAULT 0`)
 
 	// Deduplicate legacy artifact rows before enforcing uniqueness.
 	_, _ = p.pool.Exec(p.ctx, `
@@ -541,6 +644,11 @@ func (p *PostgresDB) InitSchema() error {
 		ON scan_artifacts(scan_id, r2_key);
 	`); idxErr != nil {
 		logger.GetLogger().Warnf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
+	}
+	// Scan delete checks whether another scan still indexes an R2 key before
+	// deleting the object (ListR2KeysReferencedByOtherScans).
+	if _, idxErr := p.pool.Exec(p.ctx, `CREATE INDEX IF NOT EXISTS idx_scan_artifacts_r2_key ON scan_artifacts(r2_key)`); idxErr != nil {
+		logger.GetLogger().Warnf("[WARN] Could not create scan artifact r2_key index: %v", idxErr)
 	}
 
 	if os.Getenv("AUTOAR_SILENT") != "true" {
@@ -684,12 +792,20 @@ func (p *PostgresDB) InsertSubdomain(domain, subdomain string, isLive bool, http
 // InsertJSFile inserts or updates a JS file for a subdomain.
 // #15: Use net/url.Parse to correctly extract hostnames (handles ports, auth, etc.).
 func (p *PostgresDB) InsertJSFile(domain, jsURL, contentHash string) error {
-	// Extract hostname from JS URL — correctly handles ports.
+	// Extract hostname from JS URL — correctly handles ports. SanitizeHostname
+	// additionally normalizes case and rejects over-long/non-UTF-8 values so the
+	// row lands on the same unique key as every other writer (and can't violate
+	// the VARCHAR(255) column).
 	var subdomain string
 	if parsed, err := url.Parse(jsURL); err == nil && parsed.Hostname() != "" {
-		subdomain = parsed.Hostname() // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
+		subdomain = SanitizeHostname(parsed.Hostname()) // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
 	} else {
-		subdomain = jsURL // fallback: store as-is if not a valid URL
+		subdomain = SanitizeHostname(jsURL) // fallback: store normalized if not a valid URL
+	}
+	if subdomain == "" {
+		// Not a usable hostname — there is no subdomains row to attach the JS
+		// file to; skip rather than insert an empty key.
+		return nil
 	}
 
 	domainID, err := p.InsertOrGetDomain(domain)
@@ -1096,6 +1212,37 @@ func (p *PostgresDB) ListDomains() ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate domains: %v", rows.Err())
 	}
 	return domains, nil
+}
+
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate. With idx_subdomains_domain_live this runs as an index-only scan.
+func (p *PostgresDB) ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT d.domain,
+		       COUNT(s.id) AS subdomain_count,
+		       COUNT(s.id) FILTER (WHERE s.is_live) AS live_count
+		FROM domains d
+		LEFT JOIN subdomains s ON s.domain_id = d.id
+		GROUP BY d.id, d.domain
+		ORDER BY d.domain;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query domain counts: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]DomainWithCounts, 0, 128)
+	for rows.Next() {
+		var r DomainWithCounts
+		if err := rows.Scan(&r.Domain, &r.SubdomainCount, &r.LiveCount); err != nil {
+			return nil, fmt.Errorf("failed to scan domain counts: %v", err)
+		}
+		out = append(out, r)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate domain counts: %v", rows.Err())
+	}
+	return out, nil
 }
 
 // ListSubdomains returns all subdomains for a given domain.
@@ -1569,6 +1716,93 @@ func (p *PostgresDB) UpdateSubdomainMonitorLastRun(id int) error {
 	return nil
 }
 
+// ── Hunter monitor ───────────────────────────────────────────────────────────
+
+func (p *PostgresDB) ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HunterMonitorTarget
+	for rows.Next() {
+		var t HunterMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &t.IsRunning,
+			&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt); err != nil {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `
+		INSERT INTO hunter_monitor_targets (username, interval_seconds, is_running)
+		VALUES ($1, $2, TRUE)
+		ON CONFLICT (username) DO UPDATE SET interval_seconds = EXCLUDED.interval_seconds
+		RETURNING id`, username, intervalSeconds).Scan(&id)
+	return id, err
+}
+
+func (p *PostgresDB) RemoveHunterMonitorTarget(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM hunter_monitor_targets WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE hunter_monitor_targets SET is_running = $2 WHERE id = $1`, id, isRunning)
+	return err
+}
+
+func (p *PostgresDB) GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	var t HunterMonitorTarget
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets WHERE id = $1`, id).Scan(
+		&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &t.IsRunning,
+		&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (p *PostgresDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	_, err := p.pool.Exec(p.ctx, `
+		UPDATE hunter_monitor_targets
+		SET user_id = $2, last_reputation = $3, last_signal = $4, last_rank = $5, last_run_at = NOW()
+		WHERE id = $1`, id, userID, reputation, signal, rank)
+	return err
+}
+
+func (p *PostgresDB) ResetHunterMonitorLastRun(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE hunter_monitor_targets SET last_run_at = NULL WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	var exists bool
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT EXISTS(SELECT 1 FROM hunter_monitor_seen_reports WHERE target_id = $1 AND report_id = $2)`,
+		targetID, reportID).Scan(&exists)
+	return exists, err
+}
+
+func (p *PostgresDB) RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO hunter_monitor_seen_reports (target_id, report_id, program_handle, program_name, resolved_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (target_id, report_id) DO NOTHING`,
+		targetID, reportID, programHandle, programName, resolvedAt)
+	return err
+}
+
 // UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count
 func (p *PostgresDB) UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
 	_, err := p.pool.Exec(p.ctx, `
@@ -1656,6 +1890,7 @@ func (p *PostgresDB) ListMonitorChanges(domain string, limit int) ([]MonitorChan
 
 // CreateScan creates a new scan record
 func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
+	defaultScanTimestamps(scan)
 	completedPhasesJSON := marshalPhaseJSON(scan.CompletedPhases)
 	failedPhasesJSON := marshalPhaseJSON(scan.FailedPhases)
 
@@ -1664,15 +1899,27 @@ func (p *PostgresDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command, result_url
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19);
+			started_at, last_update, command, result_url, created_by, name
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL, scan.CreatedBy, scan.Name)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
+	}
+	return nil
+}
+
+// ReactivateScan re-opens an existing scan for a phase-resume (see the SQLite twin).
+func (p *PostgresDB) ReactivateScan(scanID string) error {
+	tag, err := p.pool.Exec(p.ctx, `UPDATE scans SET status = 'running', failed_phases = '[]'::jsonb, completed_at = NULL, last_update = $2, updated_at = NOW() WHERE scan_id = $1 AND LOWER(status) IN (`+resumableScanStatusesSQL+`)`, scanID, time.Now())
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrScanNotResumable
 	}
 	return nil
 }
@@ -1808,14 +2055,14 @@ func (p *PostgresDB) GetScan(scanID string) (*ScanRecord, error) {
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
 			files_uploaded, error_count, started_at, completed_at, last_update, 
-			COALESCE(command, ''), COALESCE(result_url, '')
+			COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, '')
 		FROM scans WHERE scan_id = $1;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description)
 	
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -1841,7 +2088,8 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, ''),
+			created_at
 		FROM scans
 		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
@@ -1850,24 +2098,28 @@ func (p *PostgresDB) ListActiveScans() ([]*ScanRecord, error) {
 		return nil, fmt.Errorf("failed to list active scans: %v", err)
 	}
 	defer rows.Close()
-	
+
 	var scans []*ScanRecord
 	for rows.Next() {
 		var scan ScanRecord
 		var completedPhasesJSON, failedPhasesJSON []byte
-		var phaseStartTime, completedAt *time.Time
-		
+		var phaseStartTime, completedAt, createdAt *time.Time
+
 		err := rows.Scan(
 			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
-		
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description,
+			&createdAt)
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
 		}
-		
+		if createdAt != nil {
+			backfillScanTimestamps(&scan, *createdAt)
+		}
+
 		scan.PhaseStartTime = phaseStartTime
 		scan.CompletedAt = completedAt
 		
@@ -1908,7 +2160,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'::jsonb), COALESCE(failed_phases, '[]'::jsonb),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
@@ -1930,7 +2182,7 @@ func (p *PostgresDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -2038,6 +2290,61 @@ func (p *PostgresDB) CountScansWithTargetExcluding(excludeScanID, target string)
 		return 0, fmt.Errorf("count scans by target: %v", err)
 	}
 	return n, nil
+}
+
+// ListR2KeysReferencedByOtherScans returns which of keys another scan's
+// artifacts still reference.
+func (p *PostgresDB) ListR2KeysReferencedByOtherScans(scanID string, keys []string) (map[string]bool, error) {
+	out := make(map[string]bool)
+	for start := 0; start < len(keys); start += r2KeyQueryChunk {
+		end := start + r2KeyQueryChunk
+		if end > len(keys) {
+			end = len(keys)
+		}
+		rows, err := p.pool.Query(p.ctx,
+			`SELECT DISTINCT r2_key FROM scan_artifacts WHERE scan_id != $1 AND r2_key = ANY($2)`,
+			scanID, keys[start:end],
+		)
+		if err != nil {
+			return nil, fmt.Errorf("list shared artifact keys: %v", err)
+		}
+		for rows.Next() {
+			var k string
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("list shared artifact keys: %v", err)
+			}
+			out[k] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("list shared artifact keys: %v", err)
+		}
+	}
+	return out, nil
+}
+
+// ListScanTargetsContaining returns other scans' targets whose lowercased value
+// contains needle (strpos, not LIKE, so '_' / '%' in needle stay literal).
+func (p *PostgresDB) ListScanTargetsContaining(excludeScanID, needle string) ([]string, error) {
+	rows, err := p.pool.Query(p.ctx,
+		`SELECT target FROM scans WHERE scan_id != $1 AND strpos(LOWER(target), $2) > 0`,
+		excludeScanID, strings.ToLower(needle),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list scan targets: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("list scan targets: %v", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // ListVulnerableDNSProviders returns all vulnerable DNS providers from the database
@@ -2217,11 +2524,152 @@ func (p *PostgresDB) DeleteBBPAccount(id int64) error {
 	return err
 }
 
+// ── Dashboard users ──────────────────────────────────────────────────────────
+
+func scanPgUser(row interface{ Scan(...any) error }) (*User, error) {
+	var u User
+	var last *time.Time
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Disabled, &u.CreatedAt, &u.UpdatedAt, &last, &u.TokensValidAfter); err != nil {
+		return nil, err
+	}
+	u.LastLoginAt = last
+	return &u, nil
+}
+
+func (p *PostgresDB) ListUsers() ([]User, error) {
+	rows, err := p.pool.Query(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := scanPgUser(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
+func (p *PostgresDB) GetUserByID(id int64) (*User, error) {
+	row := p.pool.QueryRow(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users WHERE id = $1`, id)
+	return scanPgUser(row)
+}
+
+func (p *PostgresDB) GetUserByUsername(username string) (*User, error) {
+	row := p.pool.QueryRow(p.ctx, `SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users WHERE username = $1`, username)
+	return scanPgUser(row)
+}
+
+func (p *PostgresDB) CreateUser(username, passwordHash, role string) (int64, error) {
+	var id int64
+	err := p.pool.QueryRow(p.ctx, `INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id`, username, passwordHash, role).Scan(&id)
+	return id, err
+}
+
+func (p *PostgresDB) UpdateUserPassword(id int64, passwordHash string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1`, id, passwordHash)
+	return err
+}
+
+func (p *PostgresDB) UpdateUserRole(id int64, role string) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1`, id, role)
+	return err
+}
+
+func (p *PostgresDB) SetUserDisabled(id int64, disabled bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET disabled = $2, updated_at = NOW() WHERE id = $1`, id, disabled)
+	return err
+}
+
+func (p *PostgresDB) TouchUserLogin(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET last_login_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) DeleteUser(id int64) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM users WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresDB) CountUsers() (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (p *PostgresDB) CountAdmins() (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = FALSE`).Scan(&n)
+	return n, err
+}
+
+func (p *PostgresDB) SetUserTokensValidAfter(id int64, unix int64) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE users SET tokens_valid_after = $2 WHERE id = $1`, id, unix)
+	return err
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+func (p *PostgresDB) InsertAuditEvent(e AuditEvent) error {
+	_, err := p.pool.Exec(p.ctx, `INSERT INTO audit_events (actor, action, target, detail, ip) VALUES ($1, $2, $3, $4, $5)`,
+		e.Actor, e.Action, e.Target, e.Detail, e.IP)
+	return err
+}
+
+func (p *PostgresDB) ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := `SELECT id, ts, actor, action, target, detail, ip FROM audit_events`
+	var conds []string
+	var args []any
+	i := 1
+	if actor != "" {
+		conds = append(conds, fmt.Sprintf("actor = $%d", i))
+		args = append(args, actor)
+		i++
+	}
+	if action != "" {
+		conds = append(conds, fmt.Sprintf("action = $%d", i))
+		args = append(args, action)
+		i++
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", i)
+	args = append(args, limit)
+	rows, err := p.pool.Query(p.ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Target, &e.Detail, &e.IP); err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // ── Bug-bounty program catalog ───────────────────────────────────────────────
 
-func (p *PostgresDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+// pgCatalogQ is the subset of *pgxpool.Pool / pgx.Tx the catalog writes use,
+// so the same statements run standalone or inside a source-replace tx.
+type pgCatalogQ interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
+}
+
+func pgUpsertCatalogProgram(ctx context.Context, q pgCatalogQ, c CatalogProgram) (int64, error) {
 	var id int64
-	err := p.pool.QueryRow(p.ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO bbp_catalog_programs (source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
 		ON CONFLICT (source, handle) DO UPDATE SET
@@ -2232,23 +2680,46 @@ func (p *PostgresDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
 	return id, err
 }
 
-func (p *PostgresDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
-	if _, err := p.pool.Exec(p.ctx, `DELETE FROM bbp_catalog_domains WHERE program_id = $1`, programID); err != nil {
-		return err
-	}
+// pgReplaceCatalogDomains deletes and re-inserts a program's domains in one
+// batch round trip.
+func pgReplaceCatalogDomains(ctx context.Context, q pgCatalogQ, programID int64, domains []CatalogDomain) error {
+	b := &pgx.Batch{}
+	b.Queue(`DELETE FROM bbp_catalog_domains WHERE program_id = $1`, programID)
 	for _, d := range domains {
 		if d.Domain == "" {
 			continue
 		}
-		_, err := p.pool.Exec(p.ctx, `
+		b.Queue(`
 			INSERT INTO bbp_catalog_domains (program_id, domain, in_scope) VALUES ($1,$2,$3)
 			ON CONFLICT (program_id, domain) DO UPDATE SET in_scope = EXCLUDED.in_scope
 		`, programID, d.Domain, d.InScope)
-		if err != nil {
+	}
+	br := q.SendBatch(ctx, b)
+	for i := 0; i < b.Len(); i++ {
+		if _, err := br.Exec(); err != nil {
+			br.Close()
 			return err
 		}
 	}
-	return nil
+	return br.Close()
+}
+
+func (p *PostgresDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+	return pgUpsertCatalogProgram(p.ctx, p.pool, c)
+}
+
+// ReplaceCatalogDomains swaps a program's domain rows in one transaction, so
+// a failure mid-way never leaves the program with a partial (or empty) scope.
+func (p *PostgresDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
+	tx, err := p.pool.Begin(p.ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(p.ctx)
+	if err := pgReplaceCatalogDomains(p.ctx, tx, programID, domains); err != nil {
+		return err
+	}
+	return tx.Commit(p.ctx)
 }
 
 func (p *PostgresDB) ClearCatalogSource(source string) error {
@@ -2256,13 +2727,71 @@ func (p *PostgresDB) ClearCatalogSource(source string) error {
 	return err
 }
 
+// replaceCatalogSource atomically replaces every program (and, via ON DELETE
+// CASCADE, every domain) of one source.
+func (p *PostgresDB) replaceCatalogSource(source string, progs []CatalogSourceProgram) error {
+	tx, err := p.pool.Begin(p.ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(p.ctx)
+	if _, err := tx.Exec(p.ctx, `DELETE FROM bbp_catalog_programs WHERE source = $1`, source); err != nil {
+		return err
+	}
+	for _, prog := range progs {
+		c := prog.Program
+		c.Source = source
+		id, err := pgUpsertCatalogProgram(p.ctx, tx, c)
+		if err != nil {
+			return err
+		}
+		if err := pgReplaceCatalogDomains(p.ctx, tx, id, prog.Domains); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(p.ctx)
+}
+
+func (p *PostgresDB) catalogSourceCount(source string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx, `SELECT COUNT(*) FROM bbp_catalog_programs WHERE source = $1`, source).Scan(&n)
+	return n, err
+}
+
+// catalogSyncAdvisoryKey is the pg_advisory_lock id for catalog syncs.
+const catalogSyncAdvisoryKey int64 = 0x4175746f415201 // "AutoAR" + 0x01
+
+// tryCatalogSyncLock takes a session-level advisory lock on a dedicated pool
+// connection held until release. If the holder process dies, its session —
+// and the lock — end with it; nothing to expire (ttl unused).
+func (p *PostgresDB) tryCatalogSyncLock(owner string, ttl time.Duration) (func(), bool, error) {
+	conn, err := p.pool.Acquire(p.ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	var ok bool
+	if err := conn.QueryRow(p.ctx, `SELECT pg_try_advisory_lock($1)`, catalogSyncAdvisoryKey).Scan(&ok); err != nil {
+		conn.Release()
+		return nil, false, err
+	}
+	if !ok {
+		conn.Release()
+		return nil, false, nil
+	}
+	release := func() {
+		_, _ = conn.Exec(p.ctx, `SELECT pg_advisory_unlock($1)`, catalogSyncAdvisoryKey)
+		conn.Release()
+	}
+	return release, true, nil
+}
+
 func (p *PostgresDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram, error) {
 	rows, err := p.pool.Query(p.ctx, `
 		SELECT id, source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at
 		FROM bbp_catalog_programs
-		WHERE company ILIKE '%'||$1||'%' OR handle ILIKE '%'||$1||'%'
+		WHERE company ILIKE '%'||$1||'%' ESCAPE '\' OR handle ILIKE '%'||$1||'%' ESCAPE '\'
 		ORDER BY offers_bounty DESC, company LIMIT $2
-	`, q, limit)
+	`, escapeLike(q), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2278,14 +2807,22 @@ func (p *PostgresDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgr
 	return out, rows.Err()
 }
 
+// SearchCatalogByDomain returns the RAW catalog rows whose key exactly equals
+// the host, a parent of it, or a "*." wildcard of either (see
+// catalogDomainCandidates). The package-level wrapper turns them into one
+// verdict per program.
 func (p *PostgresDB) SearchCatalogByDomain(q string, limit int) ([]CatalogDomainMatch, error) {
+	cands := catalogDomainCandidates(strings.ToLower(strings.TrimSpace(q)))
+	if len(cands) == 0 {
+		return nil, nil
+	}
 	rows, err := p.pool.Query(p.ctx, `
 		SELECT p.id, p.source, p.company, p.handle, p.url, p.rewards, p.safe_harbor, p.offers_bounty, p.updated_at,
 		       d.domain, d.in_scope
 		FROM bbp_catalog_domains d JOIN bbp_catalog_programs p ON d.program_id = p.id
-		WHERE lower(d.domain) = lower($1) OR d.domain ILIKE '%'||$1||'%'
-		ORDER BY (lower(d.domain) = lower($1)) DESC, d.in_scope DESC, p.company LIMIT $2
-	`, q, limit)
+		WHERE lower(d.domain) = ANY($1)
+		ORDER BY d.in_scope DESC, p.company LIMIT $2
+	`, cands, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2346,3 +2883,146 @@ func (p *PostgresDB) Close() {
 	}
 }
 
+
+// ── JS file monitor ──────────────────────────────────────────────────────────
+
+// ListJSMonitorTargets returns all JS-monitor domains with their file counts.
+func (p *PostgresDB) ListJSMonitorTargets() ([]JSMonitorTarget, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT t.id, t.domain, t.interval_seconds, t.threads, t.is_running, t.last_run_at, t.created_at, t.updated_at,
+		       (SELECT count(*) FROM js_monitor_files f WHERE f.target_id = t.id)
+		FROM js_monitor_targets t ORDER BY t.created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list js monitor targets: %w", err)
+	}
+	defer rows.Close()
+	var out []JSMonitorTarget
+	for rows.Next() {
+		var t JSMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Domain, &t.IntervalSeconds, &t.Threads, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt, &t.FileCount); err != nil {
+			return nil, fmt.Errorf("scan js monitor target: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// AddJSMonitorTarget enrolls a root domain (upsert on domain).
+func (p *PostgresDB) AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error) {
+	if intervalSeconds <= 0 {
+		intervalSeconds = 21600
+	}
+	if threads <= 0 {
+		threads = 30
+	}
+	var id int
+	err := p.pool.QueryRow(p.ctx, `
+		INSERT INTO js_monitor_targets (domain, interval_seconds, threads, is_running)
+		VALUES ($1, $2, $3, TRUE)
+		ON CONFLICT (domain) DO UPDATE SET interval_seconds = EXCLUDED.interval_seconds, threads = EXCLUDED.threads, is_running = TRUE, updated_at = NOW()
+		RETURNING id`, domain, intervalSeconds, threads).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("add js monitor target: %w", err)
+	}
+	return id, nil
+}
+
+// DeleteJSMonitorTarget removes a domain and its file inventory (cascade).
+func (p *PostgresDB) DeleteJSMonitorTarget(id int) error {
+	_, err := p.pool.Exec(p.ctx, `DELETE FROM js_monitor_targets WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete js monitor target: %w", err)
+	}
+	return nil
+}
+
+// SetJSMonitorRunning toggles a domain's daemon participation.
+func (p *PostgresDB) SetJSMonitorRunning(id int, running bool) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE js_monitor_targets SET is_running = $2, updated_at = NOW() WHERE id = $1`, id, running)
+	if err != nil {
+		return fmt.Errorf("set js monitor running: %w", err)
+	}
+	return nil
+}
+
+// TouchJSMonitorRun stamps last_run_at for a domain.
+func (p *PostgresDB) TouchJSMonitorRun(id int) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE js_monitor_targets SET last_run_at = NOW(), updated_at = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("touch js monitor run: %w", err)
+	}
+	return nil
+}
+
+// ListJSMonitorFiles returns the file inventory for one target.
+func (p *PostgresDB) ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error) {
+	rows, err := p.pool.Query(p.ctx, `
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE target_id = $1 ORDER BY url`, targetID)
+	if err != nil {
+		return nil, fmt.Errorf("list js monitor files: %w", err)
+	}
+	defer rows.Close()
+	var out []JSMonitorFile
+	for rows.Next() {
+		var f JSMonitorFile
+		if err := rows.Scan(&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen); err != nil {
+			return nil, fmt.Errorf("scan js monitor file: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// GetJSMonitorFileByURL loads one inventory row (nil if absent).
+func (p *PostgresDB) GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error) {
+	var f JSMonitorFile
+	err := p.pool.QueryRow(p.ctx, `
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE url = $1`, rawURL).Scan(
+		&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get js monitor file: %w", err)
+	}
+	return &f, nil
+}
+
+// UpsertJSMonitorFile inserts or updates one inventory row keyed by URL.
+func (p *PostgresDB) UpsertJSMonitorFile(f JSMonitorFile) error {
+	_, err := p.pool.Exec(p.ctx, `
+		INSERT INTO js_monitor_files (target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		ON CONFLICT (url) DO UPDATE SET
+			sha256 = EXCLUDED.sha256, endpoints = EXCLUDED.endpoints, secrets = EXCLUDED.secrets,
+			content_length = EXCLUDED.content_length, last_status = EXCLUDED.last_status, last_seen = NOW()`,
+		f.TargetID, f.Domain, f.URL, f.SHA256, f.Endpoints, f.Secrets, f.ContentLength, f.LastStatus)
+	if err != nil {
+		return fmt.Errorf("upsert js monitor file: %w", err)
+	}
+	return nil
+}
+
+// MarkJSMonitorFileSeen touches last_seen for an unchanged file.
+func (p *PostgresDB) MarkJSMonitorFileSeen(id int64, status int) error {
+	_, err := p.pool.Exec(p.ctx, `UPDATE js_monitor_files SET last_seen = NOW(), last_status = $2 WHERE id = $1`, id, status)
+	if err != nil {
+		return fmt.Errorf("mark js monitor file seen: %w", err)
+	}
+	return nil
+}
+
+// CountRunningScansForTarget reports how many scans are currently in a
+// non-terminal state for a target (e.g. "global-subdomains") — used by the
+// template watcher to avoid launching a second global scan on a busy box.
+func (p *PostgresDB) CountRunningScansForTarget(target string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(p.ctx,
+		`SELECT count(*) FROM scans WHERE target = $1 AND status = 'running'`, target).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count running scans: %w", err)
+	}
+	return n, nil
+}

@@ -1,144 +1,163 @@
 (() => {
-  async function cancelScan(scanID) {
-    if (!confirm('Stop this scan? The worker process will be killed.')) return;
-    try {
-      await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/cancel`, {});
-      window.showToast('success', 'Scan stopped', '');
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Could not stop scan', e.message);
-    }
-  }
+ async function cancelScan(scanID) {
+ if (!await window.uiConfirm('Stop this scan? The worker process will be killed.')) return;
+ try {
+ await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/cancel`, {});
+ window.showToast('success', 'Scan stopped', '');
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Could not stop scan', e.message);
+ }
+ }
 
-  async function deleteScan(scanID, target = '') {
-    const label = target ? ` for ${target}` : '';
-    if (!confirm(`Delete this scan record${label} and remove its R2 indexed artifacts?`)) return;
-    try {
-      await window.apiDelete(`/api/scans/${encodeURIComponent(scanID)}`);
-      window.showToast('success', 'Scan deleted', '');
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Delete failed', e.message);
-    }
-  }
+ async function deleteScan(scanID, target = '') {
+ const label = target ? ` for ${target}` : '';
+ if (!await window.uiConfirm(`Delete this scan record${label} and remove its R2 indexed artifacts?`)) return;
+ try {
+ await window.apiDelete(`/api/scans/${encodeURIComponent(scanID)}`);
+ window.showToast('success', 'Scan deleted', '');
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Delete failed', e.message);
+ }
+ }
 
-  async function rescanScan(scanID) {
-    try {
-      const result = await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/rescan`, {});
-      window.showToast('success', ' Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
-      window.loadScans();
-      if (result.new_scan_id) {
-        setTimeout(() => window.goToScanResultsPage(result.new_scan_id), 900);
-      }
-    } catch (e) {
-      window.showToast('error', 'Rescan failed', e.message);
-    }
-  }
+ async function rescanScan(scanID) {
+ try {
+ const result = await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/rescan`, {});
+ window.showToast('success', ' Rescan started', `New scan queued (ID: ${result.new_scan_id || ''})`);
+ window.loadScans();
+ if (result.new_scan_id) {
+ setTimeout(() => window.goToScanResultsPage(result.new_scan_id), 900);
+ }
+ } catch (e) {
+ window.showToast('error', 'Rescan failed', e.message);
+ }
+ }
 
-  function toggleSelectAllRecentScans(master) {
-    const on = master.checked;
-    document.querySelectorAll('#recent-scans-table .scan-row-select').forEach((cb) => { cb.checked = on; });
-  }
+ // Resume a failed/timed-out domain_run/subdomain_run from its last completed
+ // phase (reuses the same scan id; already-done phases are skipped server-side).
+ async function resumeScan(scanID) {
+ try {
+ await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume-run`, {});
+ window.showToast('success', 'Resuming scan', 'Continuing from the last completed phase.');
+ window.loadScans();
+ setTimeout(() => window.goToScanResultsPage(scanID), 900);
+ } catch (e) {
+ window.showToast('error', 'Resume failed', e.message);
+ }
+ }
 
-  async function deleteSelectedScans() {
-    const cbs = Array.from(document.querySelectorAll('#recent-scans-table .scan-row-select:checked'));
-    const ids = cbs.map((cb) => cb.getAttribute('data-scan-id')).filter(Boolean);
-    if (!ids.length) {
-      window.showToast('error', 'No scans selected', 'Check the rows you want to remove.');
-      return;
-    }
-    if (!confirm(`Delete ${ids.length} scan record(s) and remove their indexed R2 artifacts?`)) return;
-    try {
-      const res = await window.apiPost('/api/scans/bulk-delete', { scan_ids: ids });
-      let msg = `Removed ${res.deleted} scan(s).`;
-      if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
-      if (res.failed) msg += ` ${res.failed} failed.`;
-      window.showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Bulk delete failed', e.message);
-    }
-  }
+ function toggleSelectAllRecentScans(master) {
+ const on = master.checked;
+ document.querySelectorAll('#recent-scans-table .scan-row-select').forEach((cb) => { cb.checked = on; });
+ }
 
-  async function clearAllScans() {
-    if (!confirm('Delete all scan history? Active scans stay; finished scans are removed with their indexed R2 objects.')) return;
-    try {
-      const res = await window.apiPost('/api/scans/clear-all', {});
-      let msg = `Removed ${res.deleted} scan(s).`;
-      if (res.skipped_active) msg += ` ${res.skipped_active} active scan(s) were skipped.`;
-      if (res.failed) msg += ` ${res.failed} failed.`;
-      window.showToast(res.ok && !res.failed ? 'success' : 'error', 'Clear all', msg);
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Clear all failed', e.message);
-    }
-  }
+ async function deleteSelectedScans() {
+ const cbs = Array.from(document.querySelectorAll('#recent-scans-table .scan-row-select:checked'));
+ const ids = cbs.map((cb) => cb.getAttribute('data-scan-id')).filter(Boolean);
+ if (!ids.length) {
+ window.showToast('error', 'No scans selected', 'Check the rows you want to remove.');
+ return;
+ }
+ if (!await window.uiConfirm(`Delete ${ids.length} scan record(s) and remove their indexed R2 artifacts?`)) return;
+ try {
+ const res = await window.apiPost('/api/scans/bulk-delete', { scan_ids: ids });
+ let msg = `Removed ${res.deleted} scan(s).`;
+ if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
+ if (res.failed) msg += ` ${res.failed} failed.`;
+ window.showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Bulk delete failed', e.message);
+ }
+ }
 
-  async function deleteScansNoFindings() {
-    const { recent_scans = [] } = window.state.scans || {};
-    const ids = recent_scans.filter(s => {
-      const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
-      const statusRaw = (s.status || s.Status || '').toLowerCase();
-      const done = ['completed', 'done', 'failed', 'stopped', 'cancelled', 'timed_out'].includes(statusRaw);
-      return done && filesUploaded === 0;
-    }).map(s => s.scan_id || s.ScanID).filter(Boolean);
+ async function clearAllScans() {
+ if (!await window.uiConfirm('Delete all scan history? Active scans stay; finished scans are removed with their indexed R2 objects.')) return;
+ try {
+ const res = await window.apiPost('/api/scans/clear-all', {});
+ let msg = `Removed ${res.deleted} scan(s).`;
+ if (res.skipped_active) msg += ` ${res.skipped_active} active scan(s) were skipped.`;
+ if (res.failed) msg += ` ${res.failed} failed.`;
+ window.showToast(res.ok && !res.failed ? 'success' : 'error', 'Clear all', msg);
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Clear all failed', e.message);
+ }
+ }
 
-    if (!ids.length) {
-      window.showToast('info', 'No empty scans', 'No completed scans with 0 findings were found.');
-      return;
-    }
+ async function deleteScansNoFindings() {
+ const { recent_scans = [] } = window.state.scans || {};
+ const ids = recent_scans.filter(s => {
+ const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+ const statusRaw = (s.status || s.Status || '').toLowerCase();
+ const done = ['completed', 'done', 'failed', 'stopped', 'cancelled', 'timed_out'].includes(statusRaw);
+ return done && filesUploaded === 0;
+ }).map(s => s.scan_id || s.ScanID).filter(Boolean);
 
-    if (!confirm(`Found ${ids.length} completed/stopped scan(s) with 0 findings. Delete them and their artifacts?`)) return;
+ if (!ids.length) {
+ window.showToast('info', 'No empty scans', 'No completed scans with 0 findings were found.');
+ return;
+ }
 
-    try {
-      const res = await window.apiPost('/api/scans/bulk-delete', { scan_ids: ids });
-      let msg = `Removed ${res.deleted} scan(s).`;
-      if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
-      if (res.failed) msg += ` ${res.failed} failed.`;
-      window.showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Bulk delete failed', e.message);
-    }
-  }
+ if (!await window.uiConfirm(`Found ${ids.length} completed/stopped scan(s) with 0 findings. Delete them and their artifacts?`)) return;
+
+ try {
+ const res = await window.apiPost('/api/scans/bulk-delete', { scan_ids: ids });
+ let msg = `Removed ${res.deleted} scan(s).`;
+ if (res.skipped_active) msg += ` ${res.skipped_active} skipped (still active).`;
+ if (res.failed) msg += ` ${res.failed} failed.`;
+ window.showToast(res.ok && !res.failed ? 'success' : 'error', res.ok ? 'Bulk delete done' : 'Some deletes failed', msg);
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Bulk delete failed', e.message);
+ }
+ }
 
 
-  async function pauseScan(scanID) {
-    try {
-      await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/pause`, {});
-      window.showToast('success', 'Scan paused', '');
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Pause failed', e.message);
-    }
-  }
+ async function pauseScan(scanID) {
+ try {
+ await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/pause`, {});
+ window.showToast('success', 'Scan paused', '');
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Pause failed', e.message);
+ }
+ }
 
-  async function resumeScan(scanID) {
-    try {
-      await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume`, {});
-      window.showToast('success', 'Scan resumed', '');
-      window.loadStats();
-      window.loadScans();
-    } catch (e) {
-      window.showToast('error', 'Resume failed', e.message);
-    }
-  }
+ // Resume a PAUSED scan process group (SIGCONT). Distinct from the workflow
+ // resumeScan above — a same-scope duplicate `resumeScan` declaration was
+ // silently shadowing it, so every Resume button hit this SIGCONT path and
+ // failed with "not found or not active" on failed/completed scans.
+ async function resumePausedScan(scanID) {
+ try {
+ await window.apiPost(`/api/scans/${encodeURIComponent(scanID)}/resume`, {});
+ window.showToast('success', 'Scan resumed', '');
+ window.loadStats();
+ window.loadScans();
+ } catch (e) {
+ window.showToast('error', 'Resume failed', e.message);
+ }
+ }
 
-  window.ScanActionsPage = {
-    cancelScan,
-    deleteScan,
-    rescanScan,
-    toggleSelectAllRecentScans,
-    deleteSelectedScans,
-    clearAllScans,
-    deleteScansNoFindings,
-    pauseScan,
-    resumeScan,
-  };
+
+ window.ScanActionsPage = {
+ cancelScan,
+ resumeScan,
+ deleteScan,
+ rescanScan,
+ toggleSelectAllRecentScans,
+ deleteSelectedScans,
+ clearAllScans,
+ deleteScansNoFindings,
+ pauseScan,
+ resumePausedScan,
+ };
 })();

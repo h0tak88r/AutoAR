@@ -8,10 +8,23 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Manual re-publish of the container image for an existing tag (e.g. after a
+  # failed docker job) without moving the tag or re-creating the release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build the image from (e.g. v4.5.0)'
+        required: true
+        type: string
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    # The self-hosted runner on the AutoAR VPS (systemd service
+    # actions.runner.h0tak88r-AutoAR-private.autoar-vps, user ghrunner): builds
+    # there cost no Actions minutes. To use GitHub's runners again, set this
+    # back to ubuntu-latest.
+    runs-on: [self-hosted, autoar-vps]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,14 +33,18 @@ jobs:
           fetch-depth: 0
 
       - name: Install system dependencies
+        # Preinstalled on the VPS runner (its user has no sudo); GitHub's
+        # runners install them.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libpcap-dev
+          if ! dpkg -s libpcap-dev >/dev/null 2>&1 || ! command -v zip >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y libpcap-dev zip
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Verify Go version
@@ -42,11 +59,18 @@ jobs:
         run: |
           ./autoar --help || true
 
+      # The self-hosted runner persists /tmp between jobs; a crashed gitleaks
+      # download leaves /tmp/gitleaks* and wedges the next run. GitHub's runners
+      # start clean, so this only runs on the VPS.
+      - name: Clear stale gitleaks temp (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "${RUNNER_TEMP:-/tmp}"/gitleaks* /tmp/gitleaks* || true
+
       - name: Gitleaks scan
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
-        with:
-          config-path: .gitleaks.toml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
       - name: Create release archive
         run: |
@@ -91,20 +115,55 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   docker:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # The self-hosted runner on the AutoAR VPS (systemd service
+    # actions.runner.h0tak88r-AutoAR-private.autoar-vps, user ghrunner): builds
+    # there cost no Actions minutes. To use GitHub's runners again, set this
+    # back to ubuntu-latest.
+    runs-on: [self-hosted, autoar-vps]
     permissions:
       contents: read
       packages: write
     steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a release tag (expected vX.Y.Z)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
           submodules: false
           fetch-depth: 0
 
+      # The build (golang+debian images, apt, trufflehog, the nuclei/katana/
+      # naabu module tree, CGO) plus an imported layer cache overflowed the
+      # runner's ~14GB SSD mid-build — the runner died so hard its logs never
+      # uploaded (blob-404) and runs flaked cold-cache-ok / warm-cache-dead.
+      # Free the ~25GB of preinstalled toolchains first and prune leftovers.
+      # GitHub's runners only: on the VPS runner `docker image prune -af` would
+      # delete the deployed release's rollback image and older releases.
+      - name: Free runner disk
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghc || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h /
+
+      # On the VPS runner the daemon's own builder keeps the layer cache (the
+      # deploy script prunes it); a docker-container builder there would grow a
+      # cache nothing cleans. GitHub's runners start empty and use the gha cache.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: ${{ runner.environment == 'github-hosted' && 'docker-container' || 'docker' }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -117,22 +176,31 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/autoar
+          # MUST stay `autoar-private`. ghcr.io/<owner>/autoar is the PUBLIC repo's
+          # package, so this (private) repo's GITHUB_TOKEN gets `permission_denied:
+          # write_package` against it — that was the tag-push failure on v4.4.0/v4.5.0.
+          # Never revert this to `autoar` (would also risk leaking to a public package).
+          images: ghcr.io/${{ github.repository_owner }}/autoar-private
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.tag.outputs.tag }}
+            type=semver,pattern={{version}},value=${{ steps.tag.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ steps.tag.outputs.tag }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: ${{ runner.environment == 'github-hosted' && 'type=gha' || '' }}
+          cache-to: ${{ runner.environment == 'github-hosted' && 'type=gha,mode=min' || '' }}
           # Single platform: CGO + Dockerfile are tuned for amd64; add arm64 when cross-build is verified.
           platforms: linux/amd64
+          # Publish a plain single-arch image manifest instead of a manifest list +
+          # provenance/SBOM attestations, so `docker pull` on the box resolves exactly
+          # one image and no unused attestation layers are pushed to GHCR.
+          provenance: false
+          sbom: false

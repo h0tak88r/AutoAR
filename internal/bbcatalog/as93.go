@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/h0tak88r/AutoAR/internal/utils"
 )
 
 const (
@@ -67,7 +69,7 @@ func As93Programs() ([]As93Program, error) {
 
 	if len(cached) > 0 {
 		if age > as93TTL && !fetching {
-			go func() { _, _ = refreshAs93() }() // background refresh; ignore error, keep serving cache
+			utils.SafeGo("catalog:as93-refresh", func() { _, _ = refreshAs93() }) // background refresh; ignore error, keep serving cache
 		}
 		return cached, nil
 	}
@@ -108,6 +110,11 @@ func refreshAs93() ([]As93Program, error) {
 	var parsed as93Response
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("as93 parse: %w", err)
+	}
+	// A 200 with no programs (schema change, error page served as JSON) must
+	// not replace the cache — nor, downstream, wipe the as93 catalog source.
+	if len(parsed.Programs) == 0 {
+		return nil, fmt.Errorf("as93 fetch: response carried no programs")
 	}
 
 	bounty := make([]As93Program, 0, len(parsed.Programs))

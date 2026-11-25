@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -223,6 +224,61 @@ func (s *SQLiteDB) InitSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_detected_at ON monitor_changes(detected_at);
 	CREATE INDEX IF NOT EXISTS idx_monitor_changes_change_type ON monitor_changes(change_type);
 
+	-- Hunter monitor: track a HackerOne username's public reputation/signal/rank
+	-- and resolved-report hacktivity, alerting on Discord when either changes.
+	CREATE TABLE IF NOT EXISTS hunter_monitor_targets (
+		id               INTEGER PRIMARY KEY AUTOINCREMENT,
+		username         TEXT NOT NULL UNIQUE,
+		user_id          TEXT NOT NULL DEFAULT '',
+		interval_seconds INTEGER NOT NULL DEFAULT 86400,
+		is_running       INTEGER NOT NULL DEFAULT 1,
+		last_reputation  REAL,
+		last_signal      REAL,
+		last_rank        REAL,
+		last_run_at      TIMESTAMP,
+		created_at       TIMESTAMP DEFAULT (datetime('now'))
+	);
+
+	CREATE TABLE IF NOT EXISTS hunter_monitor_seen_reports (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_id      INTEGER NOT NULL REFERENCES hunter_monitor_targets(id) ON DELETE CASCADE,
+		report_id      TEXT NOT NULL,
+		program_handle TEXT NOT NULL DEFAULT '',
+		program_name   TEXT NOT NULL DEFAULT '',
+		resolved_at    TIMESTAMP,
+		first_seen_at  TIMESTAMP DEFAULT (datetime('now')),
+		UNIQUE(target_id, report_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_hunter_monitor_seen_target ON hunter_monitor_seen_reports(target_id);
+
+	-- JS file monitor: per-domain inventory of discovered JS files with content hashes.
+	CREATE TABLE IF NOT EXISTS js_monitor_targets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		domain TEXT NOT NULL UNIQUE,
+		interval_seconds INTEGER DEFAULT 21600,
+		threads INTEGER DEFAULT 30,
+		is_running INTEGER DEFAULT 1,
+		last_run_at TIMESTAMP,
+		created_at TIMESTAMP DEFAULT (datetime('now')),
+		updated_at TIMESTAMP DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_targets_is_running ON js_monitor_targets(is_running);
+
+	CREATE TABLE IF NOT EXISTS js_monitor_files (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_id INTEGER NOT NULL REFERENCES js_monitor_targets(id) ON DELETE CASCADE,
+		domain TEXT NOT NULL DEFAULT '',
+		url TEXT NOT NULL UNIQUE,
+		sha256 TEXT NOT NULL DEFAULT '',
+		endpoints TEXT NOT NULL DEFAULT '[]',
+		secrets TEXT NOT NULL DEFAULT '[]',
+		content_length INTEGER DEFAULT 0,
+		last_status INTEGER DEFAULT 0,
+		first_seen TIMESTAMP DEFAULT (datetime('now')),
+		last_seen TIMESTAMP DEFAULT (datetime('now'))
+	);
+	CREATE INDEX IF NOT EXISTS idx_js_monitor_files_target ON js_monitor_files(target_id);
+
 	-- Create scans table for scan progress tracking
 	CREATE TABLE IF NOT EXISTS scans (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,6 +302,8 @@ func (s *SQLiteDB) InitSchema() error {
 		last_update TIMESTAMP NOT NULL,
 		command TEXT,
 		result_url TEXT,
+		created_by TEXT DEFAULT '',
+		name TEXT DEFAULT '',
 		created_at TIMESTAMP DEFAULT (datetime('now')),
 		updated_at TIMESTAMP DEFAULT (datetime('now'))
 	);
@@ -276,6 +334,8 @@ func (s *SQLiteDB) InitSchema() error {
 	-- Create indexes
 	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_id ON subdomains(domain_id);
 	CREATE INDEX IF NOT EXISTS idx_subdomains_is_live ON subdomains(is_live);
+	-- Covering index for per-domain count aggregates (ListDomainsWithCounts).
+	CREATE INDEX IF NOT EXISTS idx_subdomains_domain_live ON subdomains(domain_id, is_live);
 	CREATE INDEX IF NOT EXISTS idx_js_files_subdomain_id ON js_files(subdomain_id);
 	CREATE INDEX IF NOT EXISTS idx_keyhack_templates_keyname ON keyhack_templates(keyname);
 	CREATE INDEX IF NOT EXISTS idx_report_templates_name ON report_templates(name);
@@ -309,6 +369,30 @@ func (s *SQLiteDB) InitSchema() error {
 		enabled     INTEGER NOT NULL DEFAULT 1,
 		created_at  TIMESTAMP DEFAULT (datetime('now')),
 		UNIQUE(platform, label)
+	);
+
+	-- Dashboard login accounts (multi-user auth: role admin/viewer).
+	CREATE TABLE IF NOT EXISTS users (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL DEFAULT 'member',
+		disabled      INTEGER NOT NULL DEFAULT 0,
+		created_at    TIMESTAMP DEFAULT (datetime('now')),
+		updated_at    TIMESTAMP DEFAULT (datetime('now')),
+		last_login_at TIMESTAMP,
+		tokens_valid_after INTEGER NOT NULL DEFAULT 0
+	);
+
+	-- Admin activity log (who did what).
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id     INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts     TIMESTAMP DEFAULT (datetime('now')),
+		actor  TEXT NOT NULL DEFAULT '',
+		action TEXT NOT NULL,
+		target TEXT NOT NULL DEFAULT '',
+		detail TEXT NOT NULL DEFAULT '',
+		ip     TEXT NOT NULL DEFAULT ''
 	);
 
 	-- Bug-bounty program catalog for keyword/domain lookup.
@@ -351,6 +435,17 @@ func (s *SQLiteDB) InitSchema() error {
 		FROM subdomains s`); verr != nil {
 		return fmt.Errorf("failed to create subdomain_hosts view: %v", verr)
 	}
+	// Migrate legacy scans table: ensure created_by exists (scan initiator username).
+	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN created_by TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Debugf("[SQLite] scans.created_by migration: %v", merr)
+	}
+	// Migrate legacy scans table: ensure name exists (operator display name).
+	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN name TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Debugf("[SQLite] scans.name migration: %v", merr)
+	}
+	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN description TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Debugf("[SQLite] scans.description migration: %v", merr)
+	}
 	// Migrate legacy scans table: ensure result_url exists (CREATE TABLE IF NOT EXISTS does not add columns)
 	if _, merr := s.db.Exec(`ALTER TABLE scans ADD COLUMN result_url TEXT`); merr != nil {
 		low := strings.ToLower(merr.Error())
@@ -364,6 +459,11 @@ func (s *SQLiteDB) InitSchema() error {
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE bbp_accounts ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
 		logger.GetLogger().Warnf("[WARN] Failed to add bbp_accounts.totp_secret column: %v", merr)
+	}
+	// users.tokens_valid_after: per-user session revocation cutoff (unix seconds).
+	_, _ = s.db.Exec(`UPDATE users SET role = 'member' WHERE role = 'viewer'`)
+	if _, merr := s.db.Exec(`ALTER TABLE users ADD COLUMN tokens_valid_after INTEGER NOT NULL DEFAULT 0`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
+		logger.GetLogger().Warnf("[WARN] Failed to add users.tokens_valid_after column: %v", merr)
 	}
 	if _, merr := s.db.Exec(`ALTER TABLE subdomains ADD COLUMN cnames TEXT DEFAULT ''`); merr != nil && !strings.Contains(strings.ToLower(merr.Error()), "duplicate column") {
 		logger.GetLogger().Warnf("[WARN] Failed to add subdomains.cnames column: %v", merr)
@@ -397,6 +497,11 @@ func (s *SQLiteDB) InitSchema() error {
 		ON scan_artifacts (scan_id, r2_key);
 	`); idxErr != nil {
 		logger.GetLogger().Warnf("[WARN] Could not enforce unique scan artifact index: %v", idxErr)
+	}
+	// Scan delete checks whether another scan still indexes an R2 key before
+	// deleting the object (ListR2KeysReferencedByOtherScans).
+	if _, idxErr := s.db.Exec(`CREATE INDEX IF NOT EXISTS scan_artifacts_r2_key_idx ON scan_artifacts (r2_key);`); idxErr != nil {
+		logger.GetLogger().Warnf("[WARN] Could not create scan artifact r2_key index: %v", idxErr)
 	}
 	if os.Getenv("AUTOAR_SILENT") != "true" {
 		logger.GetLogger().Info("[OK] Database schema initialized")
@@ -545,12 +650,19 @@ func (s *SQLiteDB) InsertSubdomain(domain, subdomain string, isLive bool, httpUR
 // InsertJSFile inserts or updates a JS file for a subdomain.
 // #15: Use net/url.Parse to correctly extract hostnames (handles ports, auth, etc.).
 func (s *SQLiteDB) InsertJSFile(domain, jsURL, contentHash string) error {
-	// Extract hostname from JS URL — correctly handles ports.
+	// Extract hostname from JS URL — correctly handles ports. SanitizeHostname
+	// additionally normalizes case and rejects over-long/non-UTF-8 values so the
+	// row lands on the same unique key as every other writer.
 	var subdomain string
 	if parsed, err := url.Parse(jsURL); err == nil && parsed.Hostname() != "" {
-		subdomain = parsed.Hostname() // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
+		subdomain = SanitizeHostname(parsed.Hostname()) // strips port correctly (e.g. sub.example.com:8080 → sub.example.com)
 	} else {
-		subdomain = jsURL // fallback: store as-is if not a valid URL
+		subdomain = SanitizeHostname(jsURL) // fallback: store normalized if not a valid URL
+	}
+	if subdomain == "" {
+		// Not a usable hostname — there is no subdomains row to attach the JS
+		// file to; skip rather than insert an empty key.
+		return nil
 	}
 
 	domainID, err := s.InsertOrGetDomain(domain)
@@ -969,6 +1081,39 @@ func (s *SQLiteDB) ListDomains() ([]string, error) {
 		return nil, fmt.Errorf("failed to iterate domains: %v", rows.Err())
 	}
 	return domains, nil
+}
+
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate (SQLite has no FILTER — use SUM(CASE)).
+func (s *SQLiteDB) ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	rows, err := s.db.Query(`
+		SELECT d.domain,
+		       COUNT(s.id) AS subdomain_count,
+		       SUM(CASE WHEN s.is_live THEN 1 ELSE 0 END) AS live_count
+		FROM domains d
+		LEFT JOIN subdomains s ON s.domain_id = d.id
+		GROUP BY d.id, d.domain
+		ORDER BY d.domain;
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query domain counts: %v", err)
+	}
+	defer rows.Close()
+
+	out := make([]DomainWithCounts, 0, 128)
+	for rows.Next() {
+		var r DomainWithCounts
+		var live int
+		if err := rows.Scan(&r.Domain, &r.SubdomainCount, &live); err != nil {
+			return nil, fmt.Errorf("failed to scan domain counts: %v", err)
+		}
+		r.LiveCount = live
+		out = append(out, r)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("failed to iterate domain counts: %v", rows.Err())
+	}
+	return out, nil
 }
 
 // ListSubdomains returns all subdomains for a given domain.
@@ -1486,6 +1631,105 @@ func (s *SQLiteDB) UpdateSubdomainMonitorLastRun(id int) error {
 	return nil
 }
 
+// ── Hunter monitor ───────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	rows, err := s.db.Query(`
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HunterMonitorTarget
+	for rows.Next() {
+		var t HunterMonitorTarget
+		var running int
+		if err := rows.Scan(&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &running,
+			&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt); err != nil {
+			continue
+		}
+		t.IsRunning = running != 0
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// AddHunterMonitorTarget upserts by username and returns THAT row's id.
+// RETURNING is required: after ON CONFLICT DO UPDATE, LastInsertId reports
+// the connection's previous insert (another row), not the updated one.
+func (s *SQLiteDB) AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(`
+		INSERT INTO hunter_monitor_targets (username, interval_seconds, is_running)
+		VALUES (?, ?, 1)
+		ON CONFLICT(username) DO UPDATE SET interval_seconds = excluded.interval_seconds
+		RETURNING id`,
+		username, intervalSeconds).Scan(&id)
+	return id, err
+}
+
+func (s *SQLiteDB) RemoveHunterMonitorTarget(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM hunter_monitor_targets WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	running := 0
+	if isRunning {
+		running = 1
+	}
+	_, err := s.db.Exec(`UPDATE hunter_monitor_targets SET is_running = ? WHERE id = ?`, running, id)
+	return err
+}
+
+func (s *SQLiteDB) GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	var t HunterMonitorTarget
+	var running int
+	err := s.db.QueryRow(`
+		SELECT id, username, user_id, interval_seconds, is_running,
+		       last_reputation, last_signal, last_rank, last_run_at, created_at
+		FROM hunter_monitor_targets WHERE id = ?`, id).Scan(
+		&t.ID, &t.Username, &t.UserID, &t.IntervalSeconds, &running,
+		&t.LastReputation, &t.LastSignal, &t.LastRank, &t.LastRunAt, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.IsRunning = running != 0
+	return &t, nil
+}
+
+func (s *SQLiteDB) UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	_, err := s.db.Exec(`
+		UPDATE hunter_monitor_targets
+		SET user_id = ?, last_reputation = ?, last_signal = ?, last_rank = ?, last_run_at = datetime('now')
+		WHERE id = ?`, userID, reputation, signal, rank, id)
+	return err
+}
+
+func (s *SQLiteDB) ResetHunterMonitorLastRun(id int64) error {
+	_, err := s.db.Exec(`UPDATE hunter_monitor_targets SET last_run_at = NULL WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	var exists int
+	err := s.db.QueryRow(`
+		SELECT COUNT(1) FROM hunter_monitor_seen_reports WHERE target_id = ? AND report_id = ?`,
+		targetID, reportID).Scan(&exists)
+	return exists > 0, err
+}
+
+func (s *SQLiteDB) RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	_, err := s.db.Exec(`
+		INSERT INTO hunter_monitor_seen_reports (target_id, report_id, program_handle, program_name, resolved_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(target_id, report_id) DO NOTHING`,
+		targetID, reportID, programHandle, programName, resolvedAt)
+	return err
+}
+
 // UpdateMonitorTargetLastRun updates last_hash, last_run_at, and optionally increments change_count
 func (s *SQLiteDB) UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
 	changedInt := 0
@@ -1582,6 +1826,7 @@ func (s *SQLiteDB) ListMonitorChanges(domain string, limit int) ([]MonitorChange
 
 // CreateScan creates a new scan record
 func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
+	defaultScanTimestamps(scan)
 	completedPhasesJSON := marshalPhaseJSON(scan.CompletedPhases)
 	failedPhasesJSON := marshalPhaseJSON(scan.FailedPhases)
 	
@@ -1590,15 +1835,35 @@ func (s *SQLiteDB) CreateScan(scan *ScanRecord) error {
 			scan_id, scan_type, target, status, channel_id, thread_id, message_id,
 			current_phase, total_phases, phase_name, phase_start_time,
 			completed_phases, failed_phases, files_uploaded, error_count,
-			started_at, last_update, command, result_url
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+			started_at, last_update, command, result_url, created_by, name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 	`, scan.ScanID, scan.ScanType, scan.Target, scan.Status, scan.ChannelID, scan.ThreadID, scan.MessageID,
 		scan.CurrentPhase, scan.TotalPhases, scan.PhaseName, scan.PhaseStartTime,
 		completedPhasesJSON, failedPhasesJSON, scan.FilesUploaded, scan.ErrorCount,
-		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL)
+		scan.StartedAt, scan.LastUpdate, scan.Command, scan.ResultURL, scan.CreatedBy, scan.Name)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create scan: %v", err)
+	}
+	return nil
+}
+
+// ReactivateScan re-opens an existing scan for a phase-resume: sets status
+// running and clears failed_phases while KEEPING completed_phases so finished
+// phases are skipped on the resumed run. Only a row still in a resumable state
+// is flipped (ErrScanNotResumable otherwise), so two racing resumes can't both
+// win and a running scan is never "reactivated" underneath its worker.
+func (s *SQLiteDB) ReactivateScan(scanID string) error {
+	res, err := s.db.Exec(`UPDATE scans SET status = 'running', failed_phases = '[]', completed_at = NULL, last_update = ?, updated_at = datetime('now') WHERE scan_id = ? AND LOWER(status) IN (`+resumableScanStatusesSQL+`)`, time.Now(), scanID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrScanNotResumable
 	}
 	return nil
 }
@@ -1732,14 +1997,14 @@ func (s *SQLiteDB) GetScan(scanID string) (*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, '')
 		FROM scans WHERE scan_id = ?;
 	`, scanID).Scan(
 		&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 		&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 		&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 		&completedPhasesJSON, &failedPhasesJSON,
-		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+		&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description)
 	
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("scan not found: %s", scanID)
@@ -1773,7 +2038,8 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, ''),
+			created_at
 		FROM scans
 		WHERE status IN ('running', 'starting', 'paused')
 		ORDER BY started_at DESC;
@@ -1782,24 +2048,28 @@ func (s *SQLiteDB) ListActiveScans() ([]*ScanRecord, error) {
 		return nil, fmt.Errorf("failed to list active scans: %v", err)
 	}
 	defer rows.Close()
-	
+
 	var scans []*ScanRecord
 	for rows.Next() {
 		var scan ScanRecord
 		var completedPhasesJSON, failedPhasesJSON string
-		var phaseStartTime, completedAt sql.NullTime
-		
+		var phaseStartTime, completedAt, createdAt sql.NullTime
+
 		err := rows.Scan(
 			&scan.ID, &scan.ScanID, &scan.ScanType, &scan.Target, &scan.Status,
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
-		
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description,
+			&createdAt)
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
 		}
-		
+		if createdAt.Valid {
+			backfillScanTimestamps(&scan, createdAt.Time)
+		}
+
 		if phaseStartTime.Valid {
 			scan.PhaseStartTime = &phaseStartTime.Time
 		}
@@ -1849,7 +2119,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			COALESCE(channel_id, ''), COALESCE(thread_id, ''), COALESCE(message_id, ''),
 			current_phase, total_phases, COALESCE(phase_name, ''), phase_start_time,
 			COALESCE(completed_phases, '[]'), COALESCE(failed_phases, '[]'),
-			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, '')
+			files_uploaded, error_count, started_at, completed_at, last_update, COALESCE(command, ''), COALESCE(result_url, ''), COALESCE(created_by, ''), COALESCE(name, ''), COALESCE(description, '')
 		FROM scans
 		WHERE status IN ('completed', 'failed', 'cancelled', 'timed_out')
 		ORDER BY started_at DESC
@@ -1871,7 +2141,7 @@ func (s *SQLiteDB) ListRecentScans(limit int) ([]*ScanRecord, error) {
 			&scan.ChannelID, &scan.ThreadID, &scan.MessageID,
 			&scan.CurrentPhase, &scan.TotalPhases, &scan.PhaseName, &phaseStartTime,
 			&completedPhasesJSON, &failedPhasesJSON,
-			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL)
+			&scan.FilesUploaded, &scan.ErrorCount, &scan.StartedAt, &completedAt, &scan.LastUpdate, &scan.Command, &scan.ResultURL, &scan.CreatedBy, &scan.Name, &scan.Description)
 		
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %v", err)
@@ -1987,6 +2257,65 @@ func (s *SQLiteDB) CountScansWithTargetExcluding(excludeScanID, target string) (
 		return 0, fmt.Errorf("count scans by target: %v", err)
 	}
 	return n, nil
+}
+
+// ListR2KeysReferencedByOtherScans returns which of keys another scan's
+// artifacts still reference (queried in chunks to bound the variable count).
+func (s *SQLiteDB) ListR2KeysReferencedByOtherScans(scanID string, keys []string) (map[string]bool, error) {
+	out := make(map[string]bool)
+	for start := 0; start < len(keys); start += r2KeyQueryChunk {
+		end := start + r2KeyQueryChunk
+		if end > len(keys) {
+			end = len(keys)
+		}
+		chunk := keys[start:end]
+		args := make([]interface{}, 0, len(chunk)+1)
+		args = append(args, scanID)
+		for _, k := range chunk {
+			args = append(args, k)
+		}
+		q := `SELECT DISTINCT r2_key FROM scan_artifacts WHERE scan_id != ? AND r2_key IN (?` + strings.Repeat(",?", len(chunk)-1) + `);`
+		rows, err := s.db.Query(q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("list shared artifact keys: %v", err)
+		}
+		for rows.Next() {
+			var k string
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("list shared artifact keys: %v", err)
+			}
+			out[k] = true
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("list shared artifact keys: %v", err)
+		}
+	}
+	return out, nil
+}
+
+// ListScanTargetsContaining returns other scans' targets whose lowercased value
+// contains needle (instr, not LIKE, so '_' / '%' in needle stay literal).
+func (s *SQLiteDB) ListScanTargetsContaining(excludeScanID, needle string) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT target FROM scans WHERE scan_id != ? AND instr(LOWER(target), ?) > 0;`,
+		excludeScanID, strings.ToLower(needle),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list scan targets: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("list scan targets: %v", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // ListVulnerableDNSProviders returns all vulnerable DNS providers from the database for SQLite
@@ -2140,24 +2469,19 @@ func (s *SQLiteDB) UpsertBBPAccount(a BBPAccount) (int64, error) {
 	if a.Enabled {
 		en = 1
 	}
-	res, err := s.db.Exec(`
+	// RETURNING, not LastInsertId: on the DO UPDATE path LastInsertId is the
+	// connection's previous insert (another account's row).
+	var id int64
+	err := s.db.QueryRow(`
 		INSERT INTO bbp_accounts (platform, label, username, token, email, password, totp_secret, enabled)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (platform, label) DO UPDATE SET
 			username = excluded.username, token = excluded.token,
 			email = excluded.email, password = excluded.password,
 			totp_secret = excluded.totp_secret, enabled = excluded.enabled
-	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.TOTPSecret, en)
-	if err != nil {
-		return 0, err
-	}
-	// LastInsertId is only meaningful on insert; on update, look the row up.
-	if id, e := res.LastInsertId(); e == nil && id > 0 {
-		return id, nil
-	}
-	var id int64
-	_ = s.db.QueryRow(`SELECT id FROM bbp_accounts WHERE platform = ? AND label = ?`, a.Platform, a.Label).Scan(&id)
-	return id, nil
+		RETURNING id
+	`, a.Platform, a.Label, a.Username, a.Token, a.Email, a.Password, a.TOTPSecret, en).Scan(&id)
+	return id, err
 }
 
 // SetBBPAccountEnabled toggles an account's enabled flag.
@@ -2182,33 +2506,180 @@ func (s *SQLiteDB) DeleteBBPAccount(id int64) error {
 	return err
 }
 
+// ── Dashboard users ──────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) scanUser(row interface{ Scan(...any) error }) (*User, error) {
+	var u User
+	var disabled int
+	var last sql.NullTime
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &disabled, &u.CreatedAt, &u.UpdatedAt, &last, &u.TokensValidAfter); err != nil {
+		return nil, err
+	}
+	u.Disabled = disabled != 0
+	if last.Valid {
+		u.LastLoginAt = &last.Time
+	}
+	return &u, nil
+}
+
+func (s *SQLiteDB) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users ORDER BY username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := s.scanUser(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) GetUserByID(id int64) (*User, error) {
+	row := s.db.QueryRow(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users WHERE id = ?`, id)
+	return s.scanUser(row)
+}
+
+func (s *SQLiteDB) GetUserByUsername(username string) (*User, error) {
+	row := s.db.QueryRow(`SELECT id, username, password_hash, role, disabled, created_at, updated_at, last_login_at, tokens_valid_after FROM users WHERE username = ?`, username)
+	return s.scanUser(row)
+}
+
+func (s *SQLiteDB) CreateUser(username, passwordHash, role string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)`, username, passwordHash, role)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *SQLiteDB) UpdateUserPassword(id int64, passwordHash string) error {
+	_, err := s.db.Exec(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`, passwordHash, id)
+	return err
+}
+
+func (s *SQLiteDB) UpdateUserRole(id int64, role string) error {
+	_, err := s.db.Exec(`UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, role, id)
+	return err
+}
+
+func (s *SQLiteDB) SetUserDisabled(id int64, disabled bool) error {
+	d := 0
+	if disabled {
+		d = 1
+	}
+	_, err := s.db.Exec(`UPDATE users SET disabled = ?, updated_at = datetime('now') WHERE id = ?`, d, id)
+	return err
+}
+
+func (s *SQLiteDB) TouchUserLogin(id int64) error {
+	_, err := s.db.Exec(`UPDATE users SET last_login_at = datetime('now') WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) DeleteUser(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) CountUsers() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+func (s *SQLiteDB) CountAdmins() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
+	return n, err
+}
+
+func (s *SQLiteDB) SetUserTokensValidAfter(id int64, unix int64) error {
+	_, err := s.db.Exec(`UPDATE users SET tokens_valid_after = ? WHERE id = ?`, unix, id)
+	return err
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+func (s *SQLiteDB) InsertAuditEvent(e AuditEvent) error {
+	_, err := s.db.Exec(`INSERT INTO audit_events (actor, action, target, detail, ip) VALUES (?, ?, ?, ?, ?)`,
+		e.Actor, e.Action, e.Target, e.Detail, e.IP)
+	return err
+}
+
+func (s *SQLiteDB) ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	q := `SELECT id, ts, actor, action, target, detail, ip FROM audit_events`
+	var conds []string
+	var args []any
+	if actor != "" {
+		conds = append(conds, "actor = ?")
+		args = append(args, actor)
+	}
+	if action != "" {
+		conds = append(conds, "action = ?")
+		args = append(args, action)
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Actor, &e.Action, &e.Target, &e.Detail, &e.IP); err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // ── Bug-bounty program catalog ───────────────────────────────────────────────
 
-func (s *SQLiteDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+// sqliteCatalogQ is the subset of *sql.DB / *sql.Tx the catalog writes use, so
+// the same statements run standalone or inside a source-replace transaction.
+type sqliteCatalogQ interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// sqliteUpsertCatalogProgram upserts one program and returns ITS id.
+// RETURNING (SQLite ≥ 3.35) is required: on the ON CONFLICT DO UPDATE path
+// LastInsertId reports the connection's previous insert — another program's
+// row — so re-upserting "alpha" used to return beta's id and the domain
+// replace then rewrote the wrong program.
+func sqliteUpsertCatalogProgram(q sqliteCatalogQ, c CatalogProgram) (int64, error) {
 	ob := 0
 	if c.OffersBounty {
 		ob = 1
 	}
-	res, err := s.db.Exec(`
+	var id int64
+	err := q.QueryRow(`
 		INSERT INTO bbp_catalog_programs (source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at)
 		VALUES (?,?,?,?,?,?,?,datetime('now'))
 		ON CONFLICT (source, handle) DO UPDATE SET
 			company=excluded.company, url=excluded.url, rewards=excluded.rewards,
 			safe_harbor=excluded.safe_harbor, offers_bounty=excluded.offers_bounty, updated_at=datetime('now')
-	`, c.Source, c.Company, c.Handle, c.URL, c.Rewards, c.SafeHarbor, ob)
-	if err != nil {
-		return 0, err
-	}
-	if id, e := res.LastInsertId(); e == nil && id > 0 {
-		return id, nil
-	}
-	var id int64
-	_ = s.db.QueryRow(`SELECT id FROM bbp_catalog_programs WHERE source=? AND handle=?`, c.Source, c.Handle).Scan(&id)
-	return id, nil
+		RETURNING id
+	`, c.Source, c.Company, c.Handle, c.URL, c.Rewards, c.SafeHarbor, ob).Scan(&id)
+	return id, err
 }
 
-func (s *SQLiteDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
-	if _, err := s.db.Exec(`DELETE FROM bbp_catalog_domains WHERE program_id = ?`, programID); err != nil {
+func sqliteReplaceCatalogDomains(q sqliteCatalogQ, programID int64, domains []CatalogDomain) error {
+	if _, err := q.Exec(`DELETE FROM bbp_catalog_domains WHERE program_id = ?`, programID); err != nil {
 		return err
 	}
 	for _, d := range domains {
@@ -2219,7 +2690,7 @@ func (s *SQLiteDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomai
 		if d.InScope {
 			in = 1
 		}
-		if _, err := s.db.Exec(`
+		if _, err := q.Exec(`
 			INSERT INTO bbp_catalog_domains (program_id, domain, in_scope) VALUES (?,?,?)
 			ON CONFLICT (program_id, domain) DO UPDATE SET in_scope=excluded.in_scope
 		`, programID, d.Domain, in); err != nil {
@@ -2229,16 +2700,90 @@ func (s *SQLiteDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomai
 	return nil
 }
 
+func (s *SQLiteDB) UpsertCatalogProgram(c CatalogProgram) (int64, error) {
+	return sqliteUpsertCatalogProgram(s.db, c)
+}
+
+// ReplaceCatalogDomains swaps a program's domain rows in one transaction, so
+// a failure mid-way never leaves the program with a partial (or empty) scope.
+func (s *SQLiteDB) ReplaceCatalogDomains(programID int64, domains []CatalogDomain) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := sqliteReplaceCatalogDomains(tx, programID, domains); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteDB) ClearCatalogSource(source string) error {
 	_, err := s.db.Exec(`DELETE FROM bbp_catalog_programs WHERE source = ?`, source)
 	return err
 }
 
+// replaceCatalogSource atomically replaces every program (and, via ON DELETE
+// CASCADE, every domain) of one source.
+func (s *SQLiteDB) replaceCatalogSource(source string, progs []CatalogSourceProgram) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM bbp_catalog_programs WHERE source = ?`, source); err != nil {
+		return err
+	}
+	for _, p := range progs {
+		c := p.Program
+		c.Source = source
+		id, err := sqliteUpsertCatalogProgram(tx, c)
+		if err != nil {
+			return err
+		}
+		if err := sqliteReplaceCatalogDomains(tx, id, p.Domains); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteDB) catalogSourceCount(source string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM bbp_catalog_programs WHERE source = ?`, source).Scan(&n)
+	return n, err
+}
+
+// tryCatalogSyncLock takes a settings-row lease ("<expiry-unix>|<owner>").
+// The conditional upsert is atomic across processes sharing the file: it
+// only overwrites an EXPIRED lease, so RowsAffected==0 means someone else
+// holds it. A holder that dies leaves a lease that simply expires.
+func (s *SQLiteDB) tryCatalogSyncLock(owner string, ttl time.Duration) (func(), bool, error) {
+	now := time.Now().Unix()
+	val := fmt.Sprintf("%d|%s", now+int64(ttl/time.Second), owner)
+	res, err := s.db.Exec(`
+		INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+		WHERE CAST(substr(settings.value, 1, instr(settings.value, '|') - 1) AS INTEGER) < ?
+	`, catalogSyncLockKey, val, now)
+	if err != nil {
+		return nil, false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, false, nil
+	}
+	release := func() {
+		_, _ = s.db.Exec(`DELETE FROM settings WHERE key = ? AND value = ?`, catalogSyncLockKey, val)
+	}
+	return release, true, nil
+}
+
 func (s *SQLiteDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram, error) {
+	q = escapeLike(q)
 	rows, err := s.db.Query(`
 		SELECT id, source, company, handle, url, rewards, safe_harbor, offers_bounty, updated_at
 		FROM bbp_catalog_programs
-		WHERE lower(company) LIKE '%'||lower(?)||'%' OR lower(handle) LIKE '%'||lower(?)||'%'
+		WHERE lower(company) LIKE '%'||lower(?)||'%' ESCAPE '\' OR lower(handle) LIKE '%'||lower(?)||'%' ESCAPE '\'
 		ORDER BY offers_bounty DESC, company LIMIT ?
 	`, q, q, limit)
 	if err != nil {
@@ -2258,14 +2803,27 @@ func (s *SQLiteDB) SearchCatalogByKeyword(q string, limit int) ([]CatalogProgram
 	return out, rows.Err()
 }
 
+// SearchCatalogByDomain returns the RAW catalog rows whose key exactly equals
+// the host, a parent of it, or a "*." wildcard of either (see
+// catalogDomainCandidates). The package-level wrapper turns them into one
+// verdict per program.
 func (s *SQLiteDB) SearchCatalogByDomain(q string, limit int) ([]CatalogDomainMatch, error) {
+	cands := catalogDomainCandidates(strings.ToLower(strings.TrimSpace(q)))
+	if len(cands) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(cands)+1)
+	for _, c := range cands {
+		args = append(args, c)
+	}
+	args = append(args, limit)
 	rows, err := s.db.Query(`
 		SELECT p.id, p.source, p.company, p.handle, p.url, p.rewards, p.safe_harbor, p.offers_bounty, p.updated_at,
 		       d.domain, d.in_scope
 		FROM bbp_catalog_domains d JOIN bbp_catalog_programs p ON d.program_id = p.id
-		WHERE lower(d.domain) = lower(?) OR lower(d.domain) LIKE '%'||lower(?)||'%'
-		ORDER BY (lower(d.domain) = lower(?)) DESC, d.in_scope DESC, p.company LIMIT ?
-	`, q, q, q, limit)
+		WHERE lower(d.domain) IN (?`+strings.Repeat(",?", len(cands)-1)+`)
+		ORDER BY d.in_scope DESC, p.company LIMIT ?
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2327,4 +2885,113 @@ func (s *SQLiteDB) Close() {
 	if s.db != nil {
 		s.db.Close()
 	}
+}
+
+// ── JS file monitor (SQLite backend) ─────────────────────────────────────────
+
+func (s *SQLiteDB) ListJSMonitorTargets() ([]JSMonitorTarget, error) {
+	rows, err := s.db.Query(`
+		SELECT t.id, t.domain, t.interval_seconds, t.threads, t.is_running, t.last_run_at, t.created_at, t.updated_at,
+		       (SELECT count(*) FROM js_monitor_files f WHERE f.target_id = t.id)
+		FROM js_monitor_targets t ORDER BY t.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JSMonitorTarget
+	for rows.Next() {
+		var t JSMonitorTarget
+		if err := rows.Scan(&t.ID, &t.Domain, &t.IntervalSeconds, &t.Threads, &t.IsRunning, &t.LastRunAt, &t.CreatedAt, &t.UpdatedAt, &t.FileCount); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error) {
+	if intervalSeconds <= 0 {
+		intervalSeconds = 21600
+	}
+	if threads <= 0 {
+		threads = 30
+	}
+	var id int
+	err := s.db.QueryRow(`
+		INSERT INTO js_monitor_targets (domain, interval_seconds, threads, is_running)
+		VALUES (?, ?, ?, 1)
+		ON CONFLICT(domain) DO UPDATE SET interval_seconds = excluded.interval_seconds, threads = excluded.threads, is_running = 1, updated_at = CURRENT_TIMESTAMP
+		RETURNING id`, domain, intervalSeconds, threads).Scan(&id)
+	return id, err
+}
+
+func (s *SQLiteDB) DeleteJSMonitorTarget(id int) error {
+	_, err := s.db.Exec(`DELETE FROM js_monitor_targets WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) SetJSMonitorRunning(id int, running bool) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_targets SET is_running = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, running, id)
+	return err
+}
+
+func (s *SQLiteDB) TouchJSMonitorRun(id int) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_targets SET last_run_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteDB) ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error) {
+	rows, err := s.db.Query(`
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE target_id = ? ORDER BY url`, targetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []JSMonitorFile
+	for rows.Next() {
+		var f JSMonitorFile
+		if err := rows.Scan(&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteDB) GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error) {
+	var f JSMonitorFile
+	err := s.db.QueryRow(`
+		SELECT id, target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen
+		FROM js_monitor_files WHERE url = ?`, rawURL).Scan(
+		&f.ID, &f.TargetID, &f.Domain, &f.URL, &f.SHA256, &f.Endpoints, &f.Secrets, &f.ContentLength, &f.LastStatus, &f.FirstSeen, &f.LastSeen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (s *SQLiteDB) UpsertJSMonitorFile(f JSMonitorFile) error {
+	_, err := s.db.Exec(`
+		INSERT INTO js_monitor_files (target_id, domain, url, sha256, endpoints, secrets, content_length, last_status, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(url) DO UPDATE SET
+			sha256 = excluded.sha256, endpoints = excluded.endpoints, secrets = excluded.secrets,
+			content_length = excluded.content_length, last_status = excluded.last_status, last_seen = CURRENT_TIMESTAMP`,
+		f.TargetID, f.Domain, f.URL, f.SHA256, f.Endpoints, f.Secrets, f.ContentLength, f.LastStatus)
+	return err
+}
+
+func (s *SQLiteDB) MarkJSMonitorFileSeen(id int64, status int) error {
+	_, err := s.db.Exec(`UPDATE js_monitor_files SET last_seen = CURRENT_TIMESTAMP, last_status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+func (s *SQLiteDB) CountRunningScansForTarget(target string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT count(*) FROM scans WHERE target = ? AND status = 'running'`, target).Scan(&n)
+	return n, err
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -75,5 +76,56 @@ func TestJWTBruteNotFound(t *testing.T) {
 	resp := postJWTBrute(t, `{"token":"`+tok+`"}`)
 	if resp["found"] != false {
 		t.Fatalf("expected found=false for a strong secret, got %v", resp)
+	}
+}
+
+func jwtBruteStatus(body string) int {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/jwt/brute", apiJWTBrute)
+	req := httptest.NewRequest(http.MethodPost, "/jwt/brute", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w.Code
+}
+
+func TestJWTBruteBounds(t *testing.T) {
+	// Oversized token: every candidate would HMAC megabytes.
+	huge := makeHS256Token("x")
+	huge = strings.Replace(huge, ".", "."+strings.Repeat("A", maxJWTTokenLen), 1)
+	if code := jwtBruteStatus(`{"token":"` + huge + `"}`); code != http.StatusBadRequest {
+		t.Fatalf("oversized token: status %d, want 400", code)
+	}
+
+	// One brute-force at a time.
+	jwtBruteBusy.Store(true)
+	code := jwtBruteStatus(`{"token":"` + makeHS256Token("secret") + `"}`)
+	jwtBruteBusy.Store(false)
+	if code != http.StatusTooManyRequests {
+		t.Fatalf("concurrent request: status %d, want 429", code)
+	}
+
+	// The candidate cap is applied while parsing and keeps the empty secret.
+	var b strings.Builder
+	for i := 0; i < 50; i++ {
+		b.WriteString("cand-" + strings.Repeat("z", i) + "\n")
+	}
+	got, truncated := buildJWTSecretCandidates(jwtBruteRequest{Secrets: b.String(), UseDefault: new(bool)}, 10)
+	if len(got) != 10 || !truncated || got[0] != "" {
+		t.Fatalf("buildJWTSecretCandidates cap: len=%d truncated=%v first=%q", len(got), truncated, got[0])
+	}
+}
+
+func TestJWTBruteStopsOnCancelledContext(t *testing.T) {
+	cands := make([]string, 50000)
+	for i := range cands {
+		cands[i] = "c" + strings.Repeat("x", i%64)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	found, _, tried := bruteForceJWTSecret(ctx, []byte("a.b"), []byte("nope"), sha256.New, cands)
+	if found || tried > len(cands)/2 {
+		t.Fatalf("cancelled brute-force kept hashing: found=%v tried=%d", found, tried)
 	}
 }

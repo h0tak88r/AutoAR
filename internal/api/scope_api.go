@@ -1,12 +1,19 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/h0tak88r/AutoAR/internal/accounts"
+	"github.com/h0tak88r/AutoAR/internal/bbcatalog"
+	"github.com/h0tak88r/AutoAR/internal/logger"
 	scopemod "github.com/h0tak88r/AutoAR/internal/scanner/scope"
 	"github.com/sw33tLie/bbscope/pkg/scope"
 )
@@ -53,6 +60,14 @@ var platforms = []platformMeta{
 		AuthFields:  []string{"token"},
 		EnvKeys:     []string{"INTIGRITI_TOKEN", "INTIGRITI_API_KEY"},
 		Description: "Fetch in-scope root domains from all accessible Intigriti programs.",
+	},
+	{
+		ID:          "bizone",
+		Name:        "BI.ZONE",
+		Logo:        "",
+		AuthFields:  []string{"token"},
+		EnvKeys:     []string{"BIZONE_SESSION"},
+		Description: "Fetch in-scope root domains from BI.ZONE bug-bounty tasks. Token = the browser sessionid cookie.",
 	},
 	{
 		ID:          "immunefi",
@@ -116,6 +131,47 @@ func apiFetchScope(c *gin.Context) {
 		return
 	}
 
+	// BI.ZONE has no bbscope backend: its fetcher is native (session-cookie
+	// JSON API, see programs_bizone.go). It feeds the same extract/dedupe
+	// tail below, so the Platforms page card works like every other source.
+	if strings.EqualFold(strings.TrimSpace(req.Platform), "bizone") || strings.EqualFold(strings.TrimSpace(req.Platform), "bi.zone") {
+		select {
+		case scopeFetchSlots <- struct{}{}:
+			defer func() { <-scopeFetchSlots }()
+		default:
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "a scope fetch is already running — try again when it finishes"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), scopeFetchTimeout)
+		defer cancel()
+
+		var programs []scope.ProgramData
+		var fetchErr error
+		accountsUsed := 0
+		if tok := strings.TrimSpace(req.Token); tok != "" {
+			programs, fetchErr = fetchBizonePrograms(ctx, tok)
+			accountsUsed = 1
+		} else {
+			for _, a := range accounts.For("bizone") {
+				ps, e := fetchBizonePrograms(ctx, a.Token)
+				if e != nil {
+					if fetchErr == nil {
+						fetchErr = e
+					}
+					continue
+				}
+				programs = append(programs, ps...)
+				accountsUsed++
+			}
+		}
+		if len(programs) == 0 && fetchErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch scope: " + fetchErr.Error()})
+			return
+		}
+		bizoneRespond(c, "bizone", req, programs, accountsUsed)
+		return
+	}
+
 	// Map platform string to Platform type
 	var platform scopemod.Platform
 	switch strings.ToLower(req.Platform) {
@@ -151,6 +207,19 @@ func apiFetchScope(c *gin.Context) {
 		ExtractRoots: extractRoots,
 	}
 
+	// Bounded concurrency: each child pulls every program's scope (minutes of
+	// upstream calls); unbounded parallel requests would fan out into as many
+	// children hammering the same platform tokens.
+	select {
+	case scopeFetchSlots <- struct{}{}:
+		defer func() { <-scopeFetchSlots }()
+	default:
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "a scope fetch is already running — try again when it finishes"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), scopeFetchTimeout)
+	defer cancel()
+
 	var programs []scope.ProgramData
 	var fetchErr error
 	accountsUsed := 0
@@ -162,17 +231,28 @@ func apiFetchScope(c *gin.Context) {
 		opts.Token = req.Token
 		opts.Email = firstNonEmpty(req.Email, os.Getenv("YWH_EMAIL"))
 		opts.Password = firstNonEmpty(req.Password, os.Getenv("YWH_PASSWORD"))
-		programs, fetchErr = scopemod.FetchScope(opts)
+		programs, fetchErr = fetchScopeIsolated(ctx, opts)
 		accountsUsed = 1
 	} else {
 		// No explicit creds → fetch across every stored account for the platform and merge.
 		for _, a := range accounts.For(accounts.Canonical(req.Platform)) {
+			if platform == scopemod.PlatformBugcrowd {
+				// A session AutoAR keeps alive; bbscope's own sign-in is outdated.
+				token, _, detail := accounts.BugcrowdSession(a, false)
+				if token == "" {
+					if fetchErr == nil {
+						fetchErr = fmt.Errorf("bugcrowd/%s: %s", a.Label, detail)
+					}
+					continue
+				}
+				a.Token, a.Email, a.Password = token, "", ""
+			}
 			opts := baseOpts
 			opts.Username = a.Username
 			opts.Token = a.Token
 			opts.Email = a.Email
 			opts.Password = a.Password
-			ps, e := scopemod.FetchScope(opts)
+			ps, e := fetchScopeIsolated(ctx, opts)
 			if e != nil {
 				if fetchErr == nil {
 					fetchErr = e
@@ -215,4 +295,64 @@ func apiFetchScope(c *gin.Context) {
 		"domain_count":  len(rootDomains),
 		"target_count":  len(rawTargets),
 	})
+}
+
+// bizoneRespond mirrors the shared extract/dedupe/response tail of
+// apiFetchScope for the native BI.ZONE path.
+func bizoneRespond(c *gin.Context, platformID string, req scopeFetchRequest, programs []scope.ProgramData, accountsUsed int) {
+	extractRoots := req.ExtractRoots == nil || *req.ExtractRoots
+	var rootDomains []string
+	if extractRoots {
+		var err error
+		rootDomains, err = scopemod.ExtractRootDomains(programs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to extract root domains: " + err.Error()})
+			return
+		}
+	}
+	rawTargets := scopemod.ExtractRawTargets(programs)
+	rootDomains = uniqueStrings(rootDomains)
+	rawTargets = uniqueStrings(rawTargets)
+	c.JSON(http.StatusOK, gin.H{
+		"platform":      platformID,
+		"programs":      len(programs),
+		"accounts_used": accountsUsed,
+		"root_domains":  rootDomains,
+		"raw_targets":   rawTargets,
+		"domain_count":  len(rootDomains),
+		"target_count":  len(rawTargets),
+	})
+}
+
+const scopeFetchTimeout = 30 * time.Minute
+
+// scopeFetchSlots bounds concurrent scope-fetch children.
+var scopeFetchSlots = make(chan struct{}, 2)
+
+// fetchScopeIsolated runs scopemod.FetchScope in a disposable `scope-fetch`
+// child process. bbscope log.Fatal()s (os.Exit) on HTTP errors, stale tokens
+// and rate limits — and its Intigriti client indexes upstream strings
+// unchecked — so running it in the API process could kill the server (and
+// every running scan) from one button click. Options (credentials included)
+// travel over stdin; the result comes back as JSON.
+func fetchScopeIsolated(ctx context.Context, opts scopemod.Options) ([]scope.ProgramData, error) {
+	in, err := json.Marshal(opts)
+	if err != nil {
+		return nil, err
+	}
+	out, tail, runErr := bbcatalog.RunChild(ctx, []string{"scope-fetch"}, in)
+	var res scopemod.FetchResult
+	if len(out) > 0 {
+		if jerr := json.Unmarshal(out, &res); jerr != nil && runErr == nil {
+			runErr = fmt.Errorf("bad child result: %w", jerr)
+		}
+	}
+	if runErr != nil {
+		logger.GetLogger().Infof("[SCOPE-FETCH] %s child failed: %v\n--- child output tail ---\n%s", opts.Platform, runErr, tail)
+		return res.Programs, fmt.Errorf("%s fetch failed (%v): %s", opts.Platform, runErr, bbcatalog.LastLine(tail, 300))
+	}
+	if res.Error != "" {
+		return res.Programs, errors.New(res.Error)
+	}
+	return res.Programs, nil
 }

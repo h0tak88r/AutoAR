@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/h0tak88r/AutoAR/internal/logger"
@@ -66,15 +67,45 @@ type React2ShellFinding struct {
 	StatusCode int    // HTTP status of the matched response
 }
 
-// MongoDBFinding represents a MongoDB CVE-2025-14847 vulnerability finding
+// MongoDBFinding represents a MongoDB CVE-2025-14847 vulnerability finding.
+// The leaked bytes are target process memory (third-party PII, credentials) —
+// they are never retained or persisted; only the count and a short hexdump
+// proof (≤ leakProofBytes) are kept.
 type MongoDBFinding struct {
-	Host       string
-	Port       int
-	Vulnerable bool
-	LeakedData []byte
-	LeakSize   int
-	Error      string
+	Host        string
+	Port        int
+	Vulnerable  bool
+	LeakedBytes int    // how many bytes the target leaked
+	LeakProof   string // hexdump of at most the first leakProofBytes bytes
+	LeakSize    int
+	Error       string
 }
+
+// Safety gates for the unattended zerodays checks (the zerodays stage runs
+// automatically in the subdomain workflow against third-party production hosts).
+const (
+	// envExploitChecks opts into the next88 smart scan, whose RCE payloads
+	// EXECUTE `echo $((41*271))` on the target via child_process.execSync. Off by
+	// default: the non-executing React2Shell signature check (safe check) runs.
+	envExploitChecks = "AUTOAR_ZERODAYS_EXPLOIT_CHECKS"
+	// envAllowDOSTest must be "true" in addition to Options.DOSTest before the
+	// React2Shell DoS request burst is sent.
+	envAllowDOSTest = "AUTOAR_ALLOW_DOS_TEST"
+	// dosTestRequests caps the DoS burst per host.
+	dosTestRequests = 20
+	// maxMongoLeakBytes caps how much of a MongoDB reply we allocate/read — the
+	// reply length comes from the target's header (up to ~4 GB).
+	maxMongoLeakBytes = 16 << 20
+	// leakProofBytes is how much leaked memory is kept as hexdump proof.
+	leakProofBytes = 256
+)
+
+func envTrue(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(name)), "true")
+}
+
+// exploitChecksAllowed reports whether the operator opted into RCE-executing checks.
+func exploitChecksAllowed() bool { return envTrue(envExploitChecks) }
 
 // logInfo logs an info message only if not in silent mode
 func (opts Options) logInfo(format string, args ...interface{}) {
@@ -267,10 +298,10 @@ func Run(opts Options) (*Result, error) {
 					Severity:   "high",
 					Module:     "zerodays",
 					Type:       "mongodb-memory-leak",
-					Finding:    fmt.Sprintf("MongoDB memory leak (CVE-2025-14847) — leaked %d bytes", len(v.LeakedData)),
+					Finding:    fmt.Sprintf("MongoDB memory leak (CVE-2025-14847) — leaked %d bytes", v.LeakedBytes),
 					CVE:        "CVE-2025-14847",
 					Request:    fmt.Sprintf("OP_MSG BSON probe with an oversized memory-leak request → %s", targetAddr),
-					Response:   previewLeak(v.LeakedData),
+					Response:   v.LeakProof,
 				})
 			}
 
@@ -430,8 +461,15 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	opts.logInfo("[INFO] Starting React2Shell scan on %d host(s) with threading", len(hosts))
-	scanArgs := []string{"-smart-scan"}
+	// Safe by default: the signature-only check sends a non-executing payload.
+	// The exploit-based smart scan runs a command on the target and needs an
+	// explicit operator opt-in (see envExploitChecks).
+	scanArgs := []string{"-safe-check"}
+	if exploitChecksAllowed() {
+		logger.GetLogger().Warnf("[WARN] %s=true: React2Shell exploit checks ENABLED — RCE payloads will execute a command on %d host(s)", envExploitChecks, len(hosts))
+		scanArgs = []string{"-smart-scan"}
+	}
+	opts.logInfo("[INFO] Starting React2Shell scan (%s) on %d host(s) with threading", scanArgs[0], len(hosts))
 	results, err := runNext88Scan(ctx, hosts, scanArgs, opts.Threads, opts.Silent)
 	if err != nil {
 		return nil, 0, fmt.Errorf("next88 scan failed: %w", err)
@@ -449,11 +487,14 @@ func checkReact2Shell(opts Options) ([]React2ShellFinding, int, error) {
 		})
 	}
 
-	// DoS test if enabled (with threading)
-	if opts.DOSTest {
-		opts.logInfo("[INFO] Running DoS test on %d host(s) with threading", len(hosts))
+	// DoS test: needs BOTH the per-scan flag and the operator-level env
+	// acknowledgement — it fires a request burst at production hosts.
+	if opts.DOSTest && !envTrue(envAllowDOSTest) {
+		logger.GetLogger().Warnf("[WARN] React2Shell DoS test requested but %s is not \"true\" — skipping it (it sends a request burst at third-party production hosts)", envAllowDOSTest)
+	} else if opts.DOSTest {
+		logger.GetLogger().Warnf("[WARN] !!! React2Shell DoS test ENABLED (%s=true): sending up to %d requests per host to %d host(s) — only run against targets whose program explicitly permits DoS testing", envAllowDOSTest, dosTestRequests, len(hosts))
 		dosCtx, dosCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		dosResults, err := runNext88Scan(dosCtx, hosts, []string{"-dos-test", "-dos-requests", "100"}, opts.Threads, opts.Silent)
+		dosResults, err := runNext88Scan(dosCtx, hosts, []string{"-dos-test", "-dos-requests", strconv.Itoa(dosTestRequests)}, opts.Threads, opts.Silent)
 		dosCancel()
 		if err == nil {
 			for url, res := range dosResults {
@@ -529,8 +570,11 @@ func checkMongoDB(opts Options) ([]MongoDBFinding, int, error) {
 		port = 27017
 	}
 	leakSize := opts.MongoDBLeakSize
-	if leakSize == 0 {
+	if leakSize <= 0 {
 		leakSize = 65536 // 64KB default
+	}
+	if leakSize > maxMongoLeakBytes {
+		leakSize = maxMongoLeakBytes
 	}
 
 	// Determine MongoDB hosts to test
@@ -671,6 +715,9 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 		return finding
 	}
 	defer conn.Close()
+	// A target that accepts the connection and then trickles (or never sends)
+	// its reply must not pin this worker forever.
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	// Build malformed OP_COMPRESSED packet
 	packet, err := buildMalformedMongoDBPacket(leakSize)
@@ -699,8 +746,13 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 		return finding
 	}
 
-	// Read leaked data
+	// Read leaked data. responseLen is attacker-controlled (up to ~4 GB): bound
+	// the allocation before trusting it.
 	remaining := responseLen - 16
+	if limit := mongoReadCap(leakSize); remaining > limit {
+		finding.Error = fmt.Sprintf("Response length %d exceeds the %d-byte read cap — refusing to read", responseLen, limit)
+		return finding
+	}
 	leakedData := make([]byte, remaining)
 	if remaining > 0 {
 		if n, err := io.ReadFull(conn, leakedData); err != nil && err != io.ErrUnexpectedEOF {
@@ -714,7 +766,9 @@ func testMongoDBVulnerability(host string, port, leakSize int, silent bool) Mong
 	// Check if we got leaked data (vulnerable)
 	if len(leakedData) > 0 {
 		finding.Vulnerable = true
-		finding.LeakedData = leakedData
+		// Keep only the size and a short proof — never the raw target memory.
+		finding.LeakedBytes = len(leakedData)
+		finding.LeakProof = leakProof(leakedData)
 		if !silent {
 			logger.GetLogger().Infof("[OK] MongoDB CVE-2025-14847: Vulnerable! Leaked %d bytes from %s", len(leakedData), address)
 		}
@@ -818,7 +872,7 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 		Timeout:         30 * time.Second,
 		VerifySSL:       false,
 		FollowRedirects: true,
-		SafeCheck:       false,
+		SafeCheck:       true, // non-executing signature check unless opted in below
 		Windows:         false,
 		WAFBypass:       false,
 		VercelWAFBypass: false,
@@ -829,15 +883,33 @@ func runNext88Scan(ctx context.Context, hosts []string, args []string, requested
 	}
 
 	// Parse args to set options
-	for _, arg := range args {
-		switch arg {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-safe-check":
+			opts.SafeCheck = true
 		case "-smart-scan":
-			opts.SmartScan = true
+			// The smart scan only sends RCE (command-executing) payloads — honour
+			// it solely under the explicit operator opt-in; otherwise stay on the
+			// safe signature check.
+			if exploitChecksAllowed() {
+				opts.SmartScan = true
+				opts.SafeCheck = false
+			}
 		case "-dos-test":
 			opts.DOSTest = true
+		case "-dos-requests":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil {
+					opts.DOSRequests = n
+				}
+				i++
+			}
 		case "-check-source-exposure":
 			opts.CheckSourceExp = true
 		}
+	}
+	if opts.DOSTest && (opts.DOSRequests <= 0 || opts.DOSRequests > dosTestRequests) {
+		opts.DOSRequests = dosTestRequests
 	}
 
 	if !silent {
@@ -893,6 +965,9 @@ func react2ShellFindingText(vType string) string {
 	v := strings.ToLower(vType)
 	var issues []string
 
+	if strings.Contains(v, "safe-check") {
+		issues = append(issues, "vulnerable RSC deserialization signature (safe check, no code executed)")
+	}
 	hasRCE := strings.Contains(v, "normal") || strings.Contains(v, "waf") || strings.Contains(v, "vercel")
 	if hasRCE || v == "" {
 		rce := "RCE exploitation path"
@@ -924,27 +999,29 @@ func capPoC(s string) string {
 	return s
 }
 
-// previewLeak renders leaked MongoDB bytes as a safe, capped printable preview
-// (non-printable bytes shown as '.') for use as PoC evidence.
-func previewLeak(b []byte) string {
-	const max = 2048
+// leakProof renders at most the first leakProofBytes of leaked MongoDB memory as
+// a hexdump — enough to prove the leak without retaining third-party data.
+func leakProof(b []byte) string {
 	n := len(b)
-	if n > max {
-		b = b[:max]
+	if n > leakProofBytes {
+		b = b[:leakProofBytes]
 	}
-	var sb strings.Builder
-	for _, c := range b {
-		if c == '\n' || c == '\t' || (c >= 0x20 && c < 0x7f) {
-			sb.WriteByte(c)
-		} else {
-			sb.WriteByte('.')
-		}
-	}
-	out := sb.String()
-	if n > max {
-		out += fmt.Sprintf("\n… [truncated, %d total bytes leaked]", n)
+	out := hex.Dump(b)
+	if n > leakProofBytes {
+		out += fmt.Sprintf("… [first %d of %d leaked bytes shown; the rest was discarded, not stored]", leakProofBytes, n)
 	}
 	return out
+}
+
+// mongoReadCap bounds how many reply bytes we accept for a leak probe: the
+// requested leak size plus slack for the reply envelope, never above
+// maxMongoLeakBytes.
+func mongoReadCap(leakSize int) int {
+	limit := leakSize + 64<<10
+	if limit > maxMongoLeakBytes {
+		limit = maxMongoLeakBytes
+	}
+	return limit
 }
 
 // contains checks if a string slice contains a value
@@ -986,14 +1063,9 @@ func SaveResults(result *Result, outputDir string) error {
 	if len(result.MongoDBVulns) > 0 {
 		for _, vuln := range result.MongoDBVulns {
 			if vuln.Vulnerable {
-				fmt.Fprintf(f2, "%s:%d - VULNERABLE (leaked %d bytes)\n", vuln.Host, vuln.Port, len(vuln.LeakedData))
-				// Save leaked data to separate file
-				if len(vuln.LeakedData) > 0 {
-					leakFile := filepath.Join(outputDir, fmt.Sprintf("mongodb-leaked-%s-%d.bin", strings.ReplaceAll(vuln.Host, ".", "_"), vuln.Port))
-					if err := utils.WriteFile(leakFile, vuln.LeakedData); err != nil {
-						logger.GetLogger().Infof("[WARN] Failed to save leaked data: %v", err)
-					}
-				}
+				// Raw leaked memory is third-party data and is never written to
+				// disk — only the size and the short hexdump proof.
+				fmt.Fprintf(f2, "%s:%d - VULNERABLE (leaked %d bytes)\n%s\n", vuln.Host, vuln.Port, vuln.LeakedBytes, vuln.LeakProof)
 			} else if vuln.Error != "" {
 				fmt.Fprintf(f2, "%s:%d - %s\n", vuln.Host, vuln.Port, vuln.Error)
 			}

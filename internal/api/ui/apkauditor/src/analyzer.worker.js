@@ -1,9 +1,13 @@
 self.IPAA = self.IPAA || {};
+// When bootstrapped from a blob: URL (sandboxed, opaque-origin page — see
+// setupWorker in main.js) relative URLs would resolve against the blob URL, so
+// the bootstrap passes the absolute directory of this script.
+const WORKER_BASE = self.APKA_WORKER_BASE || '';
 try {
     importScripts(
-        '../lib/jszip.min.js',
-        'core/entropy.js',
-        'core/engine.js'
+        WORKER_BASE + '../lib/jszip.min.js',
+        WORKER_BASE + 'core/entropy.js',
+        WORKER_BASE + 'core/engine.js'
     );
 } catch (e) {
     self.postMessage({ type: 'fatal', data: { error: 'Worker importScripts failed: ' + e.message } });

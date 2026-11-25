@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,8 @@ import (
 // RootPipelineReq configures an on-demand root-domain pipeline run. Every field
 // is optional; sensible defaults are applied.
 type RootPipelineReq struct {
+	// Name: optional operator display name shown on the Scans page.
+	Name string `json:"name"`
 	// Template: a nuclei template path/ID or raw YAML. Empty = the built-in default
 	// (the operator's ~/nuclei-templates-custom dir if present, else http/cves).
 	Template string `json:"template"`
@@ -86,7 +89,12 @@ func apiRunRootPipeline(c *gin.Context) {
 		scanType, label = "collect", "root-collect"
 		msg = "Root collection started — filling in roots and hosts. Run nuclei separately when it finishes."
 	}
-	scanID := scanType + "-" + time.Now().Format("20060102150405")
+	// Random suffix: second-resolution IDs collided when two runs started in the
+	// same second (duplicate CreateScan → the second silently aborted after the
+	// client was told "started"). Same shape as apiRunGlobalNuclei's IDs.
+	scanID := scanType + "-" + time.Now().Format("20060102150405") + "-" + generateScanID(nil)[:8]
+	recordScanInitiator(scanID, currentUsername(c))
+	recordScanName(scanID, req.Name)
 	c.JSON(200, gin.H{
 		"status":  "started",
 		"scan_id": scanID,
@@ -96,6 +104,23 @@ func apiRunRootPipeline(c *gin.Context) {
 	go RunScanInProcess(scanID, scanType, label, func() error {
 		return runRootPipeline(scanID, req.Template, newOnly, threads, req.MaxRoots, req.CollectOnly)
 	})
+}
+
+// pipelineHitWebhookBudget caps per-hit monitor alerts per pipeline run, like
+// runGlobalNucleiScan's per-scan budget: a loose template matching thousands
+// of hosts must not flood the channel (totals arrive in the completion post).
+const pipelineHitWebhookBudget = 25
+
+// pipelineStopped reports why the pipeline should stop now (UI cancel or the
+// runner's deadline), or nil to keep going.
+func pipelineStopped(scanID string) error {
+	if err := scanContext(scanID).Err(); err != nil {
+		return err
+	}
+	if utils.IsScanCancelled(scanID) {
+		return ErrScanCancelled
+	}
+	return nil
 }
 
 func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots int, collectOnly bool) error {
@@ -121,6 +146,9 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	utils.SendMonitorWebhook(fmt.Sprintf(" Root Pipeline: processing **%d** root(s) — reusing stored live URLs where available…", len(targetRoots)))
 
 	// Enumerate/reuse roots concurrently (bounded), storing each root's subs as we go.
+	// The walk checks the scan's context between roots and steps: it used to
+	// ignore cancel entirely and keep enumerating (holding a scan slot) for up
+	// to the 24h budget after the operator stopped it.
 	var (
 		mu      sync.Mutex
 		allSubs []string
@@ -129,12 +157,27 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		wg      sync.WaitGroup
 		sem     = make(chan struct{}, rootEnumConcurrency())
 	)
+	ctx := scanContext(scanID)
+	var stopErr error
+launch:
 	for _, r := range targetRoots {
+		if stopErr = pipelineStopped(scanID); stopErr != nil {
+			break
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			stopErr = ctx.Err()
+			break launch
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(root string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer utils.RecoverPanic("root-pipeline:" + root)
+			if pipelineStopped(scanID) != nil {
+				return
+			}
 
 			// Fast path: if this root already has probed live URLs stored, reuse them
 			// and skip enumeration + httpx entirely — the schemes were resolved when
@@ -174,6 +217,9 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 					stdLog(scanID, "[WARN] store %s subs failed: %v", root, ierr)
 				}
 			}
+			if pipelineStopped(scanID) != nil {
+				return // subs are stored; skip the httpx probe after a stop
+			}
 			// httpx: probe for live hosts — marks them live AND stores the resolved
 			// scheme-prefixed URL per host in the DB, so future runs skip httpx.
 			_, _ = livehosts.FilterLiveHosts(root, threads, true)
@@ -192,6 +238,13 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 		}(r)
 	}
 	wg.Wait()
+	if stopErr == nil {
+		stopErr = pipelineStopped(scanID)
+	}
+	if stopErr != nil {
+		stdLog(scanID, "[WARN] Root pipeline stopped during collection (%v) — %d/%d root(s) done; stored results are kept", stopErr, done, len(targetRoots))
+		return fmt.Errorf("root pipeline stopped: %w", stopErr)
+	}
 
 	allSubs = uniqueStrings(allSubs)
 	stdLog(scanID, "[INFO] collection complete: %d live host(s) to scan (%d root(s) skipped as new-roots-only)", len(allSubs), skipped)
@@ -239,27 +292,78 @@ func runRootPipeline(scanID, template string, newOnly bool, threads, maxRoots in
 	outPath := filepath.Join(outDir, "nuclei-"+scanID+".json")
 
 	stdLog(scanID, "[INFO] running nuclei template %q on %d subdomains", tplName, len(allSubs))
-	matches := 0
-	err = nuclei.RunGlobalTemplate(tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
+	// Result callbacks run concurrently in the SDK — atomic counter, or hits
+	// get lost and the "N findings" stat is wrong.
+	var matches atomic.Int64
+	var webhookBudget atomic.Int64
+	// Persist partial hits on every exit path — a timeout/engine error must not
+	// zero out findings the engine already emitted (see runGlobalNucleiScan).
+	defer func() {
+		if matches.Load() == 0 {
+			return
+		}
+		scanDir := utils.GetScanResultsDir(scanID)
+		if mkErr := os.MkdirAll(scanDir, 0o755); mkErr == nil {
+			dest := filepath.Join(scanDir, filepath.Base(outPath))
+			if _, statErr := os.Stat(dest); statErr != nil {
+				if data, readErr := os.ReadFile(outPath); readErr == nil {
+					_ = os.WriteFile(dest, data, 0o644)
+				}
+			}
+		}
+		if _, idxErr := utils.IndexExistingResultFile(scanID, outPath); idxErr != nil {
+			stdLog(scanID, "[WARN] failed to index pipeline nuclei output %s: %v", outPath, idxErr)
+		}
+		_ = db.UpdateScanStats(scanID, int(matches.Load()), 0)
+	}()
+	err = nuclei.RunGlobalTemplate(scanContext(scanID), tmpFile.Name(), templatePath, outPath, threads, func(event *output.ResultEvent) {
 		if event == nil || event.TemplateID == "" {
 			return
 		}
-		matches++
-		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Target:** `%s`\n**Severity:** `%s`",
-			event.TemplateID, event.Info.Name, event.Matched, event.Info.SeverityHolder.Severity.String())
-		utils.SendMonitorWebhook(msg)
-		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), event.Matched)
+		matches.Add(1)
+		matched := event.Matched
+		if matched == "" {
+			matched = event.URL
+		}
+		if matched == "" {
+			matched = event.Host
+		}
+		msg := fmt.Sprintf(" **Root Pipeline Hit!**\n**Template:** `%s` (%s)\n**Matched-At:** `%s`\n**Severity:** `%s`\n**Scan:** `%s`",
+			event.TemplateID, event.Info.Name, matched, event.Info.SeverityHolder.Severity.String(), scanID)
+		if event.Host != "" && event.Host != matched {
+			msg += fmt.Sprintf("\n**Target:** `%s`", event.Host)
+		}
+		if cc := strings.TrimSpace(event.CURLCommand); cc != "" {
+			if len(cc) > 220 {
+				cc = cc[:220] + "…"
+			}
+			msg += fmt.Sprintf("\n**curl:** `%s`", cc)
+		}
+		if event.Info.Reference != nil {
+			if refs := event.Info.Reference.ToSlice(); len(refs) > 0 {
+				msg += fmt.Sprintf("\n**Ref:** %s", refs[0])
+			}
+		}
+		// Same gate as runGlobalNucleiScan: no per-hit alerts for info/unknown
+		// severities, at most pipelineHitWebhookBudget per run — and sent off the
+		// engine's callback goroutine. The synchronous send (up to 4×10s of 429
+		// retries per hit) stalled the nuclei executor on every match.
+		sev := strings.ToLower(event.Info.SeverityHolder.Severity.String())
+		if sev != "info" && sev != "unknown" && webhookBudget.Add(1) <= pipelineHitWebhookBudget {
+			utils.SafeGo("root-pipeline:hit-webhook", func() { utils.SendMonitorWebhook(msg) })
+		}
+		stdLog(scanID, "[VULN] %s [%s] on %s", event.Info.Name, event.Info.SeverityHolder.Severity.String(), matched)
 	})
 	if err != nil {
+		if matches.Load() > 0 {
+			stdLog(scanID, "[WARN] pipeline nuclei phase ended early (%v) — %d match(es) preserved", err, matches.Load())
+		}
 		return fmt.Errorf("nuclei scan failed: %w", err)
 	}
 
-	// Record the finding count so the Scans page shows the "N findings" tag.
-	_ = db.UpdateScanStats(scanID, matches, 0)
-
-	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches)
+	stdLog(scanID, "[OK] Root Pipeline complete — %d roots, %d subs, %d matches", len(targetRoots), len(allSubs), matches.Load())
 	utils.SendMonitorWebhook(fmt.Sprintf(" **Root Pipeline complete**\nTemplate: `%s`\nNew roots: %d\nSubdomains: %d\nMatches: %d",
-		tplName, len(targetRoots), len(allSubs), matches))
+		tplName, len(targetRoots), len(allSubs), matches.Load()))
 	return nil
 }
 
@@ -270,8 +374,15 @@ func gatherAllPlatformRoots() []string {
 	payload := buildProgramsPayload() // fetches H1/BC/IT/HackAdvisor scope with Assets populated
 	var elems []scope.ScopeElement
 	for _, p := range payload.Programs {
-		for _, a := range p.Assets {
-			elems = append(elems, scope.ScopeElement{Target: a})
+		for i, a := range p.Assets {
+			// Carry the platform asset type: ScopeElementRoots drops source
+			// code / "other" / mobile / executable assets by category, and only
+			// wildcards (or explicitly typed apexes) become enumeration roots.
+			var cat string
+			if i < len(p.AssetTypes) {
+				cat = p.AssetTypes[i]
+			}
+			elems = append(elems, scope.ScopeElement{Target: a, Category: cat})
 		}
 	}
 	roots := scopemod.ScopeElementRoots(elems)

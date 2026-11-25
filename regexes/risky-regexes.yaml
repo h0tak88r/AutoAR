@@ -397,7 +397,7 @@ patterns:
       confidence: low
   - pattern:
       name: aws_access_key_id
-      regex: "(?:A3T|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[a-zA-Z0-9-_]{12,}"
+      regex: "\\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\\b"
       confidence: low
   - pattern:
       name: aws_config_accesskeyid
@@ -1329,7 +1329,7 @@ patterns:
       confidence: low
   - pattern:
       name: google_captcha
-      regex: "(6L[0-9A-Za-z-_]{38})"
+      regex: "[\"'`]6L[0-9A-Za-z_-]{38}[\"'`]"
       confidence: low
   - pattern:
       name: google_client_email
@@ -2445,7 +2445,7 @@ patterns:
       confidence: low
   - pattern:
       name: sendgrid_api_key
-      regex: "(SG.[a-zA-Z0-9-]{16,32}.[a-zA-Z0-9-]{16,64})"
+      regex: "(SG\\.[a-zA-Z0-9_-]{22}\\.[a-zA-Z0-9_-]{43})"
       confidence: low
   - pattern:
       name: sendgrid_key

@@ -45,6 +45,12 @@ type DB interface {
 	// ListDomains returns all distinct domains stored in the database
 	ListDomains() ([]string, error)
 
+	// ListDomainsWithCounts returns every domain with its subdomain and live
+	// counts in ONE aggregate query. Replaces the old pattern of calling
+	// ListSubdomainsWithStatus per domain (an N+1 that pulled all ~800k
+	// subdomain rows through Go just to count them).
+	ListDomainsWithCounts() ([]DomainWithCounts, error)
+
 	// ListSubdomains returns all subdomains for a given domain
 	ListSubdomains(domain string) ([]string, error)
 	// ListSubdomainsWithStatus returns all subdomains with their status codes for a given domain
@@ -103,6 +109,44 @@ type DB interface {
 	// UpdateSubdomainMonitorLastRun updates last_run_at to now for a subdomain monitor target
 	UpdateSubdomainMonitorLastRun(id int) error
 
+	// JS file monitor (per-domain inventory of JS files, diffed for
+	// new-file / content-change / new-secret / new-endpoint alerts).
+	ListJSMonitorTargets() ([]JSMonitorTarget, error)
+	AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error)
+	DeleteJSMonitorTarget(id int) error
+	SetJSMonitorRunning(id int, running bool) error
+	TouchJSMonitorRun(id int) error
+	ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error)
+	GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error)
+	UpsertJSMonitorFile(f JSMonitorFile) error
+	MarkJSMonitorFileSeen(id int64, status int) error
+
+	// CountRunningScansForTarget reports in-flight (status='running') scans
+	// for a target — the watcher's auto-run gate against double global scans.
+	CountRunningScansForTarget(target string) (int, error)
+
+	// Hunter monitoring targets (tracks a HackerOne username's public reputation
+	// and resolved-report hacktivity, alerting on Discord when either changes).
+	ListHunterMonitorTargets() ([]HunterMonitorTarget, error)
+	AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error)
+	RemoveHunterMonitorTarget(id int64) error
+	SetHunterMonitorRunningStatus(id int64, isRunning bool) error
+	GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error)
+	// UpdateHunterMonitorSnapshot persists the latest known reputation/signal/rank
+	// and the resolved H1 numeric user ID (cached after first resolution), and
+	// stamps last_run_at to now.
+	UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error
+
+	// HasSeenHunterReport reports whether a resolved-report ID has already been
+	// recorded for this target (so the daemon only alerts on genuinely new ones).
+	HasSeenHunterReport(targetID int64, reportID string) (bool, error)
+	// RecordSeenHunterReport stores a resolved report as seen for this target.
+	RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error
+	// ResetHunterMonitorLastRun clears last_run_at so the next daemon pass treats
+	// the target as a fresh baseline: it re-records silently and posts one
+	// snapshot of the hunter's latest activity (used when resuming a monitor).
+	ResetHunterMonitorLastRun(id int64) error
+
 	// UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
 	UpdateMonitorTargetLastRun(id int, hash string, changed bool) error
 
@@ -147,6 +191,9 @@ type DB interface {
 
 	// Scan tracking
 	CreateScan(scan *ScanRecord) error
+	// ReactivateScan re-opens an existing scan row for a phase-level resume:
+	// status→running, clears failed_phases, keeps completed_phases.
+	ReactivateScan(scanID string) error
 	UpdateScanProgress(scanID string, progress *ScanProgress) error
 	UpdateScanStatus(scanID string, status string) error
 	UpdateScanResult(scanID, status, resultURL string) error
@@ -160,6 +207,13 @@ type DB interface {
 	DeleteScan(scanID string) error
 	// CountScansWithTargetExcluding counts rows with the same target excluding one scan_id.
 	CountScansWithTargetExcluding(excludeScanID, target string) (int, error)
+	// ListScanTargetsContaining returns the targets of every scan except
+	// excludeScanID whose lowercased target contains needle (a cheap pre-filter;
+	// callers normalize and compare the targets themselves).
+	ListScanTargetsContaining(excludeScanID, needle string) ([]string, error)
+	// ListR2KeysReferencedByOtherScans returns which of keys are still indexed
+	// (scan_artifacts.r2_key) by a scan other than scanID.
+	ListR2KeysReferencedByOtherScans(scanID string, keys []string) (map[string]bool, error)
 	// AppendScanPhase atomically appends a phase name to completed_phases or failed_phases.
 	AppendScanPhase(scanID, phaseName string, failed bool) error
 	// ListAllScanIDs returns every scan_id in the scans table (newest first).
@@ -181,6 +235,24 @@ type DB interface {
 	SetBBPAccountEnabled(id int64, enabled bool) error
 	UpdateBBPAccountToken(id int64, token string) error
 	DeleteBBPAccount(id int64) error
+
+	// Dashboard users (multi-user auth: roles admin/viewer, shared workspace).
+	ListUsers() ([]User, error)
+	GetUserByID(id int64) (*User, error)
+	GetUserByUsername(username string) (*User, error)
+	CreateUser(username, passwordHash, role string) (int64, error)
+	UpdateUserPassword(id int64, passwordHash string) error
+	UpdateUserRole(id int64, role string) error
+	SetUserDisabled(id int64, disabled bool) error
+	TouchUserLogin(id int64) error
+	DeleteUser(id int64) error
+	CountUsers() (int, error)
+	CountAdmins() (int, error)
+	SetUserTokensValidAfter(id int64, unix int64) error
+
+	// Audit log (who did what — admin-visible activity trail).
+	InsertAuditEvent(e AuditEvent) error
+	ListAuditEvents(limit int, actor, action string) ([]AuditEvent, error)
 
 	// Bug-bounty program catalog (for keyword/domain program lookup).
 	UpsertCatalogProgram(p CatalogProgram) (int64, error)
@@ -213,6 +285,37 @@ type BBPAccount struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// User is one dashboard login account. Roles: "admin" (full access, can manage
+// users) or "viewer" (read-only — the auth middleware rejects mutating requests).
+// PasswordHash is a bcrypt hash and is never serialized to API responses.
+type User struct {
+	ID           int64      `json:"id"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"-"`
+	Role         string     `json:"role"`
+	Disabled     bool       `json:"disabled"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+	// TokensValidAfter (unix seconds) is the per-user session revocation
+	// cutoff: tokens with an iat before it are rejected. Bumped on logout,
+	// password change, disable and role change.
+	TokensValidAfter int64 `json:"-"`
+}
+
+// AuditEvent is one entry in the admin activity log: who (Actor) did what
+// (Action, e.g. "scan.launch", "user.delete", "settings.update") to what
+// (Target), with optional Detail and the source IP.
+type AuditEvent struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target,omitempty"`
+	Detail    string    `json:"detail,omitempty"`
+	IP        string    `json:"ip,omitempty"`
+}
+
 // CatalogProgram is one bug-bounty program in the lookup catalog.
 type CatalogProgram struct {
 	ID           int64     `json:"id"`
@@ -238,6 +341,7 @@ type CatalogDomainMatch struct {
 	CatalogProgram
 	MatchedDomain string `json:"matched_domain"`
 	InScope       bool   `json:"in_scope"`
+	MatchKind     string `json:"match_kind,omitempty"` // exact | wildcard | related (see db.CatalogMatch*)
 }
 
 // ScanRecord represents a scan stored in the database
@@ -263,6 +367,9 @@ type ScanRecord struct {
 	LastUpdate      time.Time  `json:"last_update"`
 	Command         string     `json:"command,omitempty"`
 	ResultURL       string     `json:"result_url,omitempty"`
+	CreatedBy       string     `json:"created_by,omitempty"` // dashboard username that started the scan ("" = system/automated)
+	Name            string     `json:"name,omitempty"`      // operator-supplied display name ("" = none)
+	Description     string     `json:"description,omitempty"` // operator notes on what the scan is for
 }
 
 // ScanArtifact represents an output artifact produced by a scan and stored in R2.
@@ -341,6 +448,35 @@ type SubdomainMonitorTarget struct {
 	UpdatedAt time.Time
 }
 
+// HunterMonitorTarget tracks a HackerOne username's public reputation/signal/rank
+// and resolved-report hacktivity. UserID is the platform's numeric user ID,
+// resolved from the username on first check and cached (avoids re-resolving it
+// every poll). Last* fields hold the most recent known snapshot for diffing.
+type HunterMonitorTarget struct {
+	ID              int64
+	Username        string
+	UserID          string // H1 numeric user ID, cached after first resolution
+	IntervalSeconds int
+	IsRunning       bool
+	LastReputation  *float64
+	LastSignal      *float64
+	LastRank        *float64
+	LastRunAt       *time.Time
+	CreatedAt       time.Time
+}
+
+// HunterResolvedReport is one resolved-report hacktivity entry already recorded
+// as seen for a hunter monitor target (used to detect newly-resolved reports).
+type HunterResolvedReport struct {
+	ID            int64
+	TargetID      int64
+	ReportID      string
+	ProgramHandle string
+	ProgramName   string
+	ResolvedAt    time.Time
+	FirstSeenAt   time.Time
+}
+
 // JSEndpoint is a single API endpoint extracted from a domain's JavaScript bundles.
 type JSEndpoint struct {
 	Endpoint string // e.g. /api/v2/users
@@ -417,4 +553,40 @@ type GlobalSubdomain struct {
 	Domain string `json:"domain"`
 }
 
+// DomainWithCounts is one row of the domain listing aggregate.
+type DomainWithCounts struct {
+	Domain         string `json:"domain"`
+	SubdomainCount int    `json:"subdomain_count"`
+	LiveCount      int    `json:"live_count"`
+}
 
+
+
+// JSMonitorTarget is one root domain enrolled in the JS-file monitor.
+type JSMonitorTarget struct {
+	ID              int
+	Domain          string
+	IntervalSeconds int
+	Threads         int
+	IsRunning       bool
+	LastRunAt       *time.Time
+	FileCount       int // filled by ListJSMonitorTargets for the dashboard
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// JSMonitorFile is one discovered JS file with its last-seen content fingerprint
+// and the endpoints/secrets extracted from that snapshot.
+type JSMonitorFile struct {
+	ID            int64
+	TargetID      int
+	Domain        string
+	URL           string
+	SHA256        string
+	Endpoints     string // JSON array of endpoint paths
+	Secrets       string // JSON array of "type: value" strings
+	ContentLength int64
+	LastStatus    int
+	FirstSeen     time.Time
+	LastSeen      time.Time
+}

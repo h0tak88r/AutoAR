@@ -1,913 +1,1242 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AutoAR Dashboard</title>
-  <meta name="description" content="AutoAR — Automated Attack Surface Recon dashboard. Monitor domains, scans, R2 files and change events in real time." />
+ <meta charset="UTF-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+ <title>AutoAR Dashboard</title>
+ <meta name="description" content="AutoAR — Automated Attack Surface Recon dashboard. Monitor domains, scans, R2 files and change events in real time." />
 
-  <link rel="stylesheet" href="/ui/styles.css" />
-  <link rel="icon" type="image/png" href="/ui/logo.png" />
+ <script>
+ // Anti-flash: apply the stored theme before first paint (dark = default).
+ try {
+ var t = localStorage.getItem("autoar_theme");
+ if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+ } catch (e) { /* private mode */ }
+ </script>
+ <link rel="stylesheet" href="/ui/styles.css" />
+ <link rel="stylesheet" href="/ui/theme.css" />
+ <link rel="icon" type="image/svg+xml" href="/ui/logo88.svg" />
+ <style>
+ /* Edition gating: the public edition hides edge-only controls (full-corpus
+    nuclei sweep, PoC-day race, scope autopilot). JS sets body[data-edition]. */
+ body[data-edition="public"] [data-edition-private]{display:none!important;}
+ body[data-edition="public"] .pd-col{display:none!important;}
+ [data-edition-public]{display:none;}
+ body[data-edition="public"] [data-edition-public]{display:block!important;}
+ </style>
 </head>
 <body>
 
 <!-- Login gate — shown when API auth is enabled and there is no valid local session -->
 <div id="auth-gate" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
-  <div class="auth-card">
-    <div class="auth-logo"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
-    <h1 class="auth-title">AutoAR</h1>
-    <p class="auth-sub">Sign in to continue</p>
-    <form id="auth-form" class="auth-form">
-      <label class="auth-label" for="auth-username">Username</label>
-      <input class="search-input auth-input" id="auth-username" type="text" autocomplete="username" required placeholder="admin" />
-      <label class="auth-label" for="auth-password">Password</label>
-      <input class="search-input auth-input" id="auth-password" type="password" autocomplete="current-password" required placeholder="••••••••" />
-      <p id="auth-error" class="auth-error" role="alert"></p>
-      <button type="submit" class="btn btn-primary auth-submit" id="auth-submit">Sign in</button>
-    </form>
-    <p id="auth-config-hint" class="auth-hint" style="display:none"></p>
-  </div>
+ <div class="auth-card">
+ <img src="/ui/logo88.svg" alt="0x88" width="56" height="56" style="border-radius:12px" />
+ <h1 class="auth-title">AutoAR</h1>
+ <p class="auth-sub">Sign in to continue</p>
+ <form id="auth-form" class="auth-form">
+ <label class="auth-label" for="auth-username">Username</label>
+ <input class="search-input auth-input" id="auth-username" type="text" autocomplete="username" required placeholder="admin" />
+ <label class="auth-label" for="auth-password">Password</label>
+ <input class="search-input auth-input" id="auth-password" type="password" autocomplete="current-password" required placeholder="••••••••" />
+ <p id="auth-error" class="auth-error" role="alert"></p>
+ <button type="submit" class="btn btn-primary auth-submit" id="auth-submit">Sign in</button>
+ </form>
+ <p id="auth-config-hint" class="auth-hint" style="display:none"></p>
+ </div>
 </div>
 
 <div class="shell" id="app-shell">
 
-  <!-- ─── Sidebar ──────────────────────────────────────────────────────────── -->
-  <aside class="sidebar" id="app-sidebar">
-
-    <div class="sidebar-logo">
-      <div class="logo-icon"><img src="/ui/logo.png" style="width:100%;height:100%;border-radius:4px;object-fit:contain" alt="AutoAR"></div>
-      <div class="sidebar-logo-text">
-        <div class="logo-text">AutoAR</div>
-        <div class="logo-version" id="logo-version">v4.1.0</div>
-      </div>
-      <button id="sidebar-collapse-btn" title="Collapse sidebar" aria-label="Toggle sidebar"
-              style="margin-left:auto;background:transparent;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;transition:all .2s"><</button>
-    </div>
-
-    <nav class="sidebar-nav">
-      <div class="nav-section">
-        <div class="nav-item active" id="nav-overview" data-label="Overview">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
-          <span>Overview</span>
-        </div>
-
-        <div class="nav-item" id="nav-scans" data-label="Scans">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span>
-          <span>Scans</span>
-        </div>
-
-        <div class="nav-item" id="nav-monitor" data-label="Monitor">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
-          <span>Monitor</span>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-item nav-group-head" id="nav-group-assets" data-label="Asset Management" aria-expanded="false">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
-            <span>Asset Management</span>
-            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-          <div class="nav-subitems" id="assets-subnav" role="menu">
-            <div class="nav-subitem" id="nav-targets" data-label="Platforms" role="menuitem">Platforms</div>
-            <div class="nav-subitem" id="nav-programs" data-label="Programs" role="menuitem">Programs</div>
-            <div class="nav-subitem" id="nav-program-lookup" data-label="Program Lookup" role="menuitem">Program Lookup</div>
-            <div class="nav-subitem" id="nav-domains" data-label="Domains" role="menuitem">Domains</div>
-            <div class="nav-subitem" id="nav-subdomains" data-label="Subdomains" role="menuitem">Subdomains<span class="nav-badge" id="subdomains-badge" style="display:none"></span></div>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-item nav-group-head" id="nav-group-mobile" data-label="Mobile" aria-expanded="false">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></span>
-            <span>Mobile</span>
-            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-          <div class="nav-subitems" id="mobile-subnav" role="menu">
-            <div class="nav-subitem" id="nav-apkauditor" data-label="APK Auditor" role="menuitem">APK Auditor</div>
-            <div class="nav-subitem" id="nav-ipaauditor" data-label="IPA Auditor" role="menuitem">IPA Auditor</div>
-            <div class="nav-subitem" id="nav-adbauditor" data-label="ADB Auditor" role="menuitem">ADB Auditor</div>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-item nav-group-head" id="nav-securitylab" data-label="Security Lab" aria-expanded="false">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></svg></span>
-            <span>Security Lab</span>
-            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-          <div class="nav-subitems" id="securitylab-subnav" role="menu">
-            <div class="nav-subitem" id="nav-keyhacks" data-label="Keyhacks" role="menuitem">Keyhacks</div>
-            <div class="nav-subitem" data-sltab="jwt" role="menuitem">JWT Analyzer</div>
-            <div class="nav-subitem" data-sltab="regex" role="menuitem">Regex Workbench</div>
-            <div class="nav-subitem" data-sltab="depconf" role="menuitem">Dependency Confusion</div>
-            <div class="nav-subitem" data-sltab="ssrf" role="menuitem">SSRF Payloads</div>
-            <div class="nav-subitem" data-sltab="xss" role="menuitem">XSS Cheat Sheet</div>
-            <div class="nav-subitem" data-sltab="dorks" role="menuitem">Recon Dorks</div>
-            <div class="nav-subitem" data-sltab="takeover" role="menuitem">Takeover Reference</div>
-          </div>
-        </div>
-
-        <div class="nav-group">
-          <div class="nav-item nav-group-head" id="nav-group-system" data-label="System" aria-expanded="false">
-            <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
-            <span>System</span>
-            <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-          <div class="nav-subitems" id="system-subnav" role="menu">
-            <div class="nav-subitem" id="nav-r2" data-label="R2 Browser" role="menuitem">R2 Browser</div>
-            <div class="nav-subitem" id="nav-report-templates" data-label="Report Templates" role="menuitem">Report Templates</div>
-            <div class="nav-subitem" id="nav-settings" data-label="Settings" role="menuitem">Settings</div>
-          </div>
-        </div>
-      </div>
-    </nav>
-
-    <div class="sidebar-metrics" id="sidebar-metrics">
-      <div class="metrics-label"> Performance</div>
-      <div class="metric-item">
-        <div class="metric-info"><span>CPU</span><span id="metric-cpu">0%</span></div>
-        <div class="metric-bar"><div class="metric-fill" id="metric-cpu-fill" style="width: 0%"></div></div>
-      </div>
-      <div class="metric-item">
-        <div class="metric-info"><span>RAM</span><span id="metric-ram">0%</span></div>
-        <div class="metric-bar"><div class="metric-fill" id="metric-ram-fill" style="width: 0%"></div></div>
-      </div>
-    </div>
-
-    <div class="sidebar-footer">
-      <div class="status-dot" id="status-dot"></div>
-      <div class="status-text" id="status-text">Connecting…</div>
-      <button type="button" class="btn btn-ghost sign-out-btn" id="sign-out-btn" style="display:none;width:100%;margin-top:10px;font-size:12px">Sign out</button>
-    </div>
-  </aside>
-
-  <!-- ─── Main area ─────────────────────────────────────────────────────────── -->
-  <div class="main">
-
-    <!-- Top bar -->
-    <header class="topbar">
-      <div class="topbar-title" id="topbar-title">Overview</div>
-      <div class="topbar-actions">
-        <span class="topbar-time" id="topbar-time"></span>
-        <button class="refresh-btn" id="refresh-btn">
-          <span>↻</span>
-          <span>Refresh</span>
-        </button>
-      </div>
-    </header>
-
-    <!-- Scrollable content -->
-    <div class="content">
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Overview                                                      -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view active" id="view-overview">
-
-        <div class="view-header">
-          <h1 class="view-title">Overview</h1>
-          <div class="view-subtitle">Real-time attack surface intelligence</div>
-        </div>
-
-        <!-- Stat cards -->
-        <div class="stats-grid">
-          <div class="stat-card" data-accent="cyan">
-            <div class="stat-header">
-              <div class="stat-label">Domains</div>
-              <div class="stat-icon"></div>
-            </div>
-            <div class="stat-value" id="stat-domains">—</div>
-            <div class="stat-footer">Tracked root domains</div>
-          </div>
-
-          <div class="stat-card" data-accent="purple">
-            <div class="stat-header">
-              <div class="stat-label">Subdomains</div>
-              <div class="stat-icon"></div>
-            </div>
-            <div class="stat-value" id="stat-subdomains">—</div>
-            <div class="stat-footer" id="stat-live-footer">Live: <span id="stat-live">—</span></div>
-          </div>
-
-          <div class="stat-card" data-accent="emerald">
-            <div class="stat-header">
-              <div class="stat-label">Active Scans</div>
-              <div class="stat-icon"></div>
-            </div>
-            <div class="stat-value" id="stat-active">—</div>
-            <div class="stat-footer">Completed: <span id="stat-completed">—</span></div>
-          </div>
-
-          <div class="stat-card" data-accent="amber">
-            <div class="stat-header">
-              <div class="stat-label">Monitors</div>
-              <div class="stat-icon"></div>
-            </div>
-            <div class="stat-value" id="stat-monitors">—</div>
-            <div class="stat-footer">URL &amp; subdomain</div>
-          </div>
-        </div>
-
-        <!-- Running scans (same data as Scans → Active; updates on poll / after launch) -->
-        <div class="card" id="overview-running-scans" style="display:none">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="card-title-icon"></span>
-              Running now
-            </div>
-          </div>
-          <div class="card-body" id="overview-active-scans-body"></div>
-        </div>
-
-        <!-- Recent changes feed -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">
-              <span class="card-title-icon"></span>
-              Recent Monitor Changes
-            </div>
-          </div>
-          <div class="card-body change-feed" id="recent-changes-feed">
-            <div class="empty-state">
-              <div class="empty-icon">...</div>
-              <div class="empty-title">Loading…</div>
-            </div>
-          </div>
-        </div>
-
-      </div><!-- /view-overview -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Scans                                                         -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-scans">
-
-        <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-          <div>
-            <h1 class="view-title">Scans</h1>
-            <div class="view-subtitle">Active and recent scan history</div>
-          </div>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <button id="scans-root-pipeline-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)" onclick="promptRootPipeline()">
-               Root Pipeline
-            </button>
-            <button id="scans-run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
-               Run Nuclei Template
-            </button>
-          </div>
-        </div>
-
-        <div id="scans-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-
-      </div><!-- /view-scans -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Scan results (deep link /scans/:id)                           -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-scan-detail">
-        <div class="view-header" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between">
-          <div>
-            <button type="button" class="btn btn-ghost" id="scan-detail-back" style="margin-bottom:8px">← Back</button>
-            <h1 class="view-title" id="scan-detail-title">Scan results</h1>
-            <div class="view-subtitle" id="scan-detail-sub"></div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn btn-ghost" id="scan-detail-export-csv-btn" style="font-size:12px;min-width:108px;border-color:var(--accent-cyan);color:var(--accent-cyan)"> Export CSV</button>
-            <button type="button" class="scan-control-btn-r2" id="scan-detail-r2-btn" style="display:none;min-width:108px">Browse R2</button>
-            <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()"> Rescan</button>
-            <button type="button" class="btn btn-ghost" id="scan-detail-delete-btn" style="font-size:12px;min-width:108px;border-color:rgba(248,113,113,.4);color:var(--accent-red)"> Delete</button>
-          </div>
-        </div><!-- /view-header -->
-        <div id="scan-detail-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-      </div><!-- /view-scan-detail -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Domains                                                        -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-domains">
-
-        <div class="view-header">
-          <h1 class="view-title">Domains</h1>
-          <div class="view-subtitle">Click a domain to browse its subdomains</div>
-        </div>
-
-        <div class="filter-bar" id="filter-bar-domains">
-          <input class="search-input" id="domain-search" placeholder="Search domains…" autocomplete="off" />
-        </div>
-
-        <div id="domains-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-
-      </div><!-- /view-domains -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Subdomains                                                    -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-subdomains">
-        <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-          <div>
-            <h1 class="view-title">Subdomains</h1>
-            <div class="view-subtitle">All discovered subdomains across every domain</div>
-          </div>
-          <div style="display:flex;gap:12px;align-items:center">
-            <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
-               Run Nuclei Template
-            </button>
-            <button id="root-pipeline-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)" onclick="promptRootPipeline()">
-               Root Pipeline
-            </button>
-            <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
-              ... <span id="cnames-progress-text">0/0</span>
-            </div>
-            <button id="retry-cnames-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptRetryCnames()">
-              ↻ Resolve Missing CNAMEs
-            </button>
-            <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
-               Copy All Subdomains
-            </button>
-            <button id="import-subs-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptImportSubdomains()">
-               Import Subdomains
-            </button>
-          </div>
-        </div>
-        <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />
-          <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:140px;cursor:pointer">
-            <option value="0" selected>Any Status</option>
-            <option value="2">2xx Success</option>
-            <option value="3">3xx Redirect</option>
-            <option value="4">4xx Client Error</option>
-            <option value="5">5xx Server Error</option>
-            <option value="200">200 OK</option>
-            <option value="401">401 Unauthorized</option>
-            <option value="403">403 Forbidden</option>
-            <option value="404">404 Not Found</option>
-          </select>
-          <input class="search-input" id="subdomains-tech-filter" placeholder="Filter Tech (e.g. React)…" autocomplete="off" style="flex:1;min-width:140px" />
-          <input class="search-input" id="subdomains-cname-filter" placeholder="Filter CNAME…" autocomplete="off" style="flex:1;min-width:140px" />
-          <label for="subdomains-live-only" title="Show only subdomains that responded (is_live). Uncheck to include dead hosts." style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;padding:0 6px;user-select:none">
-            <input type="checkbox" id="subdomains-live-only" checked style="cursor:pointer;width:15px;height:15px;accent-color:#10b981" />
-            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 5px #10b981"></span>Live only</span>
-          </label>
-        </div>
-        <div id="subdomains-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-      </div><!-- /view-subdomains -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Bug Bounty Targets                                           -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-targets">
-        <div class="view-header">
-          <h1 class="view-title">Platforms</h1>
-          <div class="view-subtitle">Pull in-scope root domains from HackerOne, Bugcrowd, YesWeHack, Intigriti &amp; Immunefi — or a domain's subdomains from Chaos.</div>
-        </div>
-
-        <!-- Chaos subdomain lookup (ProjectDiscovery dataset) -->
-        <div class="card" id="targets-chaos-card" style="margin-bottom:24px;">
-          <div class="card-title">
-            <span class="card-title-icon">🌀</span><span>Chaos Subdomains</span>
-            <span id="targets-chaos-status" style="font-size:11px;font-weight:400;margin-left:10px;"></span>
-          </div>
-          <div style="font-size:12px;color:var(--text-muted);margin:6px 0 12px;">
-            Pull a root domain's known subdomains from ProjectDiscovery's Chaos dataset — instant, no full recon. Uses <code>CHAOS_API_KEY</code>.
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <input class="search-input" id="targets-chaos-domain" placeholder="example.com" autocomplete="off"
-                   onkeydown="if(event.key==='Enter'){window.TargetsPage.chaosFetch();}" style="flex:1;min-width:220px;" />
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">
-              <input type="checkbox" id="targets-chaos-save" checked /> Save to Subdomains DB
-            </label>
-            <button class="btn btn-primary" id="targets-chaos-btn" onclick="window.TargetsPage.chaosFetch()">Get Subdomains</button>
-          </div>
-          <div id="targets-chaos-results" style="margin-top:14px;"></div>
-        </div>
-
-        <!-- Platform Cards -->
-        <div id="targets-platforms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px;"></div>
-
-        <!-- Fetch Controls -->
-        <div class="card" id="targets-fetch-card" style="margin-bottom:20px;display:none;">
-          <div class="card-title"><span class="card-title-icon"></span><span id="targets-fetch-card-title">Fetch Options</span></div>
-          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding-top:8px;">
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
-              <input type="checkbox" id="targets-bbp-only"> BBP Only
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
-              <input type="checkbox" id="targets-pvt-only"> Private Only
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
-              <input type="checkbox" id="targets-public-only"> Public Only
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
-              <input type="checkbox" id="targets-include-oos"> Include OOS
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
-              <input type="checkbox" id="targets-extract-roots" checked> Extract root domains
-            </label>
-            <button class="btn btn-primary" id="targets-fetch-btn" onclick="targetsDoFetch()" style="margin-left:auto;">
-              Fetch Targets
-            </button>
-          </div>
-        </div>
-
-        <!-- Results -->
-        <div class="card" id="targets-results-card" style="display:none;">
-          <div class="card-title" style="justify-content:space-between;">
-            <span><span class="card-title-icon"></span><span id="targets-result-header">Results</span></span>
-            <div style="display:flex;gap:8px;">
-              <input type="text" id="targets-filter-input" placeholder="Filter domains…" oninput="targetsApplyFilter()"
-                style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;width:220px;">
-              <button class="btn btn-primary" id="targets-add-all-btn" onclick="targetsAddAllDomains()" style="font-size:12px;padding:6px 14px;">
-                + Add All to Domains DB
-              </button>
-              <button class="btn" id="targets-copy-btn" onclick="targetsCopyAll()" style="font-size:12px;padding:6px 14px;background:var(--bg-tertiary);">
-                Copy List
-              </button>
-            </div>
-          </div>
-          <div id="targets-domain-list" style="margin-top:12px;max-height:520px;overflow-y:auto;"></div>
-        </div>
-      </div><!-- /view-targets -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Programs                                                    -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-programs">
-        <div class="view-header">
-          <h1 class="view-title">Programs</h1>
-          <div class="view-subtitle">Bug bounty program monitor across platforms</div>
-        </div>
-
-        <div class="filter-bar" style="gap:8px;flex-wrap:wrap;">
-          <select id="programs-platform-filter" onchange="window.ProgramsPage.loadPrograms()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:7px 12px;color:#fff;font-size:12px;outline:none;">
-            <option value="all">All Platforms</option>
-            <option value="h1">HackerOne</option>
-            <option value="bc">Bugcrowd</option>
-            <option value="it">Intigriti</option>
-            <option value="ha">HackAdvisor (external)</option>
-          </select>
-          <input class="search-input" id="programs-search" placeholder="Search programs…" autocomplete="off" oninput="window.ProgramsPage.onSearch()" />
-        </div>
-
-        <div id="programs-watch-status" style="margin-bottom:12px;"></div>
-        <div id="programs-stats-bar" style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;color:rgba(255,255,255,0.5);"></div>
-        <div id="programs-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>
-        </div>
-      </div><!-- /view-programs -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Program Lookup                                                -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-program-lookup">
-        <div class="view-header">
-          <h1 class="view-title">Program Lookup</h1>
-          <div class="view-subtitle">Find the bug-bounty program for a keyword or domain — your accounts + public aggregator (paying programs only)</div>
-        </div>
-
-        <div class="filter-bar" style="gap:8px;flex-wrap:wrap;align-items:center;">
-          <input class="search-input" id="plookup-search" placeholder="Company keyword or domain (e.g. acme, api.acme.com)…" autocomplete="off"
-                 onkeydown="if(event.key==='Enter'){window.programLookupSearch();}" style="flex:1;min-width:260px;" />
-          <button class="btn btn-primary" onclick="window.programLookupSearch()">Search</button>
-          <button class="btn btn-ghost" id="plookup-sync-btn" onclick="window.programLookupSync()" title="Rebuild the catalog from your accounts + the as93 aggregator">⟳ Sync catalog</button>
-        </div>
-
-        <div id="plookup-status" style="margin-bottom:12px;font-size:12px;color:rgba(255,255,255,0.5);"></div>
-        <div id="plookup-results">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Search a keyword or domain to find its bug-bounty program</div></div>
-        </div>
-      </div><!-- /view-program-lookup -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Keyhacks                                                     -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-keyhacks">
-        <div class="view-header">
-          <h1 class="view-title"> Keyhacks</h1>
-          <div class="view-subtitle">API key validation templates and usage guides</div>
-        </div>
-
-        <div class="filter-bar">
-          <input class="search-input" id="keyhacks-search" placeholder="Search templates (e.g. AWS, SendGrid)…" autocomplete="off" />
-        </div>
-
-        <div id="keyhacks-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-      </div><!-- /view-keyhacks -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Monitor                                                        -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-monitor">
-
-        <div class="view-header">
-          <h1 class="view-title">Monitor</h1>
-          <div class="view-subtitle">URL and subdomain change detection</div>
-        </div>
-
-        <!-- URL Monitor Targets -->
-        <div class="card" style="margin-bottom:20px">
-          <div class="card-header">
-            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-url" data-acc="url">
-              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              <span class="card-title"><span class="card-title-icon"></span>URL Monitor Targets</span>
-              <span class="acc-chip" id="monitor-url-chip">—</span>
-            </button>
-          </div>
-          <div class="acc-panel open" id="acc-panel-url"><div class="acc-inner">
-          <div class="card-body">
-            <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
-              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-form" data-acc="url-form">
-                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                <span class="acc-sub-title">Quick launch</span>
-              </button>
-              <div class="acc-panel" id="acc-panel-url-form"><div class="acc-inner"><div style="padding-top:12px">
-              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
-                <div style="flex:1;min-width:220px">
-                  <label for="monitor-url-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Page URL</label>
-                  <input class="search-input" id="monitor-url-input" type="url" placeholder="https://example.com/status" autocomplete="off" style="width:100%;box-sizing:border-box" />
-                </div>
-                <div style="min-width:120px">
-                  <label for="monitor-url-strategy" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Strategy</label>
-                  <select class="search-input" id="monitor-url-strategy" style="width:100%;cursor:pointer">
-                    <option value="hash" selected>hash (full page)</option>
-                    <option value="regex">regex</option>
-                  </select>
-                </div>
-                <div id="monitor-url-pattern-wrap" style="flex:1;min-width:180px;display:none">
-                  <label for="monitor-url-pattern" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Pattern (regex)</label>
-                  <input class="search-input" id="monitor-url-pattern" type="text" placeholder="Optional; default date pattern if empty" autocomplete="off" style="width:100%;box-sizing:border-box" />
-                </div>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
-                  <input type="checkbox" id="monitor-url-autostart" checked /> Start checking now
-                </label>
-                <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddUrlMonitor()">Add monitor</button>
-              </div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Registers the target in the database. When “Start checking now” is on, marks it running and wakes the URL monitor worker (same as CLI <code style="font-size:10px;opacity:.85">monitor updates add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
-              </div></div></div>
-            </div>
-            <div class="monitor-ai-suggest" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(30,40,60,.25)">
-              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-ai" data-acc="url-ai">
-                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                <span class="acc-sub-title">AI-assisted URLs</span>
-              </button>
-              <div class="acc-panel" id="acc-panel-url-ai"><div class="acc-inner"><div style="padding-top:10px">
-              <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.45">Enter a <strong>target domain</strong>. The server probes common release/changelog/blog paths, then ranks pages with <strong>OpenRouter</strong> (or heuristics if no API key). Select rows and add them as URL monitors.</div>
-              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
-                <div style="flex:1;min-width:200px">
-                  <label for="monitor-ai-domain" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Domain</label>
-                  <input class="search-input" id="monitor-ai-domain" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
-                </div>
-                <button type="button" class="btn btn-primary" id="monitor-ai-suggest-btn" style="padding:8px 16px;font-size:13px" onclick="runMonitorAISuggest()">Discover &amp; rank</button>
-              </div>
-              <div id="monitor-ai-suggest-meta" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none"></div>
-              <div id="monitor-ai-suggest-results" style="margin-top:14px;display:none"></div>
-              </div></div></div>
-            </div>
-            <div id="monitor-url-container">
-              <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-            </div>
-          </div>
-          </div></div>
-        </div>
-
-        <!-- Subdomain Monitor Targets -->
-        <div class="card" style="margin-bottom:20px">
-          <div class="card-header">
-            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-sub" data-acc="sub">
-              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              <span class="card-title"><span class="card-title-icon"></span>Subdomain Monitor Targets</span>
-              <span class="acc-chip" id="monitor-sub-chip">—</span>
-            </button>
-          </div>
-          <div class="acc-panel open" id="acc-panel-sub"><div class="acc-inner">
-          <div class="card-body">
-            <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.2)">
-              <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-sub-form" data-acc="sub-form">
-                <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                <span class="acc-sub-title">Quick launch</span>
-              </button>
-              <div class="acc-panel" id="acc-panel-sub-form"><div class="acc-inner"><div style="padding-top:12px">
-              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
-                <div style="flex:1;min-width:200px">
-                  <label for="monitor-sub-domain-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Root domain</label>
-                  <input class="search-input" id="monitor-sub-domain-input" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
-                </div>
-                <div style="width:100px">
-                  <label for="monitor-sub-interval" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Interval (s)</label>
-                  <input class="search-input" id="monitor-sub-interval" type="number" min="60" step="60" value="86400" style="width:100%;box-sizing:border-box" />
-                </div>
-                <div style="width:88px">
-                  <label for="monitor-sub-threads" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Threads</label>
-                  <input class="search-input" id="monitor-sub-threads" type="number" min="1" max="500" value="100" style="width:100%;box-sizing:border-box" />
-                </div>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
-                  <input type="checkbox" id="monitor-sub-checknew" checked /> Detect new subs
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px" title="Each cycle, crawl live hosts' JS bundles and alert on newly-shipped API endpoints. Heavier — leave off for big scopes or short intervals.">
-                  <input type="checkbox" id="monitor-sub-monitorjs" /> Diff JS endpoints <span style="opacity:.6">(heavier)</span>
-                </label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
-                  <input type="checkbox" id="monitor-sub-autostart" checked /> Start monitor now
-                </label>
-                <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddSubdomainMonitor()">Add monitor</button>
-              </div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Adds a subdomain watch target and optionally starts the subdomain monitor daemon (same idea as CLI <code style="font-size:10px;opacity:.85">monitor subdomains manage add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
-              </div></div></div>
-            </div>
-            <div id="monitor-sub-container">
-              <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-            </div>
-          </div>
-          </div></div>
-        </div>
-
-        <!-- Change History Feed -->
-        <div class="card">
-          <div class="card-header">
-            <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-changes" data-acc="changes">
-              <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              <span class="card-title"><span class="card-title-icon"></span>Change History</span>
-              <span class="acc-chip" id="monitor-changes-chip">—</span>
-            </button>
-            <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="clearMonitorChangeHistory()">Clear history</button>
-          </div>
-          <div class="acc-panel open" id="acc-panel-changes"><div class="acc-inner">
-          <div class="card-body change-feed" id="monitor-changes-feed">
-            <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-          </div>
-          </div></div>
-        </div>
-
-      </div><!-- /view-monitor -->
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: R2 Storage                                                     -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-r2">
-
-        <div class="view-header">
-          <h1 class="view-title">R2 Storage</h1>
-          <div class="view-subtitle">
-            Browse Cloudflare R2 bucket:
-            <span id="r2-path" style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan)">/</span>
-          </div>
-        </div>
-
-        <div id="r2-loading" style="display:none;margin-bottom:12px;font-size:13px;color:var(--text-muted)">
-          ... Loading files…
-        </div>
-
-        <div class="r2-browser">
-          <div class="r2-tree">
-            <div class="r2-tree-header">Folders</div>
-            <div id="r2-tree-list">
-              <div class="r2-tree-item active"><span></span><span>root</span></div>
-            </div>
-          </div>
-
-          <div class="r2-files-panel">
-            <div class="card-header">
-              <div class="card-title"><span class="card-title-icon">[File]</span>Files</div>
-              <button type="button" id="r2-delete-selected" class="btn btn-ghost" style="display:none"> Delete selected</button>
-            </div>
-            <div id="r2-files-list">
-              <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-            </div>
-          </div>
-        </div>
-
-      </div><!-- /view-r2 -->
-
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Settings                                                       -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-settings">
-
-        <div class="view-header">
-          <h1 class="view-title">Settings</h1>
-          <div class="view-subtitle">Connection status and configuration</div>
-        </div>
-
-        <div id="settings-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-
-      </div><!-- /view-settings -->
-
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: APK Auditor                                                  -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-apkauditor" style="padding:0;height:100%;display:none;flex-direction:column">
-        <iframe
-          id="apkauditor-frame"
-          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
-          title="APK Auditor"
-          allow="clipboard-write"
-        ></iframe>
-      </div><!-- /view-apkauditor -->
-      <div class="view" id="view-ipaauditor" style="padding:0;height:100%;display:none;flex-direction:column">
-        <iframe
-          id="ipaauditor-frame"
-          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
-          title="IPA Auditor"
-          allow="clipboard-write"
-        ></iframe>
-      </div><!-- /view-ipaauditor -->
-      <div class="view" id="view-adbauditor" style="padding:0;height:100%;display:none;flex-direction:column">
-        <iframe
-          id="adbauditor-frame"
-          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
-          title="ADB Auditor"
-          allow="clipboard-write"
-        ></iframe>
-      </div><!-- /view-adbauditor -->
-      <div class="view" id="view-securitylab" style="padding:0;height:100%;display:none;flex-direction:column">
-        <iframe
-          id="securitylab-frame"
-          style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
-          title="Security Lab"
-          allow="clipboard-write"
-        ></iframe>
-      </div><!-- /view-securitylab -->
-
-
-
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <!-- VIEW: Report Templates                                             -->
-      <!-- ══════════════════════════════════════════════════════════════════ -->
-      <div class="view" id="view-report-templates">
-        <div class="view-header">
-          <h1 class="view-title"> Report Templates</h1>
-          <div class="view-subtitle">Manage and generate report templates</div>
-        </div>
-        <div class="filter-bar">
-          <input class="search-input" id="report-templates-search" placeholder="Search templates..." autocomplete="off" />
-        </div>
-        <input id="report-templates-import-file" type="file" accept="application/json,.json" style="display:none" onchange="handleImportReportTemplatesFile(event)" />
-        <div id="report-templates-container">
-          <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
-        </div>
-      </div><!-- /view-report-templates -->
-
-    </div><!-- /content -->
-  </div><!-- /main -->
+ <!-- ─── Sidebar ──────────────────────────────────────────────────────────── -->
+ <aside class="sidebar" id="app-sidebar">
+
+ <div class="sidebar-logo">
+ <div class="logo-icon" style="color:var(--bg-base);font-family:var(--font-mono,monospace);font-weight:800;font-size:11.5px;letter-spacing:-0.5px">0x88</div>
+ <div class="sidebar-logo-text">
+ <div class="logo-text">AutoAR</div>
+ <div class="logo-version" id="logo-version">v4.1.0</div>
+ </div>
+ <button id="sidebar-collapse-btn" title="Collapse sidebar" aria-label="Toggle sidebar"
+ style="margin-left:auto;background:transparent;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;line-height:1;padding:4px 6px;border-radius:6px;flex-shrink:0;transition:all .2s"><</button>
+ </div>
+
+ <nav class="sidebar-nav">
+ <div class="nav-section">
+ <div class="nav-item active" id="nav-overview" data-label="Overview">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
+ <span>Overview</span>
+ </div>
+
+ <div class="nav-item" id="nav-scans" data-label="Scans">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span>
+ <span>Scans</span>
+ </div>
+
+ <div class="nav-item" id="nav-findings" data-label="Findings">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z"/><path d="m9 12 2 2 4-4"/></svg></span>
+ <span>Findings</span>
+ </div>
+
+ <div class="nav-item" id="nav-ai-agent" data-label="AI Agent">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg></span>
+ <span>AI Agent</span>
+ </div>
+
+ <div class="nav-item" id="nav-monitor" data-label="Monitor">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+ <span>Monitor</span>
+ </div>
+
+ <div class="nav-group">
+ <div class="nav-item nav-group-head" id="nav-group-bb" data-label="Bug Bounty" aria-expanded="false">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span>
+ <span>Bug Bounty</span>
+ <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ </div>
+ <div class="nav-subitems" id="bb-subnav" role="menu">
+ <div class="nav-subitem" id="nav-targets" data-label="Platforms" role="menuitem">Platforms</div>
+ <div class="nav-subitem" id="nav-programs" data-label="Programs" role="menuitem">Programs</div>
+ <div class="nav-subitem" id="nav-program-lookup" data-label="Program Lookup" role="menuitem">Program Lookup</div>
+ <div class="nav-subitem" id="nav-cve-radar" data-label="CVE Radar" role="menuitem">CVE Radar</div>
+ <div class="nav-subitem" id="nav-ports" data-label="Port Surface" role="menuitem">Port Surface</div>
+ </div>
+ </div>
+
+ <div class="nav-group">
+ <div class="nav-item nav-group-head" id="nav-group-assets" data-label="Assets" aria-expanded="false">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
+ <span>Assets</span>
+ <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ </div>
+ <div class="nav-subitems" id="assets-subnav" role="menu">
+ <div class="nav-subitem" id="nav-domains" data-label="Domains" role="menuitem">Domains</div>
+ <div class="nav-subitem" id="nav-subdomains" data-label="Subdomains" role="menuitem">Subdomains<span class="nav-badge" id="subdomains-badge" style="display:none"></span></div>
+ </div>
+ </div>
+
+ <div class="nav-group">
+ <div class="nav-item nav-group-head" id="nav-group-mobile" data-label="Mobile" aria-expanded="false">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></span>
+ <span>Mobile</span>
+ <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ </div>
+ <div class="nav-subitems" id="mobile-subnav" role="menu">
+ <div class="nav-subitem" id="nav-apkauditor" data-label="APK Auditor" role="menuitem">APK Auditor</div>
+ <div class="nav-subitem" id="nav-ipaauditor" data-label="IPA Auditor" role="menuitem">IPA Auditor</div>
+ <div class="nav-subitem" id="nav-adbauditor" data-label="ADB Auditor" role="menuitem">ADB Auditor</div>
+ </div>
+ </div>
+
+ <div class="nav-group">
+ <div class="nav-item nav-group-head" id="nav-securitylab" data-label="Security Lab" aria-expanded="false">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"/><path d="M8.5 2h7"/><path d="M14.5 16h-5"/></svg></span>
+ <span>Security Lab</span>
+ <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ </div>
+ <div class="nav-subitems" id="securitylab-subnav" role="menu">
+ <div class="nav-subitem" id="nav-keyhacks" data-label="Keyhacks" role="menuitem">Keyhacks</div>
+ <div class="nav-subitem" data-sltab="jwt" role="menuitem">JWT Analyzer</div>
+ <div class="nav-subitem" data-sltab="regex" role="menuitem">Regex Workbench</div>
+ <div class="nav-subitem" data-sltab="depconf" role="menuitem">Dependency Confusion</div>
+ <div class="nav-subitem" data-sltab="ssrf" role="menuitem">SSRF Payloads</div>
+ <div class="nav-subitem" data-sltab="xss" role="menuitem">XSS Cheat Sheet</div>
+ <div class="nav-subitem" data-sltab="dorks" role="menuitem">Recon Dorks</div>
+ <div class="nav-subitem" data-sltab="takeover" role="menuitem">Takeover Reference</div>
+ </div>
+ </div>
+
+ <div class="nav-group">
+ <div class="nav-item nav-group-head" id="nav-group-system" data-label="System" aria-expanded="false">
+ <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+ <span>System</span>
+ <svg class="nav-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ </div>
+ <div class="nav-subitems" id="system-subnav" role="menu">
+ <div class="nav-subitem" id="nav-r2" data-label="R2 Browser" role="menuitem">R2 Browser</div>
+ <div class="nav-subitem" id="nav-report-templates" data-label="Report Templates" role="menuitem">Report Templates</div>
+ <div class="nav-subitem" id="nav-settings" data-label="Settings" role="menuitem">Settings</div>
+ </div>
+ </div>
+ </div>
+ </nav>
+
+ <div class="sidebar-metrics" id="sidebar-metrics">
+ <div class="metrics-label"> Performance</div>
+ <div class="metric-item">
+ <div class="metric-info"><span>CPU</span><span id="metric-cpu">0%</span></div>
+ <div class="metric-bar"><div class="metric-fill" id="metric-cpu-fill" style="width: 0%"></div></div>
+ </div>
+ <div class="metric-item">
+ <div class="metric-info"><span>RAM</span><span id="metric-ram">0%</span></div>
+ <div class="metric-bar"><div class="metric-fill" id="metric-ram-fill" style="width: 0%"></div></div>
+ </div>
+ </div>
+
+ <div class="sidebar-footer">
+ <div class="status-dot" id="status-dot"></div>
+ <div class="status-text" id="status-text">Connecting…</div>
+ <button type="button" class="btn btn-ghost sign-out-btn" id="sign-out-btn" style="display:none;width:100%;margin-top:10px;font-size:12px">Sign out</button>
+ </div>
+ </aside>
+
+ <!-- ─── Main area ─────────────────────────────────────────────────────────── -->
+ <div class="main">
+
+ <!-- Top bar -->
+ <header class="topbar">
+ <div class="topbar-title" id="topbar-title">Overview</div>
+ <div class="topbar-actions">
+ <button id="theme-toggle-btn" class="btn btn-ghost" title="Toggle light/dark mode"
+ style="font-size:14px;padding:4px 10px;margin-right:8px" onclick="window.toggleTheme()">Theme</button>
+ <span class="topbar-time" id="topbar-time"></span>
+ <button class="refresh-btn" id="refresh-btn">
+ <span></span>
+ <span>Refresh</span>
+ </button>
+ </div>
+ </header>
+
+ <!-- Scrollable content -->
+ <div class="content">
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Overview -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view active" id="view-overview">
+
+ <div class="view-header">
+ <h1 class="view-title">Overview</h1>
+ <div class="view-subtitle">Real-time attack surface intelligence</div>
+ </div>
+
+ <!-- Stat cards -->
+ <div class="stats-grid">
+ <div class="stat-card" data-accent="cyan">
+ <div class="stat-header">
+ <div class="stat-label">Domains</div>
+ <div class="stat-icon"></div>
+ </div>
+ <div class="stat-value" id="stat-domains">—</div>
+ <div class="stat-footer">Tracked root domains</div>
+ </div>
+
+ <div class="stat-card" data-accent="purple">
+ <div class="stat-header">
+ <div class="stat-label">Subdomains</div>
+ <div class="stat-icon"></div>
+ </div>
+ <div class="stat-value" id="stat-subdomains">—</div>
+ <div class="stat-footer" id="stat-live-footer">Live: <span id="stat-live">—</span></div>
+ </div>
+
+ <div class="stat-card" data-accent="emerald">
+ <div class="stat-header">
+ <div class="stat-label">Active Scans</div>
+ <div class="stat-icon"></div>
+ </div>
+ <div class="stat-value" id="stat-active">—</div>
+ <div class="stat-footer">Completed: <span id="stat-completed">—</span></div>
+ </div>
+
+ <div class="stat-card" data-accent="amber" id="stat-card-monitors">
+ <div class="stat-header">
+ <div class="stat-label">Monitors</div>
+ <div class="stat-icon"></div>
+ </div>
+ <div class="stat-value" id="stat-monitors">—</div>
+ <div class="stat-footer">URL &amp; subdomain</div>
+ </div>
+ </div>
+
+ <!-- AI usage (admin-only; filled by pages/ai-usage.js from GET /api/ai/usage) -->
+ <div class="card au-card" id="ai-usage-card" hidden>
+ <div class="card-header au-head">
+ <div class="card-title">AI usage</div>
+ <div class="au-meta" id="ai-usage-meta"></div>
+ </div>
+ <div class="au-body" id="ai-usage-body"><div class="au-empty-line">Loading AI usage…</div></div>
+ </div>
+
+ <!-- Running scans (same data as Scans Active; updates on poll / after launch) -->
+ <div class="card" id="overview-running-scans" style="display:none">
+ <div class="card-header">
+ <div class="card-title">
+ <span class="card-title-icon"></span>
+ Running now
+ </div>
+ </div>
+ <div class="card-body" id="overview-active-scans-body"></div>
+ </div>
+
+ <!-- Recent changes feed (admin-only data; hidden when the API omits it) -->
+ <div class="card" id="recent-changes-card">
+ <div class="card-header">
+ <div class="card-title">
+ <span class="card-title-icon"></span>
+ Recent Monitor Changes
+ </div>
+ </div>
+ <div class="card-body change-feed" id="recent-changes-feed">
+ <div class="empty-state">
+ <div class="empty-icon">...</div>
+ <div class="empty-title">Loading…</div>
+ </div>
+ </div>
+ </div>
+
+ </div><!-- /view-overview -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Scans -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-scans">
+
+ <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+ <div>
+ <h1 class="view-title">Scans</h1>
+ <div class="view-subtitle">Active and recent scan history</div>
+ </div>
+ <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+ <button id="scans-new-btn" class="btn btn-primary" style="font-size:13px;padding:9px 20px;gap:8px;display:flex;align-items:center;font-weight:700;background:linear-gradient(135deg,var(--accent-primary-dim),var(--accent-secondary-dim));color:var(--text-primary);border-color:rgba(255,255,255,0.18)" onclick="openLaunchWizard()">
+ ＋ New Scan
+ </button>
+ </div>
+ </div>
+
+ <div id="scans-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+
+ <div id="discovered-assets-panel" style="margin-top:26px">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+ <h3 style="font-size:14px;margin:0"> Recently discovered assets <span style="font-weight:400;color:var(--text-faint);font-size:12px">(last 7 days)</span></h3>
+ <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="window.loadDiscoveredAssets()">Refresh</button>
+ </div>
+ <div class="table-wrap">
+ <table class="table">
+ <thead><tr><th>Asset</th><th>Root</th><th>Live</th><th>URL</th><th>Discovered</th></tr></thead>
+ <tbody id="discovered-assets-rows"><tr><td colspan="5" style="color:#7f8c8d">Loading…</td></tr></tbody>
+ </table>
+ </div>
+ </div>
+
+ </div><!-- /view-scans -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Scan results (deep link /scans/:id) -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-scan-detail">
+ <div class="view-header" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between">
+ <div>
+ <button type="button" class="btn btn-ghost" id="scan-detail-back" style="margin-bottom:8px"> Back</button>
+ <h1 class="view-title" id="scan-detail-title">Scan results</h1>
+ <div class="view-subtitle" id="scan-detail-sub"></div>
+ <div class="scan-detail-desc" id="scan-detail-desc" hidden></div>
+ </div>
+ <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+ <button type="button" class="btn btn-ghost" id="scan-detail-edit-btn" style="display:none;font-size:12px" title="Edit title and description">Edit</button>
+ <button type="button" class="btn btn-ghost" id="scan-detail-export-csv-btn" style="font-size:12px;min-width:108px;border-color:var(--accent-cyan);color:var(--accent-cyan)"> Export CSV</button>
+ <button type="button" class="scan-control-btn-r2" id="scan-detail-r2-btn" style="display:none;min-width:108px">Browse R2</button>
+ <button type="button" class="btn btn-ghost" id="scan-detail-triage-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(129,140,248,.4);color:var(--accent-purple)" title="Record this scan's vulnerability hits in Findings and have the AI review them">Send to Findings</button>
+ <button type="button" class="btn btn-ghost" id="scan-detail-rescan-btn" style="display:none;font-size:12px;min-width:108px;border-color:rgba(52,211,153,.4);color:var(--accent-emerald)" onclick="document.getElementById('scan-detail-rescan-btn')._rescan && document.getElementById('scan-detail-rescan-btn')._rescan()"> Rescan</button>
+ <button type="button" class="btn btn-ghost" id="scan-detail-delete-btn" style="font-size:12px;min-width:108px;border-color:rgba(248,113,113,.4);color:var(--accent-red)"> Delete</button>
+ </div>
+ </div><!-- /view-header -->
+ <div id="scan-detail-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div><!-- /view-scan-detail -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Domains -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-domains">
+
+ <div class="view-header">
+ <h1 class="view-title">Domains</h1>
+ <div class="view-subtitle">Click a domain to browse its subdomains</div>
+ </div>
+
+ <div class="filter-bar" id="filter-bar-domains">
+ <input class="search-input" id="domain-search" placeholder="Search domains…" autocomplete="off" />
+ </div>
+
+ <div id="domains-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+
+ </div><!-- /view-domains -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Subdomains -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-subdomains">
+ <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+ <div>
+ <h1 class="view-title">Subdomains</h1>
+ <div class="view-subtitle">All discovered subdomains across every domain</div>
+ </div>
+ <div style="display:flex;gap:12px;align-items:center">
+ <button id="run-nuclei-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="promptRunGlobalNuclei()">
+ Run Nuclei Template
+ </button>
+ <button id="root-pipeline-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center;background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)" onclick="promptRootPipeline()">
+ Root Pipeline
+ </button>
+ <div id="cnames-progress" style="display:none;align-items:center;font-size:12px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">
+ ... <span id="cnames-progress-text">0/0</span>
+ </div>
+ <button id="retry-cnames-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptRetryCnames()">
+ Resolve Missing CNAMEs
+ </button>
+ <button id="copy-all-subs-btn" class="btn btn-ghost" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center">
+ Copy All Subdomains
+ </button>
+ <button id="import-subs-btn" class="btn btn-primary" style="font-size:12px;padding:7px 16px;gap:6px;display:flex;align-items:center" onclick="promptImportSubdomains()">
+ Import Subdomains
+ </button>
+ </div>
+ </div>
+ <div class="filter-bar" id="filter-bar-subdomains" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+ <input class="search-input" id="subdomains-search" placeholder="Search by subdomain or root…" autocomplete="off" style="flex:2;min-width:200px" />
+ <select class="search-input" id="subdomains-status-filter" style="flex:1;min-width:140px;cursor:pointer">
+ <option value="0" selected>Any Status</option>
+ <option value="2">2xx Success</option>
+ <option value="3">3xx Redirect</option>
+ <option value="4">4xx Client Error</option>
+ <option value="5">5xx Server Error</option>
+ <option value="200">200 OK</option>
+ <option value="401">401 Unauthorized</option>
+ <option value="403">403 Forbidden</option>
+ <option value="404">404 Not Found</option>
+ </select>
+ <input class="search-input" id="subdomains-tech-filter" placeholder="Filter Tech (e.g. React)…" autocomplete="off" style="flex:1;min-width:140px" />
+ <input class="search-input" id="subdomains-cname-filter" placeholder="Filter CNAME…" autocomplete="off" style="flex:1;min-width:140px" />
+ <label for="subdomains-live-only" title="Show only subdomains that responded (is_live). Uncheck to include dead hosts." style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-secondary);white-space:nowrap;cursor:pointer;padding:0 6px;user-select:none">
+ <input type="checkbox" id="subdomains-live-only" checked style="cursor:pointer;width:15px;height:15px;accent-color:#10b981" />
+ <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 5px #10b981"></span>Live only</span>
+ </label>
+ </div>
+ <div id="subdomains-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div><!-- /view-subdomains -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Bug Bounty Targets -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-targets">
+ <div class="view-header">
+ <h1 class="view-title">Platforms</h1>
+ <div class="view-subtitle">Pull in-scope root domains from HackerOne, Bugcrowd, YesWeHack, Intigriti &amp; Immunefi — or a domain's subdomains from Chaos.</div>
+ </div>
+
+ <!-- Chaos subdomain lookup (ProjectDiscovery dataset) -->
+ <div class="card" id="targets-chaos-card" style="margin-bottom:24px;">
+ <div class="card-title">
+ <span class="card-title-icon"></span><span>Chaos Subdomains</span>
+ <span id="targets-chaos-status" style="font-size:11px;font-weight:400;margin-left:10px;"></span>
+ </div>
+ <div style="font-size:12px;color:var(--text-muted);margin:6px 0 12px;">
+ Pull a root domain's known subdomains from ProjectDiscovery's Chaos dataset — instant, no full recon. Uses <code>CHAOS_API_KEY</code>.
+ </div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+ <input class="search-input" id="targets-chaos-domain" placeholder="example.com" autocomplete="off"
+ onkeydown="if(event.key==='Enter'){window.TargetsPage.chaosFetch();}" style="flex:1;min-width:220px;" />
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;">
+ <input type="checkbox" id="targets-chaos-save" checked /> Save to Subdomains DB
+ </label>
+ <button class="btn btn-primary" id="targets-chaos-btn" onclick="window.TargetsPage.chaosFetch()">Get Subdomains</button>
+ </div>
+ <div id="targets-chaos-results" style="margin-top:14px;"></div>
+ </div>
+
+ <!-- Platform Cards -->
+ <div id="targets-platforms-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:28px;"></div>
+
+ <!-- Fetch Controls -->
+ <div class="card" id="targets-fetch-card" style="margin-bottom:20px;display:none;">
+ <div class="card-title"><span class="card-title-icon"></span><span id="targets-fetch-card-title">Fetch Options</span></div>
+ <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding-top:8px;">
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+ <input type="checkbox" id="targets-bbp-only"> BBP Only
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+ <input type="checkbox" id="targets-pvt-only"> Private Only
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+ <input type="checkbox" id="targets-public-only"> Public Only
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+ <input type="checkbox" id="targets-include-oos"> Include OOS
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">
+ <input type="checkbox" id="targets-extract-roots" checked> Extract root domains
+ </label>
+ <button class="btn btn-primary" id="targets-fetch-btn" onclick="targetsDoFetch()" style="margin-left:auto;">
+ Fetch Targets
+ </button>
+ </div>
+ </div>
+
+ <!-- Results -->
+ <div class="card" id="targets-results-card" style="display:none;">
+ <div class="card-title" style="justify-content:space-between;">
+ <span><span class="card-title-icon"></span><span id="targets-result-header">Results</span></span>
+ <div style="display:flex;gap:8px;">
+ <input type="text" id="targets-filter-input" placeholder="Filter domains…" oninput="targetsApplyFilter()"
+ style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;width:220px;">
+ <button class="btn btn-primary" id="targets-add-all-btn" onclick="targetsAddAllDomains()" style="font-size:12px;padding:6px 14px;">
+ + Add All to Domains DB
+ </button>
+ <button class="btn" id="targets-copy-btn" onclick="targetsCopyAll()" style="font-size:12px;padding:6px 14px;background:var(--bg-tertiary);">
+ Copy List
+ </button>
+ </div>
+ </div>
+ <div id="targets-domain-list" style="margin-top:12px;max-height:520px;overflow-y:auto;"></div>
+ </div>
+ </div><!-- /view-targets -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Programs -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-programs">
+ <div class="view-header">
+ <h1 class="view-title">Programs</h1>
+ <div class="view-subtitle">Bug bounty program monitor across platforms</div>
+ </div>
+
+ <div class="filter-bar" style="gap:8px;flex-wrap:wrap;">
+ <select id="programs-platform-filter" onchange="window.ProgramsPage.loadPrograms()" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:12px;outline:none;">
+ <option value="all">All Platforms</option>
+ <option value="h1">HackerOne</option>
+ <option value="bc">Bugcrowd</option>
+ <option value="it">Intigriti</option>
+ <option value="ha">HackAdvisor (external)</option>
+ </select>
+ <input class="search-input" id="programs-search" placeholder="Search programs…" autocomplete="off" oninput="window.ProgramsPage.onSearch()" />
+ </div>
+
+ <div id="programs-watch-status" style="margin-bottom:12px;"></div>
+ <div id="programs-autopilot" data-edition-private style="margin-bottom:12px;"></div>
+ <div id="programs-stats-bar" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:12px;font-size:12px;color:var(--text-muted);"></div>
+ <div id="programs-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>
+ </div>
+ </div><!-- /view-programs -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Program Lookup -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-program-lookup">
+ <div class="view-header">
+ <h1 class="view-title">Program Lookup</h1>
+ <div class="view-subtitle">Find the bug-bounty program for a keyword or domain — your accounts + public aggregator (paying programs only)</div>
+ </div>
+
+ <div class="filter-bar" style="gap:8px;flex-wrap:wrap;align-items:center;">
+ <input class="search-input" id="plookup-search" placeholder="Company keyword or domain (e.g. acme, api.acme.com)…" autocomplete="off"
+ onkeydown="if(event.key==='Enter'){window.programLookupSearch();}" style="flex:1;min-width:260px;" />
+ <button class="btn btn-primary" onclick="window.programLookupSearch()">Search</button>
+ <button class="btn btn-ghost" id="plookup-sync-btn" onclick="window.programLookupSync()" title="Rebuild the catalog from your accounts + the as93 aggregator">⟳ Sync catalog</button>
+ </div>
+
+ <div id="plookup-status" style="margin-bottom:12px;font-size:12px;color:var(--text-muted);"></div>
+ <div id="plookup-results">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Search a keyword or domain to find its bug-bounty program</div></div>
+ </div>
+ </div><!-- /view-program-lookup -->
+
+ <!-- VIEW: CVE Radar -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-cve-radar">
+ <div class="view-header">
+ <h1 class="view-title">CVE Radar</h1>
+ <div class="view-subtitle">Every CVE the radar tracks, and the PoC-day race: public PoC → template (official, PR or AI-written) → targeted pass on the hosts running the product</div>
+ </div>
+
+ <div class="tri-kpis" id="cveradar-pipeline" data-edition-private aria-live="polite"></div>
+ <div class="tri-status cvr-auto" id="cveradar-auto" data-edition-private></div>
+ <div class="cvr-note" id="cveradar-pipeline-note" data-edition-private></div>
+
+ <div class="filter-bar" style="gap:8px;flex-wrap:wrap;align-items:center;">
+ <input class="search-input" id="cveradar-q" placeholder="CVE id or description…" autocomplete="off" style="flex:1;min-width:220px;" />
+ <select id="cveradar-poc" style="min-width:110px">
+ <option value="">PoC: any</option>
+ <option value="1"> PoC published</option>
+ <option value="0">No PoC yet</option>
+ </select>
+ <select id="cveradar-run" style="min-width:150px" aria-label="Run history">
+ <option value="">Ran before: any</option>
+ <option value="never">Never run</option>
+ <option value="active">Running now</option>
+ <option value="tried">Tried · nothing ran</option>
+ <option value="ran">Ran</option>
+ </select>
+ <select id="cveradar-av" style="min-width:120px">
+ <option value="">Vector: any</option>
+ <option value="Network"> Network</option>
+ <option value="Adjacent"> Adjacent</option>
+ <option value="Local"> Local</option>
+ <option value="Physical"> Physical</option>
+ </select>
+ <input class="search-input" id="cveradar-minscore" placeholder="min CVSS" style="width:90px" />
+ <button class="btn btn-primary" id="cveradar-apply">Apply</button>
+ </div>
+
+ <div style="margin-bottom:10px;font-size:12px;color:var(--text-muted);">
+ <b id="cveradar-count">0</b> CVE(s) tracked · auto-refreshes every 60s
+ </div>
+
+ <div class="table-wrap">
+ <table class="table">
+ <thead>
+ <tr>
+ <th>CVE</th><th>Severity</th><th>Vector</th><th>PoC</th><th>Template</th><th class="pd-col">PoC-day</th><th>Ran before</th><th>Seen</th><th>Description</th>
+ </tr>
+ </thead>
+ <tbody id="cveradar-rows">
+ <tr><td colspan="9" style="color:#7f8c8d">Loading…</td></tr>
+ </tbody>
+ </table>
+ </div>
+ <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+ <button class="btn btn-ghost" id="cveradar-prev"> Newer</button>
+ <button class="btn btn-ghost" id="cveradar-next">Older </button>
+ </div>
+ </div><!-- /view-cve-radar -->
+
+ <!-- VIEW: Findings pipeline -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-findings">
+ <div id="fx-root">
+ <div class="tri-head">
+ <div class="tri-headinfo">
+ <h1 class="view-title">Findings</h1>
+ <div class="tri-statusline"><span class="tri-status" id="fx-status"></span><span class="tri-lastrun" id="fx-lastrun"></span></div>
+ </div>
+ <div class="tri-headactions">
+ <button type="button" class="btn" id="fx-import-btn">Import scan</button>
+ <button type="button" class="btn btn-primary" id="findings-add-btn">Add finding</button>
+ <button type="button" class="btn btn-ghost" id="fx-refresh-btn">Refresh</button>
+ </div>
+ </div>
+ <div class="tri-kpis" id="fx-kpis" aria-live="polite"></div>
+ <div class="tri-toolbar fx-toolbar">
+ <div class="tri-seg" role="group" aria-label="Filter by verdict" title="One verdict per finding: your label, else the workflow status (Validated … Resolved count as true positives, Rejected as false positive), else the AI review. Ready to file is the queue of confirmed findings not filed yet.">
+ <button type="button" class="active" data-fx-ai="">All <span class="n">–</span></button>
+ <button type="button" data-fx-ai="reportable">Ready to file <span class="n">–</span></button>
+ <button type="button" data-fx-ai="needs_manual_review">Needs review <span class="n">–</span></button>
+ <button type="button" data-fx-ai="unreviewed">Not reviewed <span class="n">–</span></button>
+ <button type="button" data-fx-ai="false_positive">False positive <span class="n">–</span></button>
+ </div>
+ <div class="fx-filters">
+ <input class="search-input" id="fx-search" placeholder="Search title, host, CVE…" aria-label="Search findings" autocomplete="off" />
+ <select id="fx-status-filter" aria-label="Status">
+ <option value="">Any status</option><option value="discovered">New</option><option value="validated">Validated</option>
+ <option value="drafted">Drafted</option><option value="approved">Approved</option><option value="submitted">Submitted</option>
+ <option value="resolved">Resolved</option><option value="dup">Duplicate</option><option value="rejected">Rejected</option><option value="wontfix">Won't fix</option>
+ </select>
+ <select id="fx-severity-filter" aria-label="Severity">
+ <option value="">Any severity</option><option value="critical">Critical</option><option value="high">High</option>
+ <option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option>
+ </select>
+ <select id="fx-module-filter" aria-label="Source module">
+ <option value="">All sources</option><option value="race">CVE race passes</option><option value="nuclei">Nuclei</option><option value="zerodays">Zerodays</option>
+ <option value="misconfig">Misconfig</option><option value="dns-takeover">DNS takeover</option><option value="exposure">Secrets / exposure</option>
+ <option value="dalfox">Dalfox XSS</option><option value="sqlmap">SQLMap</option><option value="depconf">Dependency confusion</option>
+ <option value="buckets">Buckets</option><option value="firebase">Firebase</option><option value="mcp-server">MCP servers</option>
+ <option value="backup">Backups</option><option value="aem">AEM</option>
+ </select>
+ <input id="fx-program-filter" class="fx-program-search" type="search" list="fx-program-list" placeholder="Program…" aria-label="Search programs" title="Search programs" autocomplete="off" spellcheck="false">
+ <datalist id="fx-program-list"></datalist>
+ <select id="fx-platform-filter" aria-label="Platform"><option value="">All platforms</option></select>
+ <select id="fx-report-filter" aria-label="Report link"><option value="">Report link: any</option><option value="1">Has report link</option><option value="0">No report link</option></select>
+ <button type="button" class="tri-chip fx-closed-toggle" id="fx-closed-toggle" data-on="0" aria-pressed="false" hidden>Show closed</button>
+ <button type="button" class="tri-chip fx-remind-toggle" id="fx-remind-toggle" data-on="0" aria-pressed="false" title="Show only findings whose reminder is due">⏰ Due</button>
+ <span class="fx-scanchip" id="fx-scan-chip" hidden>Scan <b></b> <button type="button" class="tri-link" data-fx-scanclear aria-label="Show all scans">×</button></span>
+ </div>
+ </div>
+ <div class="fx-pager fx-pager-top" id="fx-pager-top"></div>
+ <div id="fx-results"><div class="empty-state"><div class="empty-title">Loading findings…</div></div></div>
+ <div class="fx-pager" id="fx-pager"></div>
+ </div>
+ </div><!-- /view-findings -->
+
+
+
+ <!-- VIEW: Port surface -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-ports">
+ <div class="view-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+ <div>
+ <h1 class="view-title">Port Surface</h1>
+ <div class="view-subtitle">Open ports across the corpus — unlocks network/appliance CVEs (NetScaler, WinBox, consoles)</div>
+ </div>
+ <div style="display:flex;gap:10px;align-items:center">
+ <input id="ports-host-filter" class="search-input" placeholder="filter host…" style="width:180px;font-size:12px" />
+ <input id="ports-port-filter" class="search-input" placeholder="port" style="width:80px;font-size:12px" />
+ <button class="btn btn-ghost" style="font-size:12px" onclick="window.loadPortsSurface()">Filter</button>
+ <button class="btn btn-primary" style="font-size:12px" onclick="window.startPortSurfaceScan()"> Scan corpus</button>
+ </div>
+ </div>
+ <div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)"><b id="ports-count">0</b> open port(s) recorded</div>
+ <div class="table-wrap">
+ <table class="table">
+ <thead><tr><th>Host</th><th>Port</th><th>Protocol</th><th>First seen</th><th>Last seen</th></tr></thead>
+ <tbody id="ports-rows"><tr><td colspan="5" style="color:#7f8c8d">No port data yet — run a port-surface scan (top-100 ports over all live hosts).</td></tr></tbody>
+ </table>
+ </div>
+ </div><!-- /view-ports -->
+
+
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: AI Triage -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: AI Agent — chat history left, conversation right -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-ai-agent">
+ <div class="agent-shell">
+ <aside class="agent-side" aria-label="Chats">
+ <button type="button" id="agent-new-session-btn" class="btn btn-primary agent-new">New chat</button>
+ <div class="agent-side-label">History</div>
+ <div id="agent-session-list" class="agent-session-list"></div>
+ </aside>
+ <section class="agent-chat" aria-label="Conversation">
+ <header class="agent-chat-head">
+ <div class="agent-chat-title" id="agent-chat-title">New chat</div>
+ <div class="agent-chat-sub">Runs bash in the AutoAR container, drives the platform tools (scans, findings, settings, monitors), reads skill guides and can post to Discord. Every turn is saved.</div>
+ </header>
+ <div id="agent-messages" class="agent-messages" aria-live="polite"></div>
+ <div class="agent-composer">
+ <textarea id="agent-input" rows="1" placeholder="Ask the agent… (Enter to send, Shift+Enter for a new line)" aria-label="Message the agent"></textarea>
+ <button type="button" id="agent-send-btn" class="btn btn-primary">Send</button>
+ </div>
+ </section>
+ </div>
+ </div><!-- /view-ai-agent -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Keyhacks -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-keyhacks">
+ <div class="view-header">
+ <h1 class="view-title"> Keyhacks</h1>
+ <div class="view-subtitle">API key validation templates and usage guides</div>
+ </div>
+
+ <div class="filter-bar">
+ <input class="search-input" id="keyhacks-search" placeholder="Search templates (e.g. AWS, SendGrid)…" autocomplete="off" />
+ </div>
+
+ <div id="keyhacks-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div><!-- /view-keyhacks -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Monitor -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-monitor">
+
+ <div class="view-header">
+ <h1 class="view-title">Monitor</h1>
+ <div class="view-subtitle">URL and subdomain change detection</div>
+ </div>
+
+ <!-- URL Monitor Targets -->
+ <div class="card" style="margin-bottom:20px">
+ <div class="card-header">
+ <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-url" data-acc="url">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="card-title"><span class="card-title-icon"></span>URL Monitor Targets</span>
+ <span class="acc-chip" id="monitor-url-chip">—</span>
+ </button>
+ </div>
+ <div class="acc-panel open" id="acc-panel-url"><div class="acc-inner">
+ <div class="card-body">
+ <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken)">
+ <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-form" data-acc="url-form">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="acc-sub-title">Quick launch</span>
+ </button>
+ <div class="acc-panel" id="acc-panel-url-form"><div class="acc-inner"><div style="padding-top:12px">
+ <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+ <div style="flex:1;min-width:220px">
+ <label for="monitor-url-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Page URL</label>
+ <input class="search-input" id="monitor-url-input" type="url" placeholder="https://example.com/status" autocomplete="off" style="width:100%;box-sizing:border-box" />
+ </div>
+ <div style="min-width:120px">
+ <label for="monitor-url-strategy" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Strategy</label>
+ <select class="search-input" id="monitor-url-strategy" style="width:100%;cursor:pointer">
+ <option value="hash" selected>hash (full page)</option>
+ <option value="regex">regex</option>
+ </select>
+ </div>
+ <div id="monitor-url-pattern-wrap" style="flex:1;min-width:180px;display:none">
+ <label for="monitor-url-pattern" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Pattern (regex)</label>
+ <input class="search-input" id="monitor-url-pattern" type="text" placeholder="Optional; default date pattern if empty" autocomplete="off" style="width:100%;box-sizing:border-box" />
+ </div>
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+ <input type="checkbox" id="monitor-url-autostart" checked /> Start checking now
+ </label>
+ <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddUrlMonitor()">Add monitor</button>
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Registers the target in the database. When “Start checking now” is on, marks it running and wakes the URL monitor worker (same as CLI <code style="font-size:10px;opacity:.85">monitor updates add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+ </div></div></div>
+ </div>
+ <div class="monitor-ai-suggest" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken)">
+ <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-url-ai" data-acc="url-ai">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="acc-sub-title">AI-assisted URLs</span>
+ </button>
+ <div class="acc-panel" id="acc-panel-url-ai"><div class="acc-inner"><div style="padding-top:10px">
+ <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.45">Enter a <strong>target domain</strong>. The server probes common release/changelog/blog paths, then ranks pages with the configured <strong>AI provider</strong> (or heuristics if no API key). Select rows and add them as URL monitors.</div>
+ <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+ <div style="flex:1;min-width:200px">
+ <label for="monitor-ai-domain" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Domain</label>
+ <input class="search-input" id="monitor-ai-domain" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
+ </div>
+ <button type="button" class="btn btn-primary" id="monitor-ai-suggest-btn" style="padding:8px 16px;font-size:13px" onclick="runMonitorAISuggest()">Discover &amp; rank</button>
+ </div>
+ <div id="monitor-ai-suggest-meta" style="font-size:11px;color:var(--text-muted);margin-top:8px;display:none"></div>
+ <div id="monitor-ai-suggest-results" style="margin-top:14px;display:none"></div>
+ </div></div></div>
+ </div>
+ <div id="monitor-url-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div>
+ </div></div>
+ </div>
+
+ <!-- Subdomain Monitor Targets -->
+ <div class="card" style="margin-bottom:20px">
+ <div class="card-header">
+ <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-sub" data-acc="sub">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="card-title"><span class="card-title-icon"></span>Subdomain Monitor Targets</span>
+ <span class="acc-chip" id="monitor-sub-chip">—</span>
+ </button>
+ </div>
+ <div class="acc-panel open" id="acc-panel-sub"><div class="acc-inner">
+ <div class="card-body">
+ <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken)">
+ <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-sub-form" data-acc="sub-form">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="acc-sub-title">Quick launch</span>
+ </button>
+ <div class="acc-panel" id="acc-panel-sub-form"><div class="acc-inner"><div style="padding-top:12px">
+ <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+ <div style="flex:1;min-width:200px">
+ <label for="monitor-sub-domain-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Root domain</label>
+ <input class="search-input" id="monitor-sub-domain-input" type="text" placeholder="example.com" autocomplete="off" style="width:100%;box-sizing:border-box" />
+ </div>
+ <div style="width:100px">
+ <label for="monitor-sub-interval" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Interval (s)</label>
+ <input class="search-input" id="monitor-sub-interval" type="number" min="60" step="60" value="86400" style="width:100%;box-sizing:border-box" />
+ </div>
+ <div style="width:88px">
+ <label for="monitor-sub-threads" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Threads</label>
+ <input class="search-input" id="monitor-sub-threads" type="number" min="1" max="500" value="100" style="width:100%;box-sizing:border-box" />
+ </div>
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+ <input type="checkbox" id="monitor-sub-checknew" checked /> Detect new subs
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px" title="Each cycle, crawl live hosts' JS bundles and alert on newly-shipped API endpoints. Heavier — leave off for big scopes or short intervals.">
+ <input type="checkbox" id="monitor-sub-monitorjs" /> Diff JS endpoints <span style="opacity:.6">(heavier)</span>
+ </label>
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+ <input type="checkbox" id="monitor-sub-autostart" checked /> Start monitor now
+ </label>
+ <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="quickAddSubdomainMonitor()">Add monitor</button>
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Adds a subdomain watch target and optionally starts the subdomain monitor daemon (same idea as CLI <code style="font-size:10px;opacity:.85">monitor subdomains manage add</code> + <code style="font-size:10px;opacity:.85">start</code>).</div>
+ </div></div></div>
+ </div>
+ <div id="monitor-sub-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div>
+ </div></div>
+ </div>
+
+ <!-- Hunter Monitor Targets -->
+ <div class="card" style="margin-bottom:20px">
+ <div class="card-header">
+ <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-hunter" data-acc="hunter">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="card-title"><span class="card-title-icon"></span>Hunter Monitor</span>
+ <span class="acc-chip" id="monitor-hunter-chip">—</span>
+ </button>
+ </div>
+ <div class="acc-panel open" id="acc-panel-hunter"><div class="acc-inner">
+ <div class="card-body">
+ <div class="monitor-quick-launch" style="margin-bottom:18px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken)">
+ <button class="acc-toggle" type="button" aria-expanded="false" aria-controls="acc-panel-hunter-form" data-acc="hunter-form">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="acc-sub-title">Quick launch</span>
+ </button>
+ <div class="acc-panel" id="acc-panel-hunter-form"><div class="acc-inner"><div style="padding-top:12px">
+ <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+ <div style="flex:1;min-width:200px">
+ <label for="monitor-hunter-username-input" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">HackerOne username</label>
+ <input class="search-input" id="monitor-hunter-username-input" type="text" placeholder="0x88" autocomplete="off" style="width:100%;box-sizing:border-box" />
+ </div>
+ <div style="width:110px">
+ <label for="monitor-hunter-interval" style="display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px">Interval (s)</label>
+ <input class="search-input" id="monitor-hunter-interval" type="number" min="60" step="60" value="3600" style="width:100%;box-sizing:border-box" />
+ </div>
+ <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;user-select:none;padding-bottom:2px">
+ <input type="checkbox" id="monitor-hunter-autostart" checked /> Start monitor now
+ </label>
+ <button type="button" class="btn btn-primary" style="padding:8px 16px;font-size:13px" onclick="window.MonitorPage.quickAddHunterMonitor()">Add monitor</button>
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.45">Polls the hunter's public HackerOne profile and hacktivity feed. Sends a Discord alert (via the monitor webhook) when a new report resolves or reputation increases.</div>
+ </div></div></div>
+ </div>
+ <div id="monitor-hunter-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div>
+ </div></div>
+ </div>
+
+ <!-- Change History Feed -->
+ <div class="card">
+ <div class="card-header">
+ <button class="acc-toggle" type="button" aria-expanded="true" aria-controls="acc-panel-changes" data-acc="changes">
+ <svg class="acc-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+ <span class="card-title"><span class="card-title-icon"></span>Change History</span>
+ <span class="acc-chip" id="monitor-changes-chip">—</span>
+ </button>
+ <button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="clearMonitorChangeHistory()">Clear history</button>
+ </div>
+ <div class="acc-panel open" id="acc-panel-changes"><div class="acc-inner">
+ <div class="card-body change-feed" id="monitor-changes-feed">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div></div>
+ </div>
+
+ </div><!-- /view-monitor -->
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: R2 Storage -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-r2">
+
+ <div class="view-header">
+ <h1 class="view-title">R2 Storage</h1>
+ <div class="view-subtitle">
+ Browse Cloudflare R2 bucket:
+ <span id="r2-path" style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan)">/</span>
+ </div>
+ </div>
+
+ <div id="r2-loading" style="display:none;margin-bottom:12px;font-size:13px;color:var(--text-muted)">
+ ... Loading files…
+ </div>
+
+ <div class="r2-browser">
+ <div class="r2-tree">
+ <div class="r2-tree-header">Folders</div>
+ <div id="r2-tree-list">
+ <div class="r2-tree-item active"><span></span><span>root</span></div>
+ </div>
+ </div>
+
+ <div class="r2-files-panel">
+ <div class="card-header">
+ <div class="card-title">Files</div>
+ <button type="button" id="r2-delete-selected" class="btn btn-ghost" style="display:none"> Delete selected</button>
+ </div>
+ <div id="r2-files-list">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div>
+ </div>
+
+ </div><!-- /view-r2 -->
+
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Settings -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-settings">
+
+ <div class="view-header">
+ <h1 class="view-title">Settings</h1>
+ <div class="view-subtitle">Connection status and configuration</div>
+ </div>
+
+ <div id="settings-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+
+ </div><!-- /view-settings -->
+
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: APK Auditor -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- The APK / IPA auditors parse attacker-supplied app archives entirely in the
+ browser and need no dashboard auth, so they run sandboxed WITHOUT
+ allow-same-origin: an injection there gets an opaque origin and cannot
+ read the dashboard's localStorage (admin JWT) or call /api as the user.
+ Security Lab and the ADB auditor stay same-origin: Security Lab calls
+ /api/jwt/brute with the autoar_token cookie, and the ADB auditor needs
+ WebUSB + localStorage, which an opaque origin cannot use. -->
+ <div class="view" id="view-apkauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+ <iframe
+ id="apkauditor-frame"
+ style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+ title="APK Auditor"
+ allow="clipboard-write"
+ sandbox="allow-scripts allow-downloads allow-forms allow-popups"
+ ></iframe>
+ </div><!-- /view-apkauditor -->
+ <div class="view" id="view-ipaauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+ <iframe
+ id="ipaauditor-frame"
+ style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+ title="IPA Auditor"
+ allow="clipboard-write"
+ sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals"
+ ></iframe>
+ </div><!-- /view-ipaauditor -->
+ <div class="view" id="view-adbauditor" style="padding:0;height:100%;display:none;flex-direction:column">
+ <iframe
+ id="adbauditor-frame"
+ style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+ title="ADB Auditor"
+ allow="clipboard-write"
+ ></iframe>
+ </div><!-- /view-adbauditor -->
+ <div class="view" id="view-securitylab" style="padding:0;height:100%;display:none;flex-direction:column">
+ <iframe
+ id="securitylab-frame"
+ style="flex:1;width:100%;height:100%;border:none;min-height:calc(100vh - 60px)"
+ title="Security Lab"
+ allow="clipboard-write"
+ ></iframe>
+ </div><!-- /view-securitylab -->
+
+
+
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <!-- VIEW: Report Templates -->
+ <!-- ══════════════════════════════════════════════════════════════════ -->
+ <div class="view" id="view-report-templates">
+ <div class="view-header">
+ <h1 class="view-title"> Report Templates</h1>
+ <div class="view-subtitle">Manage and generate report templates</div>
+ </div>
+ <div class="filter-bar">
+ <input class="search-input" id="report-templates-search" placeholder="Search templates..." autocomplete="off" />
+ </div>
+ <input id="report-templates-import-file" type="file" accept="application/json,.json" style="display:none" onchange="handleImportReportTemplatesFile(event)" />
+ <div id="report-templates-container">
+ <div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading…</div></div>
+ </div>
+ </div><!-- /view-report-templates -->
+
+ </div><!-- /content -->
+ </div><!-- /main -->
 </div><!-- /shell -->
 
 <style>
 .clickable-row {
-  cursor: pointer;
-  transition: background 0.15s ease;
+ cursor: pointer;
+ transition: background 0.15s ease;
 }
 .clickable-row:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+ background-color: rgba(255, 255, 255, 0.05);
 }
 </style>
 
 <!-- Modal: Report Template Editor -->
 <div id="modal-report-template" class="auth-gate" style="display:none" aria-modal="true" role="dialog">
-  <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
-    <div class="view-header" style="margin-bottom: 20px; flex-shrink: 0;">
-      <h2 class="view-title" id="report-template-modal-title"> Edit Template</h2>
-      <div class="view-subtitle">Markdown format supported with real-time preview</div>
-    </div>
-    
-    <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow: hidden;">
-      <div style="flex-shrink: 0;">
-        <label class="auth-label" for="report-template-name">Template Name</label>
-        <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
-      </div>
-      
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; overflow: hidden;">
-        <div style="display: flex; flex-direction: column; min-height: 0;">
-          <label class="auth-label">Markdown Editor</label>
-          <textarea id="report-template-content" class="search-input auth-input" 
-            style="flex: 1; min-height: 0; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: #010409;" 
-            placeholder="# My Report Template..." oninput="updateTemplatePreview()"></textarea>
-        </div>
-        <div style="display: flex; flex-direction: column; min-height: 0;">
-          <label class="auth-label">Live Preview</label>
-          <div id="report-template-preview" class="search-input" 
-            style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
-        </div>
-      </div>
+ <div class="auth-card" style="width: 95%; max-width: 1200px; padding: 24px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+ <div class="view-header" style="margin-bottom: 20px; flex-shrink: 0;">
+ <h2 class="view-title" id="report-template-modal-title"> Edit Template</h2>
+ <div class="view-subtitle">Markdown format supported with real-time preview</div>
+ </div>
 
-      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; flex-shrink: 0;">
-        <button type="button" class="btn btn-ghost" onclick="closeReportTemplateModal()">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="saveReportTemplate()">Save Template</button>
-      </div>
-    </div>
-  </div>
+ <div class="auth-form" style="display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow: hidden;">
+ <div style="flex-shrink: 0;">
+ <label class="auth-label" for="report-template-name">Template Name</label>
+ <input class="search-input auth-input" id="report-template-name" type="text" placeholder="e.g. pentest-report" required />
+ </div>
+
+ <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; overflow: hidden;">
+ <div style="display: flex; flex-direction: column; min-height: 0;">
+ <label class="auth-label">Markdown Editor</label>
+ <textarea id="report-template-content" class="search-input auth-input"
+ style="flex: 1; min-height: 0; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: none; background: var(--bg-input); color: var(--text-primary);"
+ placeholder="# My Report Template..." oninput="updateTemplatePreview()"></textarea>
+ </div>
+ <div style="display: flex; flex-direction: column; min-height: 0;">
+ <label class="auth-label">Live Preview</label>
+ <div id="report-template-preview" class="search-input"
+ style="flex: 1; min-height: 0; overflow-y: auto; padding: 16px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"></div>
+ </div>
+ </div>
+
+ <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 10px; flex-shrink: 0;">
+ <button type="button" class="btn btn-ghost" onclick="closeReportTemplateModal()">Cancel</button>
+ <button type="button" class="btn btn-primary" onclick="saveReportTemplate()">Save Template</button>
+ </div>
+ </div>
+ </div>
 </div>
 
 <!-- Nuclei Global Scan Modal -->
 <div id="nuclei-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
-  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
-    <h2 class="auth-title" style="margin-bottom: 8px;">Run Global Nuclei Scan</h2>
-    <p class="auth-sub" style="margin-bottom: 20px;">Runs against <strong>all live hosts in the database</strong> (their stored <code>https://</code> URLs) — no httpx re-probing. Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
-    
-    <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
-      <textarea id="nuclei-template-input" class="search-input auth-input" 
-        style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: #010409;" 
-        placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR --&#10;&#10;id: custom-template&#10;info:&#10;  name: Custom Scan&#10;  ..."></textarea>
-    </div>
+ <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+ <h2 class="auth-title" style="margin-bottom: 8px;">Run Global Nuclei Scan</h2>
+ <p class="auth-sub" data-edition-private style="margin-bottom: 20px;">Runs against <strong>all live hosts in the database</strong> (their stored <code>https://</code> URLs) — no httpx re-probing. Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
+ <p class="auth-sub" data-edition-public style="margin-bottom: 20px;">Runs against the <strong>hosts whose fingerprint matches the template&rsquo;s tech tags</strong> (their stored <code>https://</code> URLs) — no httpx re-probing. Enter a Nuclei template path/ID, OR paste raw YAML template code.</p>
 
-    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
-      <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
-      <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)"> Run Scan</button>
-    </div>
-  </div>
+ <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+ <textarea id="nuclei-template-input" class="search-input auth-input"
+ style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: var(--bg-input); color: var(--text-primary);"
+ placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR --&#10;&#10;id: custom-template&#10;info:&#10; name: Custom Scan&#10; ..."></textarea>
+ </div>
+
+ <input id="nuclei-scan-name" class="search-input auth-input" placeholder="Scan name (optional, e.g. log4j sweep)" style="margin-top:10px" />
+ <label data-edition-private style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-top:10px;cursor:pointer"><input type="checkbox" id="nuclei-targeted" checked /> Fingerprint-targeted — only hosts matching the template&rsquo;s tech tags (fast; uncheck to sweep every host)</label>
+ <p data-edition-public style="font-size:12.5px;margin-top:10px;color:var(--text-secondary)">Scans only the hosts whose fingerprint matches the template&rsquo;s tech tags.</p>
+ <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+ <button type="button" class="btn btn-ghost" onclick="closeNucleiModal()">Cancel</button>
+ <button type="button" class="btn btn-primary" onclick="submitNucleiModal()" style="background:var(--accent-purple-dim);color:var(--accent-purple);border-color:rgba(168,85,247,0.3)"> Run Scan</button>
+ </div>
+ </div>
+</div>
+
+<!-- Launch Wizard Modal -->
+<div id="launch-wizard-modal" class="auth-gate" style="display:none; z-index: 1100;" aria-modal="true" role="dialog">
+ <div class="auth-card" style="max-width: 760px; width: 92%; max-height: 85vh; display:flex; flex-direction:column;">
+ <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+ <h2 class="auth-title" style="margin:0">Launch a scan</h2>
+ <button type="button" class="btn btn-ghost" style="font-size:16px;padding:2px 10px" onclick="closeLaunchWizard()">×</button>
+ </div>
+ <div id="wiz-body" style="flex:1;overflow-y:auto;padding:8px 2px"></div>
+ <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:14px;flex-shrink:0">
+ <button type="button" class="btn btn-ghost" id="wiz-back" onclick="wizardBack()" style="visibility:hidden"> Back</button>
+ <button type="button" class="btn btn-primary" id="wiz-launch" onclick="wizardLaunch()" style="display:none;background:linear-gradient(135deg,rgba(6,182,212,0.25),rgba(168,85,247,0.25));color:var(--text-primary)"> Launch</button>
+ </div>
+ </div>
+</div>
+
+<!-- Discover Assets Modal -->
+<div id="discover-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
+ <div class="auth-card" style="max-width: 520px; width: 90%;">
+ <h2 class="auth-title" style="margin-bottom: 8px;">Discover Assets</h2>
+ <p class="auth-sub" style="margin-bottom: 20px;">Passive subdomain enumeration + liveness probing for one root domain. New assets land in the discovered feed below.</p>
+ <input id="discover-root-input" class="search-input auth-input" placeholder="Root domain (e.g. example.com)" style="margin-bottom:10px" />
+ <input id="discover-name-input" class="search-input auth-input" placeholder="Scan name (optional)" />
+ <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+ <button type="button" class="btn btn-ghost" onclick="closeDiscoverModal()">Cancel</button>
+ <button type="button" class="btn btn-primary" onclick="submitDiscoverModal()" style="background:var(--accent-cyan-dim,#0e2a33);color:var(--accent-cyan);border-color:var(--accent-primary-glow)">Discover</button>
+ </div>
+ </div>
 </div>
 
 <!-- Root Pipeline Modal -->
 <div id="root-pipeline-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
-  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
-    <h2 class="auth-title" style="margin-bottom: 8px;">Run Root Pipeline</h2>
-    <p class="auth-sub" style="margin-bottom: 20px;">
-      Pulls every in-scope root domain from your configured platforms, runs a fast subdomain
-      enumeration on the roots that have no subdomains stored yet, then runs a Nuclei template
-      over the freshly-found subdomains. Every hit is sent to your Discord webhook.
-    </p>
+ <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+ <h2 class="auth-title" style="margin-bottom: 8px;">Run Root Pipeline</h2>
+ <p class="auth-sub" style="margin-bottom: 20px;">
+ Pulls every in-scope root domain from your configured platforms, runs a fast subdomain
+ enumeration on the roots that have no subdomains stored yet, then runs a Nuclei template
+ over the freshly-found subdomains. Every hit is sent to your Discord webhook.
+ </p>
 
-    <div style="display:flex; flex-direction:column; gap:14px;">
-      <div>
-        <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">Nuclei template <span style="color:var(--text-muted);font-weight:400;">(optional — path/ID or raw YAML; blank = your custom template set)</span></label>
-        <textarea id="pipeline-template-input" class="search-input auth-input"
-          style="width:100%; min-height:120px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.5; padding:12px; resize:vertical; background:#010409;"
-          placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR leave blank to use ~/nuclei-templates-custom --"></textarea>
-      </div>
-      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
-        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="checkbox" id="pipeline-new-only" checked> Skip partially-enumerated roots <span style="color:var(--text-muted)">(roots with stored live URLs are reused either way)</span>
-        </label>
-        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-          Threads <input type="number" id="pipeline-threads" value="30" min="1" max="200" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;">
-        </label>
-        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
-          Max roots <input type="number" id="pipeline-max-roots" value="0" min="0" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;" title="0 = no cap">
-        </label>
-      </div>
-    </div>
+ <div style="display:flex; flex-direction:column; gap:14px;">
+ <div>
+ <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:6px;">Nuclei template <span style="color:var(--text-muted);font-weight:400;">(optional — path/ID or raw YAML; blank = your custom template set)</span></label>
+ <textarea id="pipeline-template-input" class="search-input auth-input"
+ style="width:100%; min-height:120px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.5; padding:12px; resize:vertical; background: var(--bg-input); color: var(--text-primary);"
+ placeholder="cves/2021/CVE-2021-44228.yaml&#10;&#10;-- OR leave blank to use ~/nuclei-templates-custom --"></textarea>
+ </div>
+ <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+ <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;cursor:pointer;">
+ <input type="checkbox" id="pipeline-new-only" checked> Skip partially-enumerated roots <span style="color:var(--text-muted)">(roots with stored live URLs are reused either way)</span>
+ </label>
+ <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+ Threads <input type="number" id="pipeline-threads" value="30" min="1" max="200" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;">
+ </label>
+ <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+ Max roots <input type="number" id="pipeline-max-roots" value="0" min="0" class="search-input" style="width:80px;padding:6px 8px;font-size:12px;" title="0 = no cap">
+ </label>
+ </div>
+ </div>
 
-    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
-      <button type="button" class="btn btn-ghost" onclick="closeRootPipelineModal()">Cancel</button>
-      <button type="button" class="btn btn-primary" onclick="submitRootPipeline()" style="background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)"> Run Pipeline</button>
-    </div>
-  </div>
+ <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+ <button type="button" class="btn btn-ghost" onclick="closeRootPipelineModal()">Cancel</button>
+ <button type="button" class="btn btn-primary" onclick="submitRootPipeline()" style="background:var(--accent-emerald-dim);color:var(--accent-emerald);border-color:rgba(16,185,129,0.3)"> Run Pipeline</button>
+ </div>
+ </div>
 </div>
 
 <!-- Subdomain Import Modal -->
 <div id="subdomain-import-modal" class="auth-gate" style="display:none; z-index: 1000;" aria-modal="true" role="dialog">
-  <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
-    <h2 class="auth-title" style="margin-bottom: 8px;">Import Subdomains</h2>
-    <p class="auth-sub" style="margin-bottom: 20px;">Paste a list of subdomains or URLs (one per line). Root domains are detected automatically.</p>
-    
-    <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
-      <textarea id="subdomain-import-input" class="search-input auth-input" 
-        style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: #010409;" 
-        placeholder="admin.target.com&#10;https://dev.target.com/path?q=1&#10;api.staging.target.com:8080&#10;https://another-domain.net&#10;# lines starting with # are ignored"></textarea>
-    </div>
+ <div class="auth-card" style="max-width: 600px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+ <h2 class="auth-title" style="margin-bottom: 8px;">Import Subdomains</h2>
+ <p class="auth-sub" style="margin-bottom: 20px;">Paste a list of subdomains or URLs (one per line). Root domains are detected automatically.</p>
 
-    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
-      <button type="button" class="btn btn-ghost" onclick="closeImportSubdomainsModal()">Cancel</button>
-      <button type="button" class="btn btn-primary" onclick="submitImportSubdomains()" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);border-color:rgba(34,211,238,0.3)"> Import</button>
-    </div>
-  </div>
+ <div style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+ <textarea id="subdomain-import-input" class="search-input auth-input"
+ style="flex: 1; min-height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; padding: 12px; resize: vertical; background: var(--bg-input); color: var(--text-primary);"
+ placeholder="admin.target.com&#10;https://dev.target.com/path?q=1&#10;api.staging.target.com:8080&#10;https://another-domain.net&#10;# lines starting with # are ignored"></textarea>
+ </div>
+
+ <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; flex-shrink: 0;">
+ <button type="button" class="btn btn-ghost" onclick="closeImportSubdomainsModal()">Cancel</button>
+ <button type="button" class="btn btn-primary" onclick="submitImportSubdomains()" style="background:var(--accent-cyan-dim);color:var(--accent-cyan);border-color:rgba(34,211,238,0.3)"> Import</button>
+ </div>
+ </div>
 </div>
 
 <!-- Toast notifications -->
 <div class="toast-container" id="toast-container"></div>
 
-<!-- Markdown parser for previews -->
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- Markdown parser + HTML sanitizer for previews (vendored, pinned; see /ui/vendor/LICENSE-*) -->
+<script src="/ui/vendor/marked-15.0.12.min.js"></script>
+<script src="/ui/vendor/purify-3.4.16.min.js"></script>
 
 <!-- Page modules -->
 <script src="/ui/pages/app-config-state.js"></script>
 <script src="/ui/pages/targets.js"></script>
 <script src="/ui/pages/programs.js"></script>
+<script src="/ui/pages/scope-autopilot.js"></script>
 <script src="/ui/pages/program-lookup.js"></script>
+<script src="/ui/pages/cve-radar.js"></script>
+<script src="/ui/pages/launch-wizard.js"></script>
+<script src="/ui/pages/findings.js"></script>
+<script src="/ui/pages/ai-agent.js"></script>
+<script src="/ui/pages/ports.js"></script>
+<script src="/ui/pages/theme.js"></script>
 <script src="/ui/pages/keyhacks.js"></script>
 <script src="/ui/pages/report-templates.js"></script>
 <script src="/ui/pages/monitor.js"></script>
@@ -921,6 +1250,8 @@
 <script src="/ui/pages/launcher.js"></script>
 <script src="/ui/pages/ui-helpers.js"></script>
 <script src="/ui/pages/overview.js"></script>
+<script src="/ui/pages/ai-usage.js"></script>
+<script src="/ui/pages/scan-meta.js"></script>
 <script src="/ui/pages/scans-page.js"></script>
 <script src="/ui/pages/scan-common.js"></script>
 <script src="/ui/pages/scan-actions.js"></script>

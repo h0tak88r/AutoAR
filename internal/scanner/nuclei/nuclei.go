@@ -2,15 +2,18 @@ package nuclei
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"html"
 	"github.com/h0tak88r/AutoAR/internal/logger"
+	"html"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
+	"github.com/h0tak88r/AutoAR/internal/scanner/apidocs"
 	"github.com/h0tak88r/AutoAR/internal/scanner/livehosts"
 	"github.com/h0tak88r/AutoAR/internal/scanner/subdomains"
 	"github.com/h0tak88r/AutoAR/internal/utils"
@@ -77,8 +80,13 @@ func RunNuclei(opts Options) (*Result, error) {
 		logger.GetLogger().Infof("[INFO] Single URL mode: %s", opts.URL)
 		targetName = opts.URL
 
-		// Extract domain from URL for directory structure
-		extractedDomain := extractDomainFromURL(opts.URL)
+		// Extract domain from URL for directory structure. SanitizeTargetSegment
+		// strips path separators and ".." so a crafted URL (e.g. "https://..../")
+		// can't build a results path outside the results root.
+		extractedDomain := utils.SanitizeTargetSegment(extractDomainFromURL(opts.URL))
+		if extractedDomain == "" {
+			return nil, fmt.Errorf("invalid URL: could not derive a safe target directory from %q", opts.URL)
+		}
 		domainDir := filepath.Join(resultsDir, extractedDomain)
 		outputDir = filepath.Join(domainDir, "vulnerabilities")
 		if err := utils.EnsureDir(outputDir); err != nil {
@@ -97,8 +105,6 @@ func RunNuclei(opts Options) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		
-
 
 		// Index each JSONL result file into the scan directory so the dashboard can find them.
 		// We preserve the nuclei JSONL format rather than re-wrapping lines, so template-id,
@@ -111,6 +117,8 @@ func RunNuclei(opts Options) (*Result, error) {
 					continue
 				}
 				foundVulnerabilities = true
+				// Queue any exposed API-doc hits for the unauth endpoint audit
+				apidocs.OfferFromFile(rf)
 				// Copy file into scan dir
 				scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 				if data, readErr := os.ReadFile(rf); readErr == nil {
@@ -201,6 +209,8 @@ func RunNuclei(opts Options) (*Result, error) {
 				continue
 			}
 			foundVulnerabilities = true
+			// Queue any exposed API-doc hits for the unauth endpoint audit
+			apidocs.OfferFromFile(rf)
 			scanFile := filepath.Join(utils.GetScanResultsDir(scanID), filepath.Base(rf))
 			if data, readErr := os.ReadFile(rf); readErr == nil {
 				if writeErr := os.WriteFile(scanFile, data, 0644); writeErr == nil {
@@ -215,8 +225,6 @@ func RunNuclei(opts Options) (*Result, error) {
 			_ = utils.WriteNoFindingsJSON(scanID, targetName, "nuclei", "nuclei-results.json")
 		}
 	}
-
-
 
 	return &Result{TargetName: targetName, Mode: opts.Mode, ResultFiles: resultFiles}, nil
 }
@@ -425,7 +433,7 @@ func runDefaultLoginsScan(targetFile, outputDir string, threads int, targetName,
 	logger.GetLogger().Infof("[INFO] === Running Default Logins scan ===")
 	var resultFiles []string
 
-		// Custom default logins templates
+	// Custom default logins templates
 	customDir := filepath.Join(root, "nuclei_templates", "default-logins")
 	if dirExists(customDir) {
 		logger.GetLogger().Infof("[INFO] Scanning with custom default logins templates...")
@@ -507,9 +515,20 @@ func runVulnerabilitiesScan(targetFile, outputDir string, threads int, targetNam
 
 // runNucleiCommand runs nuclei with JSONL output (-json flag).
 // Each line of the output file is a self-contained JSON object with fields:
-//   template-id, matched-at, info.severity, info.name, host, etc.
+//
+//	template-id, matched-at, info.severity, info.name, host, etc.
+//
 // This lets the dashboard parse clean vulnerability names instead of raw text.
 func runNucleiCommand(targetFile, templateDir string, threads int, outputFile string) error {
+	// Build the engine on the owning scan's lifetime context so UI cancel and
+	// the scan timeout genuinely stop it (utils.CurrentScanContext resolves to
+	// context.Background() for CLI runs, where nothing can cancel it).
+	ctx := utils.CurrentScanContext()
+	if err := ctx.Err(); err != nil {
+		// Don't start another template batch after the scan was cancelled —
+		// mode scans chain several runNucleiCommand calls back to back.
+		return fmt.Errorf("scan cancelled before nuclei run: %w", err)
+	}
 	targets, err := readTargetLines(targetFile)
 	if err != nil {
 		return fmt.Errorf("failed to read nuclei targets: %w", err)
@@ -525,21 +544,38 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 		return fmt.Errorf("failed to create nuclei output file: %w", err)
 	}
 	defer fh.Close()
-	jsonWriter, err := nucleiOutput.NewWriter(
-		nucleiOutput.WithWriter(fh),
-		nucleiOutput.WithJson(true, false),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to initialize nuclei JSON writer: %w", err)
+
+	// Write JSONL directly from the result callback instead of the SDK's
+	// buffered writer. The SDK writer silently dropped events in production
+	// (result files missing findings the engine had matched), and the workflow
+	// mode scans gate their webhook alerts on countLines(outputFile) — so a
+	// dropped event suppressed both the dashboard finding AND its alert.
+	// Mirrors the SDK's formatJSON (Request/Response cleared, stdlib marshal).
+	var fileMu sync.Mutex
+	writeEvent := func(event *nucleiOutput.ResultEvent) error {
+		event.Request = ""
+		event.Response = ""
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		fileMu.Lock()
+		defer fileMu.Unlock()
+		_, err = fh.Write(data)
+		return err
 	}
-	defer jsonWriter.Close()
 
 	logger.GetLogger().Infof("[EXEC] Running nuclei SDK with templates: %s (targets=%d, threads=%d)", templateDir, len(targets), threads)
 	if err := ensureNucleiIgnoreFile(); err != nil {
 		logger.GetLogger().Infof("[WARN] Failed to prepare nuclei ignore file: %v", err)
 	}
-	engine, err := nucleiSDK.NewNucleiEngineCtx(
-		context.Background(),
+	// Serialize ENGINE CONSTRUCTION process-wide: concurrent NewNucleiEngineCtx
+	// calls race on the shared nuclei config/template cache and can leave the
+	// loser with zero compiled templates ("No templates available" — observed
+	// when two global scans start in the same minute). Engines still RUN
+	// concurrently after init; only construction is mutually exclusive.
+	engine, err := buildEngine(ctx, templateDir,
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
 		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{
@@ -561,13 +597,26 @@ func runNucleiCommand(targetFile, templateDir string, threads int, outputFile st
 	defer engine.Close()
 
 	engine.LoadTargets(targets, false)
-	writeErr := error(nil)
+	// The SDK invokes result callbacks concurrently from protocol-executor
+	// goroutines — writeEvent serializes file appends; sync.Once keeps the
+	// first write error.
+	var writeErr error
+	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
-		if event == nil || writeErr != nil {
+		if event == nil {
 			return
 		}
-		if wErr := jsonWriter.Write(event); wErr != nil {
-			writeErr = wErr
+		// The SDK delivers NON-match events through this callback too: skip/error
+		// records for unresponsive targets carry MatcherStatus=false and
+		// Error="host was skipped as it was found unresponsive". Treating those
+		// as findings caused bare-origin alert storms (scan 1688's 5,554 "hits"
+		// were these; scan 1696 alerted CVE-2017-8225 "critical" on hosts the
+		// engine never even reached). Only genuine matches are written.
+		if !event.MatcherStatus || event.Error != "" {
+			return
+		}
+		if wErr := writeEvent(event); wErr != nil {
+			writeErrOnce.Do(func() { writeErr = wErr })
 		}
 	})
 	if writeErr != nil {
@@ -598,7 +647,26 @@ func scanRequestHeaders() []string {
 	return []string{"User-Agent: " + ua}
 }
 
-func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
+// RunOptions tunes RunGlobalTemplateWithOptions.
+type RunOptions struct {
+	// Sandbox builds the engine with nuclei's sandbox: connections to local /
+	// private networks blocked (-lna) and local file access off. Set for every
+	// AUTO-run of a template no human reviewed (template watcher, race pass) —
+	// a hostile community template must never reach the box's own network.
+	Sandbox bool
+}
+
+// RunGlobalTemplate runs one template path/ID/dir over a target file. ctx should
+// be the owning scan's context so UI cancel/timeout actually stops the engine.
+func RunGlobalTemplate(ctx context.Context, targetFile, templatePath, outPath string, threads int, onResult func(event *nucleiOutput.ResultEvent)) error {
+	return RunGlobalTemplateWithOptions(ctx, targetFile, templatePath, outPath, threads, RunOptions{}, onResult)
+}
+
+// RunGlobalTemplateWithOptions is RunGlobalTemplate with engine options.
+func RunGlobalTemplateWithOptions(ctx context.Context, targetFile, templatePath, outPath string, threads int, ro RunOptions, onResult func(event *nucleiOutput.ResultEvent)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	targets, err := readTargetLines(targetFile)
 	if err != nil {
 		return fmt.Errorf("failed to read targets: %w", err)
@@ -609,23 +677,40 @@ func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, on
 	if err := utils.EnsureDir(filepath.Dir(outPath)); err != nil {
 		return fmt.Errorf("failed to ensure output dir: %w", err)
 	}
-	fh, err := os.Create(outPath)
+	// O_APPEND so a caller may run several sequential batches against one
+	// output file (see runGlobalNucleiScan chunking) without truncating the
+	// matches already written by earlier batches.
+	fh, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer fh.Close()
 
-	jsonWriter, err := nucleiOutput.NewWriter(
-		nucleiOutput.WithWriter(fh),
-		nucleiOutput.WithJson(true, false),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to initialize JSON writer: %w", err)
+	// Write JSONL directly from the result callback instead of the SDK's
+	// buffered writer. The SDK writer silently dropped events in production:
+	// whole scans left 0-byte result files while thousands of callback alerts
+	// fired, and the CVE-2021-42392 interactsh match on scan
+	// nuclei-watch-20260829051433 reached the webhook but never the file, so
+	// file-based triage never saw it. Serializing here makes the callback the
+	// single writer — anything onResult sees is already on disk. Mirrors the
+	// SDK's formatJSON (stdlib-compatible marshal, Request/Response cleared).
+	var fileMu sync.Mutex
+	writeEvent := func(event *nucleiOutput.ResultEvent) error {
+		event.Request = ""
+		event.Response = ""
+		data, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		fileMu.Lock()
+		defer fileMu.Unlock()
+		_, err = fh.Write(data)
+		return err
 	}
-	defer jsonWriter.Close()
 
-	engine, err := nucleiSDK.NewNucleiEngineCtx(
-		context.Background(),
+	// See runNucleiCommand for why engine construction is serialized.
+	sdkOpts := []nucleiSDK.NucleiSDKOptions{
 		nucleiSDK.DisableUpdateCheck(),
 		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
 		nucleiSDK.WithHeaders(scanRequestHeaders()),
@@ -641,20 +726,34 @@ func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, on
 			TemplatePayloadConcurrency:    25,
 			ProbeConcurrency:              max(1, min(threads, 50)),
 		}),
-	)
+	}
+	if ro.Sandbox {
+		sdkOpts = append(sdkOpts, nucleiSDK.WithSandboxOptions(false, true))
+	}
+	engine, err := buildEngine(ctx, templatePath, sdkOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize SDK: %w", err)
 	}
 	defer engine.Close()
 
 	engine.LoadTargets(targets, false)
-	writeErr := error(nil)
+	// See runNucleiCommand: callbacks run concurrently — no unsynchronized
+	// shared state inside the closure (writeErr via sync.Once).
+	var writeErr error
+	var writeErrOnce sync.Once
 	err = engine.ExecuteWithCallback(func(event *nucleiOutput.ResultEvent) {
-		if event == nil || writeErr != nil {
+		if event == nil {
 			return
 		}
-		if wErr := jsonWriter.Write(event); wErr != nil {
-			writeErr = wErr
+		// Same non-match filter as runNucleiCommand: skip/error events
+		// (MatcherStatus=false / Error set) must not reach the results file or
+		// the caller's webhook callback — they are not findings.
+		if !event.MatcherStatus || event.Error != "" {
+			return
+		}
+		if wErr := writeEvent(event); wErr != nil {
+			writeErrOnce.Do(func() { writeErr = wErr })
+			return
 		}
 		if onResult != nil {
 			onResult(event)
@@ -664,6 +763,26 @@ func RunGlobalTemplate(targetFile, templatePath, outPath string, threads int, on
 		return writeErr
 	}
 	return err
+}
+
+// ValidateTemplateFile compiles one template file in a sandboxed engine
+// without sending any traffic, and returns why it would not run (YAML errors,
+// unsupported protocol, nothing compiled). Used to gate AI-written templates.
+func ValidateTemplateFile(ctx context.Context, path string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	engine, err := buildEngine(ctx, path,
+		nucleiSDK.DisableUpdateCheck(),
+		nucleiSDK.WithVerbosity(nucleiSDK.VerbosityOptions{Silent: true}),
+		nucleiSDK.WithTemplatesOrWorkflows(nucleiSDK.TemplateSources{Templates: []string{path}}),
+		nucleiSDK.WithSandboxOptions(false, true),
+	)
+	if err != nil {
+		return err
+	}
+	engine.Close()
+	return nil
 }
 
 func extractDomainFromURL(url string) string {
@@ -731,6 +850,40 @@ func readTargetLines(path string) ([]string, error) {
 }
 
 var hostOnlyPattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$`)
+
+// nucleiEngineInitMu serializes nuclei SDK engine construction (see the
+// comment at each construction site for the failure it prevents).
+var nucleiEngineInitMu sync.Mutex
+
+// newNucleiEngine is the SDK constructor; a var so tests can exercise the
+// init-lock discipline without building a real engine.
+var newNucleiEngine = nucleiSDK.NewNucleiEngineCtx
+
+// buildEngine constructs an engine AND compiles its templates while holding
+// nucleiEngineInitMu. The unlock is deferred: a panic inside the SDK
+// constructor used to leave the mutex locked forever, hanging every later
+// nuclei run in the process until a restart. Templates load here, inside the
+// lock — the SDK otherwise loads them lazily in ExecuteWithCallback, outside
+// it, re-opening the shared-template-cache race the lock exists for — and an
+// engine that compiled nothing fails loudly instead of "finishing" with 0
+// matches.
+func buildEngine(ctx context.Context, templateSrc string, opts ...nucleiSDK.NucleiSDKOptions) (*nucleiSDK.NucleiEngine, error) {
+	nucleiEngineInitMu.Lock()
+	defer nucleiEngineInitMu.Unlock()
+	engine, err := newNucleiEngine(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := engine.LoadAllTemplates(); err != nil {
+		engine.Close()
+		return nil, fmt.Errorf("load templates from %s: %w", templateSrc, err)
+	}
+	if len(engine.GetTemplates())+len(engine.GetWorkflows()) == 0 {
+		engine.Close()
+		return nil, fmt.Errorf("no templates compiled from %s (invalid YAML, unsupported/disabled protocol, or filtered)", templateSrc)
+	}
+	return engine, nil
+}
 
 func sanitizeNucleiTarget(raw string) (string, bool) {
 	t := strings.TrimSpace(html.UnescapeString(raw))

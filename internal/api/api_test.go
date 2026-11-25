@@ -293,6 +293,15 @@ func TestIsR2KeyIndexableArtifactExtensionCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestShouldSkipArtifactDotfiles(t *testing.T) {
+	if !shouldSkipArtifact("/app/new-results/www.acme.com/urls/.collected") {
+		t.Error("the URL collector's .collected stamp must not become a result file")
+	}
+	if shouldSkipArtifact("/app/new-results/www.acme.com/vulnerabilities/js/js-urls.txt") {
+		t.Error("js-urls.txt is still a result file")
+	}
+}
+
 func TestShouldSkipArtifactManifestFiles(t *testing.T) {
 	if !shouldSkipArtifact("scan-manifest.json") {
 		t.Error("scan-manifest.json should be skipped")

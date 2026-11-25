@@ -1,10 +1,12 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/h0tak88r/AutoAR/internal/logger"
 )
@@ -16,11 +18,15 @@ var (
 	schemaErr  error
 )
 
-// SetDB replaces the global DB instance. Use for test injection.
+// SetDB replaces the global DB instance. Use for test injection. The replaced
+// instance's EnsureSchema latch is reset too, so the next EnsureSchema call
+// initializes the schema of the instance that is actually in use.
 func SetDB(newDB DB) {
 	initMu.Lock()
 	defer initMu.Unlock()
 	dbInstance = newDB
+	schemaOnce = sync.Once{}
+	schemaErr = nil
 }
 
 // EnsureSchema runs InitSchema at most once per process (avoids repeated migrations/logs on every API call).
@@ -292,6 +298,17 @@ func ListDomains() ([]string, error) {
 	return dbInstance.ListDomains()
 }
 
+// ListDomainsWithCounts returns every domain with subdomain/live counts in one
+// aggregate query (see the DB interface for why this exists).
+func ListDomainsWithCounts() ([]DomainWithCounts, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListDomainsWithCounts()
+}
+
 // ListSubdomains returns all subdomains for a given domain.
 func ListSubdomains(domain string) ([]string, error) {
 	if dbInstance == nil {
@@ -536,6 +553,96 @@ func UpdateSubdomainMonitorLastRun(id int) error {
 	return dbInstance.UpdateSubdomainMonitorLastRun(id)
 }
 
+// ListHunterMonitorTargets returns all hunter monitoring targets
+func ListHunterMonitorTargets() ([]HunterMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListHunterMonitorTargets()
+}
+
+// AddHunterMonitorTarget adds (or updates the interval of) a hunter monitoring target
+func AddHunterMonitorTarget(username string, intervalSeconds int) (int64, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return 0, err
+		}
+	}
+	return dbInstance.AddHunterMonitorTarget(username, intervalSeconds)
+}
+
+// RemoveHunterMonitorTarget removes a hunter monitoring target by ID
+func RemoveHunterMonitorTarget(id int64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.RemoveHunterMonitorTarget(id)
+}
+
+// SetHunterMonitorRunningStatus updates the running status of a hunter monitor target
+func SetHunterMonitorRunningStatus(id int64, isRunning bool) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.SetHunterMonitorRunningStatus(id, isRunning)
+}
+
+// GetHunterMonitorTargetByID returns a single hunter monitor target by ID
+func GetHunterMonitorTargetByID(id int64) (*HunterMonitorTarget, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.GetHunterMonitorTargetByID(id)
+}
+
+// UpdateHunterMonitorSnapshot updates the cached user id and reputation/signal/rank snapshot for a hunter monitor target
+func UpdateHunterMonitorSnapshot(id int64, userID string, reputation, signal, rank float64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.UpdateHunterMonitorSnapshot(id, userID, reputation, signal, rank)
+}
+
+// ResetHunterMonitorLastRun clears last_run_at so the next pass re-baselines and posts a snapshot
+func ResetHunterMonitorLastRun(id int64) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.ResetHunterMonitorLastRun(id)
+}
+
+// HasSeenHunterReport reports whether a resolved report has already been recorded for a hunter monitor target
+func HasSeenHunterReport(targetID int64, reportID string) (bool, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return false, err
+		}
+	}
+	return dbInstance.HasSeenHunterReport(targetID, reportID)
+}
+
+// RecordSeenHunterReport records a resolved report as seen for a hunter monitor target
+func RecordSeenHunterReport(targetID int64, reportID, programHandle, programName string, resolvedAt time.Time) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.RecordSeenHunterReport(targetID, reportID, programHandle, programName, resolvedAt)
+}
+
 // UpdateMonitorTargetLastRun updates last_hash and last_run_at for a URL monitor target
 func UpdateMonitorTargetLastRun(id int, hash string, changed bool) error {
 	if dbInstance == nil {
@@ -584,6 +691,55 @@ func CreateScan(scan *ScanRecord) error {
 		}
 	}
 	return dbInstance.CreateScan(scan)
+}
+
+// ErrScanNotResumable is returned by ReactivateScan when the scan row is gone or
+// no longer in a resumable state (failed / timed_out / cancelled / stopped) —
+// e.g. a concurrent resume already flipped it to running.
+var ErrScanNotResumable = errors.New("scan is not in a resumable state")
+
+// resumableScanStatusesSQL lists the (lowercase) statuses ReactivateScan may
+// re-open; shared by both dialects so they can't drift.
+const resumableScanStatusesSQL = `'failed', 'timed_out', 'cancelled', 'stopped'`
+
+// defaultScanTimestamps fills a new scan row's zero started_at/last_update with
+// now. CLI-created rows used to be inserted without them, so the orphan reaper
+// saw them as idle since year 1 and closed running CLI scans within minutes.
+func defaultScanTimestamps(scan *ScanRecord) {
+	if scan == nil {
+		return
+	}
+	if scan.StartedAt.IsZero() {
+		scan.StartedAt = time.Now()
+	}
+	if scan.LastUpdate.IsZero() {
+		scan.LastUpdate = scan.StartedAt
+	}
+}
+
+// backfillScanTimestamps substitutes a row's created_at for zero
+// started_at/last_update values (legacy CLI rows), so idle-time checks see a
+// real age instead of "idle since year 1".
+func backfillScanTimestamps(scan *ScanRecord, createdAt time.Time) {
+	if scan == nil || createdAt.IsZero() {
+		return
+	}
+	if scan.StartedAt.IsZero() {
+		scan.StartedAt = createdAt
+	}
+	if scan.LastUpdate.IsZero() {
+		scan.LastUpdate = createdAt
+	}
+}
+
+// ReactivateScan re-opens an existing scan for a phase-level resume.
+func ReactivateScan(scanID string) error {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+	return dbInstance.ReactivateScan(scanID)
 }
 
 // UpdateScanProgress updates scan progress
@@ -716,6 +872,37 @@ func CountScansWithTargetExcluding(excludeScanID, target string) (int, error) {
 	return dbInstance.CountScansWithTargetExcluding(excludeScanID, target)
 }
 
+// r2KeyQueryChunk bounds how many keys one ListR2KeysReferencedByOtherScans
+// query carries.
+const r2KeyQueryChunk = 500
+
+// ListR2KeysReferencedByOtherScans returns which of keys are still indexed by
+// a scan other than scanID — artifact keys are path-based, so scans of the
+// same target share objects and a delete must not remove them from under the
+// scans that remain.
+func ListR2KeysReferencedByOtherScans(scanID string, keys []string) (map[string]bool, error) {
+	if len(keys) == 0 {
+		return map[string]bool{}, nil
+	}
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListR2KeysReferencedByOtherScans(scanID, keys)
+}
+
+// ListScanTargetsContaining returns other scans' targets containing needle
+// (case-insensitive pre-filter; callers normalize and compare).
+func ListScanTargetsContaining(excludeScanID, needle string) ([]string, error) {
+	if dbInstance == nil {
+		if err := Init(); err != nil {
+			return nil, err
+		}
+	}
+	return dbInstance.ListScanTargetsContaining(excludeScanID, needle)
+}
+
 // UpdateScanStats updates the counts for findings/files and errors.
 func UpdateScanStats(scanID string, filesUploaded, errorCount int) error {
 	if dbInstance == nil {
@@ -758,4 +945,76 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// ── JS file monitor (package-level wrappers) ─────────────────────────────────
+
+func ListJSMonitorTargets() ([]JSMonitorTarget, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.ListJSMonitorTargets()
+}
+
+func AddJSMonitorTarget(domain string, intervalSeconds, threads int) (int, error) {
+	if err := Init(); err != nil {
+		return 0, err
+	}
+	return dbInstance.AddJSMonitorTarget(domain, intervalSeconds, threads)
+}
+
+func DeleteJSMonitorTarget(id int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.DeleteJSMonitorTarget(id)
+}
+
+func SetJSMonitorRunning(id int, running bool) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.SetJSMonitorRunning(id, running)
+}
+
+func TouchJSMonitorRun(id int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.TouchJSMonitorRun(id)
+}
+
+func ListJSMonitorFiles(targetID int) ([]JSMonitorFile, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.ListJSMonitorFiles(targetID)
+}
+
+func GetJSMonitorFileByURL(rawURL string) (*JSMonitorFile, error) {
+	if err := Init(); err != nil {
+		return nil, err
+	}
+	return dbInstance.GetJSMonitorFileByURL(rawURL)
+}
+
+func UpsertJSMonitorFile(f JSMonitorFile) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.UpsertJSMonitorFile(f)
+}
+
+func MarkJSMonitorFileSeen(id int64, status int) error {
+	if err := Init(); err != nil {
+		return err
+	}
+	return dbInstance.MarkJSMonitorFileSeen(id, status)
+}
+
+func CountRunningScansForTarget(target string) (int, error) {
+	if err := Init(); err != nil {
+		return 0, err
+	}
+	return dbInstance.CountRunningScansForTarget(target)
 }

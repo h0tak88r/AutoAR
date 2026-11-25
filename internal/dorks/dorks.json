@@ -1,0 +1,4238 @@
+{
+  "version": "2026.11.1",
+  "generated": "2026-11-24",
+  "platforms": {
+    "google": {
+      "label": "Google",
+      "url_template": "https://www.google.com/search?q={Q}"
+    },
+    "github": {
+      "label": "GitHub",
+      "url_template": "https://github.com/search?q={Q}&type=code"
+    },
+    "shodan": {
+      "label": "Shodan",
+      "url_template": "https://www.shodan.io/search?query={Q}"
+    },
+    "fofa": {
+      "label": "FOFA",
+      "url_template": "https://en.fofa.info/result?qbase64={Q64}"
+    },
+    "censys": {
+      "label": "Censys",
+      "url_template": "https://platform.censys.io/search?q={Q}"
+    },
+    "zoomeye": {
+      "label": "ZoomEye",
+      "url_template": "https://www.zoomeye.org/searchResult?q={Q}"
+    },
+    "binaryedge": {
+      "label": "BinaryEdge",
+      "url_template": "https://app.binaryedge.io/services/query?query={Q}"
+    },
+    "wayback": {
+      "label": "Wayback Machine CDX",
+      "url_template": "https://web.archive.org/cdx/search/cdx?url={Q}&output=json&fl=timestamp,original,statuscode,mimetype&filter=statuscode:200&collapse=urlkey"
+    },
+    "crtsh": {
+      "label": "crt.sh",
+      "url_template": "https://crt.sh/?q={Q}&output=json"
+    },
+    "urlscan": {
+      "label": "urlscan.io",
+      "url_template": "https://urlscan.io/search/#{Q}"
+    },
+    "intelx": {
+      "label": "Intelligence X",
+      "url_template": "https://intelx.io/?s={Q}"
+    },
+    "grepapp": {
+      "label": "grep.app",
+      "url_template": "https://grep.app/search?q={Q}&regexp=true"
+    },
+    "publicwww": {
+      "label": "PublicWWW",
+      "url_template": "https://publicwww.com/websites/{Q}/"
+    },
+    "gitlab": {
+      "label": "GitLab",
+      "url_template": "https://gitlab.com/search?search={Q}&scope=blobs"
+    },
+    "sourcegraph": {
+      "label": "Sourcegraph",
+      "url_template": "https://sourcegraph.com/search?q=context:global+{Q}&patternType=keyword"
+    },
+    "bing": {
+      "label": "Bing",
+      "url_template": "https://www.bing.com/search?q={Q}"
+    },
+    "duckduckgo": {
+      "label": "DuckDuckGo",
+      "url_template": "https://duckduckgo.com/?q={Q}"
+    },
+    "intx": {
+      "label": "IntelligenceX",
+      "url_template": "https://intelx.io/?s={Q}"
+    },
+    "grep": {
+      "label": "GreyNoise",
+      "url_template": "https://viz.greynoise.io/query?gnql={Q}"
+    }
+  },
+  "categories": [
+    {
+      "id": "secrets",
+      "title": "Secrets & Credentials",
+      "severity": "critical",
+      "description": "Indexed credentials, private keys, tokens, connection strings, and secret-bearing configuration.",
+      "dorks": [
+        {
+          "title": "Environment files with credential markers",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:env OR ext:ini OR ext:cfg) (\"DB_PASSWORD\" OR \"AWS_SECRET_ACCESS_KEY\" OR \"API_KEY\")",
+          "description": "Finds indexed environment and INI-style files that contain database, cloud, or API credential markers.",
+          "tags": [
+            "env",
+            "credentials"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🔑"
+        },
+        {
+          "title": "Target references in dotenv files",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.env OR path:.env.local OR path:.env.production)",
+          "description": "Finds public dotenv variants referencing the target; these often contain deployment credentials and internal endpoints.",
+          "tags": [
+            "env",
+            "github"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "GitLab dotenv exposure",
+          "platforms": [
+            "gitlab"
+          ],
+          "query": "\"{T}\" filename:.env",
+          "description": "Searches GitLab indexed blobs for target references in dotenv files, which may expose credentials or internal configuration.",
+          "tags": [
+            "env",
+            "gitlab"
+          ],
+          "source": "GitLab advanced search | GitDorker",
+          "icon": "🔑"
+        },
+        {
+          "title": "Sourcegraph dotenv variants",
+          "platforms": [
+            "sourcegraph"
+          ],
+          "query": "\"{T}\" file:(^|/)\\.env($|\\.)",
+          "description": "Finds target references in dotenv files across Sourcegraph-indexed repositories for cross-host secret discovery.",
+          "tags": [
+            "env",
+            "sourcegraph"
+          ],
+          "source": "Sourcegraph | GitDorker",
+          "icon": "🔑"
+        },
+        {
+          "title": "AWS credential variables",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (AWS_ACCESS_KEY_ID OR AWS_SECRET_ACCESS_KEY)",
+          "description": "Finds target-related code or configuration containing AWS access-key variable names and possible live cloud credentials.",
+          "tags": [
+            "aws",
+            "cloud",
+            "github"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "AWS variables near target strings",
+          "platforms": [
+            "grepapp"
+          ],
+          "query": "{T}.*(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)",
+          "description": "Regex-searches public code for target identifiers on the same line as AWS credential variables.",
+          "tags": [
+            "aws",
+            "regex",
+            "github"
+          ],
+          "source": "grep.app | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "AWS access-key identifiers",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" /AKIA[0-9A-Z]{16}/",
+          "description": "Finds long-lived AWS access-key ID patterns in target-related public code; validate ownership and exposure without using the secret.",
+          "tags": [
+            "aws",
+            "regex",
+            "github"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "PEM and OpenSSH private keys",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"-----BEGIN PRIVATE KEY-----\" OR \"-----BEGIN RSA PRIVATE KEY-----\" OR \"-----BEGIN OPENSSH PRIVATE KEY-----\")",
+          "description": "Finds private-key blocks committed with target references, potentially enabling server, signing, or service impersonation.",
+          "tags": [
+            "private-key",
+            "pem",
+            "ssh"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Indexed private-key containers",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pem OR ext:key OR ext:p12 OR ext:pfx)",
+          "description": "Finds indexed PEM, key, PKCS#12, and PFX files that may contain private keys or certificates.",
+          "tags": [
+            "private-key",
+            "certificates"
+          ],
+          "source": "GHDB",
+          "icon": "🔑"
+        },
+        {
+          "title": "SSH private-key filenames",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:id_rsa OR path:id_dsa OR path:id_ed25519 OR path:*.ppk)",
+          "description": "Finds commonly named SSH private-key files associated with the target in public repositories.",
+          "tags": [
+            "ssh",
+            "private-key",
+            "github"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Source-control access tokens",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"ghp_\" OR \"github_pat_\" OR \"glpat-\")",
+          "description": "Finds GitHub and GitLab token prefixes near target identifiers; leaked tokens can expose private repositories and CI data.",
+          "tags": [
+            "github",
+            "gitlab",
+            "token"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Chat and webhook secrets",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"xoxb-\" OR \"xoxp-\" OR \"hooks.slack.com/services\" OR \"discord.com/api/webhooks\")",
+          "description": "Finds Slack tokens, Slack webhook URLs, and Discord webhooks that can leak messages or permit unauthorized posting.",
+          "tags": [
+            "slack",
+            "discord",
+            "webhook"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "AI provider API credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"OPENAI_API_KEY\" OR \"ANTHROPIC_API_KEY\" OR \"sk-ant-\")",
+          "description": "Finds target-related OpenAI and Anthropic credential material that could expose models, data, or billable quota.",
+          "tags": [
+            "openai",
+            "anthropic",
+            "ai"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "AI secrets near target identifiers",
+          "platforms": [
+            "grepapp"
+          ],
+          "query": "{T}.*(OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|HF_TOKEN)",
+          "description": "Finds AI-provider secret variables near target strings using grep.app's RE2 search.",
+          "tags": [
+            "ai",
+            "api-key",
+            "regex"
+          ],
+          "source": "grep.app | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Stripe live secret keys",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"sk_live_\" OR \"rk_live_\" OR \"STRIPE_SECRET_KEY\")",
+          "description": "Finds live Stripe secret or restricted-key material associated with the target, with potential payment and customer-data impact.",
+          "tags": [
+            "stripe",
+            "payment",
+            "api-key"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Database connection URLs",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"mongodb+srv://\" OR \"postgres://\" OR \"mysql://\")",
+          "description": "Finds database URLs that may embed usernames, passwords, internal hosts, and database names.",
+          "tags": [
+            "database",
+            "connection-string",
+            "github"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Indexed connection-string configuration",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:config OR ext:json OR ext:yaml OR ext:yml) (\"connectionString\" OR \"jdbc:\" OR \"mongodb+srv://\")",
+          "description": "Finds indexed application configuration with database connection strings and possible embedded credentials.",
+          "tags": [
+            "database",
+            "configuration"
+          ],
+          "source": "GHDB | GitDorker",
+          "icon": "🔑"
+        },
+        {
+          "title": "Google service-account JSON",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:service-account.json OR path:credentials.json) (private_key_id OR private_key)",
+          "description": "Finds GCP service-account JSON containing private-key fields, which can grant cloud API access.",
+          "tags": [
+            "gcp",
+            "service-account",
+            "private-key"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Container registry authentication",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.dockerconfigjson OR path:config.json) (auths OR identitytoken)",
+          "description": "Finds Docker and OCI registry authentication configuration with base64 credentials or identity tokens.",
+          "tags": [
+            "docker",
+            "registry",
+            "credentials"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Package-registry credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.npmrc OR path:.pypirc) (_authToken OR password)",
+          "description": "Finds npm and Python package registry credentials capable of package theft or supply-chain publication.",
+          "tags": [
+            "npm",
+            "pypi",
+            "supply-chain"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "Kubernetes client credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:kubeconfig OR path:config) (client-key-data OR client-certificate-data)",
+          "description": "Finds kubeconfig client key and certificate data that may provide direct cluster access.",
+          "tags": [
+            "kubernetes",
+            "kubeconfig",
+            "private-key"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "CI workflow credential usage",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.github/workflows OR path:.gitlab-ci.yml OR path:.circleci) (AWS_SECRET_ACCESS_KEY OR PERSONAL_ACCESS_TOKEN OR CLIENT_SECRET)",
+          "description": "Finds CI definitions with sensitive credential variables, unsafe logging, or deployment secrets requiring review.",
+          "tags": [
+            "ci-cd",
+            "workflow",
+            "secrets"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        },
+        {
+          "title": "JWT secrets and token material",
+          "platforms": [
+            "google"
+          ],
+          "query": "\"{T}\" (\"JWT_SECRET\" OR \"JWT_SECRET_KEY\" OR \"eyJhbGciOiJ\")",
+          "description": "Finds indexed JWT signing-secret variables and encoded token material associated with the target.",
+          "tags": [
+            "jwt",
+            "token",
+            "authentication"
+          ],
+          "source": "GitDorker | community",
+          "icon": "🔑"
+        },
+        {
+          "title": "Credentials leaked in URLs",
+          "platforms": [
+            "google"
+          ],
+          "query": "\"{T}\" (\"api_key=\" OR \"apikey=\" OR \"access_token=\")",
+          "description": "Finds indexed URLs containing credential parameters, which also leak through logs, history, and Referer headers.",
+          "tags": [
+            "api-key",
+            "url",
+            "token"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🔑"
+        },
+        {
+          "title": "Credential parameters in scanned URLs",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "domain:{T} AND (filename:access_token OR filename:api_key OR filename:apikey)",
+          "description": "Finds archived urlscan requests involving the target with token or API-key parameter names.",
+          "tags": [
+            "urlscan",
+            "api-key",
+            "url"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🔑"
+        },
+        {
+          "title": "Archived dotenv files",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*.env",
+          "description": "Finds historical dotenv captures across target subdomains; deleted files can remain recoverable in archives.",
+          "tags": [
+            "wayback",
+            "env",
+            "history"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "🔑"
+        },
+        {
+          "title": "Secrets in indexed page source",
+          "platforms": [
+            "publicwww"
+          ],
+          "query": "\"{T}\" (\"apiKey\" | \"api_key\" | \"access_token\") depth:all",
+          "description": "Searches indexed HTML, JavaScript, and CSS for target references near common client-side secret names.",
+          "tags": [
+            "javascript",
+            "api-key",
+            "source-code"
+          ],
+          "source": "PublicWWW query syntax",
+          "icon": "🔑"
+        },
+        {
+          "title": "Credential helper and password files",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.git-credentials OR path:.netrc OR path:.pgpass OR path:.htpasswd)",
+          "description": "Finds credential-helper, netrc, PostgreSQL, and htpasswd files containing reusable plaintext or hashed credentials.",
+          "tags": [
+            "git",
+            "netrc",
+            "password"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🔑"
+        }
+      ],
+      "icon": "🔑"
+    },
+    {
+      "id": "cloud-misconfig",
+      "title": "Cloud Storage & Infrastructure",
+      "severity": "high",
+      "description": "Public object storage, serverless assets, container control planes, and cloud credential exposure.",
+      "dorks": [
+        {
+          "title": "Amazon S3 buckets referencing target",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:s3.amazonaws.com \"{T}\"",
+          "description": "Finds S3 virtual-hosted bucket URLs and indexed objects associated with the target; review listing and object-read permissions.",
+          "tags": [
+            "aws",
+            "s3",
+            "bucket"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🪣"
+        },
+        {
+          "title": "Regional and dual-stack S3 endpoints",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:amazonaws.com (inurl:s3 OR \"S3 Bucket\") \"{T}\"",
+          "description": "Finds target-related objects on regional, path-style, and dual-stack S3 hostnames missed by the classic endpoint query.",
+          "tags": [
+            "aws",
+            "s3",
+            "regional"
+          ],
+          "source": "TakSec | community",
+          "icon": "🪣"
+        },
+        {
+          "title": "Google Cloud Storage objects",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:storage.googleapis.com \"{T}\"",
+          "description": "Finds GCS buckets and publicly indexed objects tied to the target for anonymous listing and data-exposure review.",
+          "tags": [
+            "gcp",
+            "gcs",
+            "bucket"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🪣"
+        },
+        {
+          "title": "Azure Blob Storage objects",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:blob.core.windows.net \"{T}\"",
+          "description": "Finds public Azure Blob containers and files associated with the target.",
+          "tags": [
+            "azure",
+            "blob",
+            "bucket"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🪣"
+        },
+        {
+          "title": "DigitalOcean Spaces objects",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:digitaloceanspaces.com \"{T}\"",
+          "description": "Finds target-related Spaces buckets and indexed objects that may allow public listing or download.",
+          "tags": [
+            "digitalocean",
+            "spaces",
+            "bucket"
+          ],
+          "source": "TakSec | community",
+          "icon": "🪣"
+        },
+        {
+          "title": "Firebase Realtime Database endpoints",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:firebaseio.com \"{T}\"",
+          "description": "Finds target-related Firebase RTDB hosts for subsequent authorization and public JSON-access review.",
+          "tags": [
+            "firebase",
+            "gcp",
+            "database"
+          ],
+          "source": "TakSec | community",
+          "icon": "🪣"
+        },
+        {
+          "title": "Google Cloud Storage browser links",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:storage.cloud.google.com \"{T}\"",
+          "description": "Finds cloud-console-style GCS object links that can reveal bucket names and object paths even when direct objects are not indexed.",
+          "tags": [
+            "gcp",
+            "gcs",
+            "bucket"
+          ],
+          "source": "community",
+          "icon": "🪣"
+        },
+        {
+          "title": "Azure Files shares",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:file.core.windows.net \"{T}\"",
+          "description": "Finds indexed Azure Files share URLs associated with the target, which may disclose documents or backup data.",
+          "tags": [
+            "azure",
+            "files",
+            "share"
+          ],
+          "source": "community",
+          "icon": "🪣"
+        },
+        {
+          "title": "CloudFront distributions",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:cloudfront.net \"{T}\"",
+          "description": "Finds target-related CloudFront distributions and cached objects, useful for identifying shadow assets and origin clues.",
+          "tags": [
+            "aws",
+            "cloudfront",
+            "cdn"
+          ],
+          "source": "community",
+          "icon": "🪣"
+        },
+        {
+          "title": "Unencrypted Docker API",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:2375",
+          "description": "Finds target hosts exposing the unencrypted Docker API, which can permit full container and host control if unauthenticated.",
+          "tags": [
+            "docker",
+            "api",
+            "rce"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "🪣"
+        },
+        {
+          "title": "Kubernetes API servers",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:6443",
+          "description": "Finds Kubernetes API endpoints on target hosts for anonymous-auth and exposed-control-plane review.",
+          "tags": [
+            "kubernetes",
+            "api",
+            "control-plane"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "🪣"
+        },
+        {
+          "title": "etcd client endpoints",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:2379",
+          "description": "Finds etcd services that may expose cluster state and Kubernetes secrets when accessible without authentication.",
+          "tags": [
+            "etcd",
+            "kubernetes",
+            "secrets"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "🪣"
+        },
+        {
+          "title": "Docker API on certificate-related hosts",
+          "platforms": [
+            "censys"
+          ],
+          "query": "host.services.cert.parsed.subject.common_name: \"{T}\" and host.services.port=2375",
+          "description": "Finds Docker API services on hosts presenting target-related certificates using current Censys CenQL.",
+          "tags": [
+            "docker",
+            "censys",
+            "api"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🪣"
+        },
+        {
+          "title": "Kubernetes API and kubelet exposure",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && (port=\"6443\" || port=\"10250\")",
+          "description": "Finds target-domain Kubernetes API and kubelet ports for authentication and pod-exposure review.",
+          "tags": [
+            "kubernetes",
+            "kubelet",
+            "fofa"
+          ],
+          "source": "FOFA API | offensive-osint",
+          "icon": "🪣"
+        },
+        {
+          "title": "Docker API on ZoomEye",
+          "platforms": [
+            "zoomeye"
+          ],
+          "query": "hostname=\"{T}\" && port=\"2375\"",
+          "description": "Finds target-related unencrypted Docker API services through ZoomEye's independent scan coverage.",
+          "tags": [
+            "docker",
+            "zoomeye",
+            "api"
+          ],
+          "source": "ZoomEye search syntax | offensive-osint",
+          "icon": "🪣"
+        },
+        {
+          "title": "Terraform state with cloud secrets",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:terraform.tfstate OR path:*.tfstate) (access_key OR secret_key OR password)",
+          "description": "Finds Terraform state files, which often contain cloud credentials, database passwords, resource IDs, and internal topology.",
+          "tags": [
+            "terraform",
+            "cloud",
+            "state"
+          ],
+          "source": "techgaun/github-dorks | community",
+          "icon": "🪣"
+        },
+        {
+          "title": "AWS CLI credential files",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.s3cfg OR path:credentials OR path:.aws) (aws_access_key_id OR aws_secret_access_key)",
+          "description": "Finds AWS CLI and s3cmd credential files associated with target infrastructure.",
+          "tags": [
+            "aws",
+            "credentials",
+            "cli"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🪣"
+        },
+        {
+          "title": "Redis exposure on target-related records",
+          "platforms": [
+            "binaryedge"
+          ],
+          "query": "\"{T}\" AND port:6379",
+          "description": "Finds Redis services in BinaryEdge records containing the target identifier, for unauthenticated data-access review.",
+          "tags": [
+            "redis",
+            "binaryedge",
+            "database"
+          ],
+          "source": "BinaryEdge full-text query documentation",
+          "icon": "🪣"
+        }
+      ],
+      "icon": "🪣"
+    },
+    {
+      "id": "exposed-panels",
+      "title": "Exposed Administrative Panels",
+      "severity": "high",
+      "description": "Administrative consoles, observability dashboards, database managers, and server management interfaces.",
+      "dorks": [
+        {
+          "title": "Generic admin and dashboard portals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:admin OR inurl:console OR inurl:dashboard) (intitle:\"admin\" OR intitle:\"dashboard\" OR intitle:\"console\")",
+          "description": "Finds indexed administrative routes and dashboards that warrant access-control and exposure review.",
+          "tags": [
+            "admin",
+            "dashboard",
+            "panel"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🛡️"
+        },
+        {
+          "title": "phpMyAdmin interfaces",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"phpMyAdmin\" OR inurl:phpmyadmin)",
+          "description": "Finds database administration interfaces that can expose schema data or become a credential attack surface.",
+          "tags": [
+            "phpmyadmin",
+            "database",
+            "admin"
+          ],
+          "source": "GHDB",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Grafana dashboards",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} intitle:\"Grafana\"",
+          "description": "Finds Grafana installations that may disclose metrics, internal hostnames, data sources, or dashboards.",
+          "tags": [
+            "grafana",
+            "monitoring",
+            "admin"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Kibana consoles",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Kibana\" OR inurl:app/kibana)",
+          "description": "Finds Kibana interfaces that may expose logs, Elasticsearch indices, and sensitive operational data.",
+          "tags": [
+            "kibana",
+            "elasticsearch",
+            "logs"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Splunk web interfaces",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Splunk\" OR inurl:en-US/account/login)",
+          "description": "Finds Splunk web portals that may expose event data, searches, and administrative functionality.",
+          "tags": [
+            "splunk",
+            "logs",
+            "admin"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Grafana via Shodan titles",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"Grafana\"",
+          "description": "Finds target-hosted Grafana instances using Shodan's HTTP title index.",
+          "tags": [
+            "grafana",
+            "shodan",
+            "monitoring"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "🛡️"
+        },
+        {
+          "title": "phpMyAdmin via Shodan titles",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"phpMyAdmin\"",
+          "description": "Finds target-hosted phpMyAdmin interfaces from service-scan titles.",
+          "tags": [
+            "phpmyadmin",
+            "shodan",
+            "database"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Grafana fingerprint on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && app=\"Grafana\"",
+          "description": "Finds target-domain assets fingerprinted as Grafana by FOFA.",
+          "tags": [
+            "grafana",
+            "fofa",
+            "monitoring"
+          ],
+          "source": "FOFA fingerprint guide",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Kibana titles on Censys",
+          "platforms": [
+            "censys"
+          ],
+          "query": "web.hostname: \"{T}\" and web.endpoints.http.html_title: \"Kibana\"",
+          "description": "Finds Kibana web endpoints on target hostnames using Censys web-property data.",
+          "tags": [
+            "kibana",
+            "censys",
+            "logs"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Splunk fingerprint on ZoomEye",
+          "platforms": [
+            "zoomeye"
+          ],
+          "query": "hostname=\"{T}\" && app=\"Splunk\"",
+          "description": "Finds target-related Splunk services in ZoomEye's application fingerprint index.",
+          "tags": [
+            "splunk",
+            "zoomeye",
+            "logs"
+          ],
+          "source": "ZoomEye search syntax",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Prometheus and metrics consoles",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Prometheus Time Series Collection and Processing Server\" OR inurl:prometheus)",
+          "description": "Finds Prometheus interfaces and metrics endpoints that can reveal internal services, labels, and infrastructure metadata.",
+          "tags": [
+            "prometheus",
+            "metrics",
+            "monitoring"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🛡️"
+        },
+        {
+          "title": "RabbitMQ management consoles",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"RabbitMQ Management\" OR inurl:15672)",
+          "description": "Finds RabbitMQ management pages that may expose queues, messages, users, and cluster metadata.",
+          "tags": [
+            "rabbitmq",
+            "queue",
+            "admin"
+          ],
+          "source": "GHDB | community",
+          "icon": "🛡️"
+        },
+        {
+          "title": "RabbitMQ management port",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:15672",
+          "description": "Finds target hosts exposing RabbitMQ's management service on its standard port.",
+          "tags": [
+            "rabbitmq",
+            "shodan",
+            "queue"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "🛡️"
+        },
+        {
+          "title": "WebLogic administration services",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:7001",
+          "description": "Finds WebLogic services on target hosts for console exposure and version-specific vulnerability review.",
+          "tags": [
+            "weblogic",
+            "java",
+            "admin"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "🛡️"
+        },
+        {
+          "title": "Tomcat Web Application Manager",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"Tomcat Web Application Manager\"",
+          "description": "Finds Tomcat manager consoles that can permit application deployment when authentication is weak or absent.",
+          "tags": [
+            "tomcat",
+            "manager",
+            "admin"
+          ],
+          "source": "Shodan filter reference | GHDB",
+          "icon": "🛡️"
+        },
+        {
+          "title": "cPanel and Webmin portals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"cPanel\" OR intitle:\"Webmin\" OR inurl:10000)",
+          "description": "Finds hosting and Unix administration portals that expose high-privilege authentication surface.",
+          "tags": [
+            "cpanel",
+            "webmin",
+            "admin"
+          ],
+          "source": "GHDB",
+          "icon": "🛡️"
+        }
+      ],
+      "icon": "🛡️"
+    },
+    {
+      "id": "version-control",
+      "title": "Version-Control Exposure",
+      "severity": "high",
+      "description": "Exposed repository metadata that can disclose source code, history, branches, remotes, and credentials.",
+      "dorks": [
+        {
+          "title": "Exposed Git configuration",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.git/config\" (\"repositoryformatversion\" OR \"[core]\")",
+          "description": "Finds served .git/config files with repository metadata and remote URLs; a downloadable repository may follow.",
+          "tags": [
+            "git",
+            "source-code",
+            "config"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🔀"
+        },
+        {
+          "title": "Exposed Git HEAD",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.git/HEAD\" \"ref: refs/heads/\"",
+          "description": "Finds .git/HEAD responses that reveal branch names and confirm repository metadata exposure.",
+          "tags": [
+            "git",
+            "branch",
+            "source-code"
+          ],
+          "source": "GHDB",
+          "icon": "🔀"
+        },
+        {
+          "title": "Directory-listed Git repositories",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} intitle:\"Index of /.git\"",
+          "description": "Finds autoindexed .git directories that may allow recursive repository reconstruction.",
+          "tags": [
+            "git",
+            "directory-listing",
+            "source-code"
+          ],
+          "source": "GHDB",
+          "icon": "🔀"
+        },
+        {
+          "title": "Subversion entries metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.svn/entries\"",
+          "description": "Finds exposed Subversion metadata that can disclose repository structure and versioned source files.",
+          "tags": [
+            "svn",
+            "source-code",
+            "metadata"
+          ],
+          "source": "GHDB",
+          "icon": "🔀"
+        },
+        {
+          "title": "CVS Entries metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/CVS/Entries\"",
+          "description": "Finds exposed CVS bookkeeping files that reveal filenames, revisions, and repository layout.",
+          "tags": [
+            "cvs",
+            "source-code",
+            "metadata"
+          ],
+          "source": "GHDB",
+          "icon": "🔀"
+        },
+        {
+          "title": "Mercurial repository configuration",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.hg/hgrc\"",
+          "description": "Finds Mercurial configuration files with paths, credentials, and repository metadata.",
+          "tags": [
+            "mercurial",
+            "source-code",
+            "config"
+          ],
+          "source": "GHDB | community",
+          "icon": "🔀"
+        },
+        {
+          "title": "Bazaar branch metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.bzr/branch-format\"",
+          "description": "Finds exposed Bazaar branch metadata indicating reconstructable version-control content.",
+          "tags": [
+            "bazaar",
+            "source-code",
+            "metadata"
+          ],
+          "source": "community",
+          "icon": "🔀"
+        },
+        {
+          "title": "Git metadata in urlscan requests",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND filename:.git",
+          "description": "Finds archived target pages that requested .git paths, confirming historically observable repository probes or references.",
+          "tags": [
+            "git",
+            "urlscan",
+            "metadata"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🔀"
+        },
+        {
+          "title": "Archived Git repository metadata",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/.git/*",
+          "description": "Finds historical captures of target .git metadata, useful when current exposure has been removed.",
+          "tags": [
+            "git",
+            "wayback",
+            "history"
+          ],
+          "source": "Internet Archive CDX",
+          "icon": "🔀"
+        },
+        {
+          "title": "Git config signatures on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && body=\"repositoryformatversion\"",
+          "description": "Finds target-domain HTTP bodies containing the distinctive Git config marker.",
+          "tags": [
+            "git",
+            "fofa",
+            "config"
+          ],
+          "source": "FOFA body search | offensive-osint",
+          "icon": "🔀"
+        },
+        {
+          "title": "Git config signatures on Shodan",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.html:\"repositoryformatversion\"",
+          "description": "Finds target-hosted pages serving Git configuration content in Shodan HTTP responses.",
+          "tags": [
+            "git",
+            "shodan",
+            "config"
+          ],
+          "source": "Shodan HTTP filters",
+          "icon": "🔀"
+        },
+        {
+          "title": "Git config signatures on Censys",
+          "platforms": [
+            "censys"
+          ],
+          "query": "web.hostname: \"{T}\" and web.endpoints.http.body: \"repositoryformatversion\"",
+          "description": "Finds target web properties serving Git configuration markers in indexed HTTP bodies.",
+          "tags": [
+            "git",
+            "censys",
+            "config"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🔀"
+        }
+      ],
+      "icon": "🔀"
+    },
+    {
+      "id": "sensitive-files",
+      "title": "Sensitive Files, Backups & Diagnostics",
+      "severity": "high",
+      "description": "Backup archives, database exports, logs, diagnostic output, deployment state, and source maps.",
+      "dorks": [
+        {
+          "title": "Backup and archive files",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:zip OR ext:tar OR ext:tgz OR ext:rar OR ext:7z) (inurl:backup OR inurl:archive OR inurl:old)",
+          "description": "Finds compressed backups and old site archives that may contain source code, configuration, and customer data.",
+          "tags": [
+            "backup",
+            "archive",
+            "source-code"
+          ],
+          "source": "GHDB | SecLists",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Editor and deployment backup files",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:bak OR ext:backup OR ext:old OR ext:orig OR ext:save OR ext:swp)",
+          "description": "Finds backup copies left by editors and deployment processes, including obsolete credential-bearing configuration.",
+          "tags": [
+            "backup",
+            "editor",
+            "configuration"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Database dump files",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:sql OR ext:dump OR ext:sqlite OR ext:db) (\"MySQL dump\" OR \"PostgreSQL database dump\" OR \"CREATE TABLE\")",
+          "description": "Finds database exports with schema and row data, including credentials and PII.",
+          "tags": [
+            "database",
+            "dump",
+            "sql"
+          ],
+          "source": "GHDB | SecLists",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Log files with sensitive markers",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} ext:log (\"ERROR\" OR \"WARN\" OR \"password\" OR \"token\")",
+          "description": "Finds indexed logs containing errors, credential markers, request data, or internal paths.",
+          "tags": [
+            "logs",
+            "token",
+            "errors"
+          ],
+          "source": "GHDB",
+          "icon": "🗂️"
+        },
+        {
+          "title": "macOS Finder metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\".DS_Store\"",
+          "description": "Finds .DS_Store files that disclose directory filenames and can guide discovery of unlinked sensitive content.",
+          "tags": [
+            "ds-store",
+            "metadata",
+            "directory"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Apache server-status pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:server-status OR intitle:\"Apache Status\")",
+          "description": "Finds Apache status pages that can disclose active requests, client IPs, vhosts, and backend paths.",
+          "tags": [
+            "apache",
+            "server-status",
+            "diagnostics"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🗂️"
+        },
+        {
+          "title": "PHP diagnostic pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:phpinfo.php OR inurl:info.php OR intitle:\"phpinfo()\")",
+          "description": "Finds phpinfo output disclosing modules, environment variables, filesystem paths, and configuration.",
+          "tags": [
+            "php",
+            "phpinfo",
+            "environment"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Spring Boot environment actuator",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/actuator/env\" \"propertySources\"",
+          "description": "Finds Spring Boot environment endpoints that may expose secrets, datasource passwords, and cloud credentials.",
+          "tags": [
+            "spring",
+            "actuator",
+            "environment"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Java heap dumps",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:\"/actuator/heapdump\" OR ext:hprof)",
+          "description": "Finds Java heap dumps whose in-memory strings can contain sessions, credentials, and personal data.",
+          "tags": [
+            "java",
+            "heapdump",
+            "memory"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🗂️"
+        },
+        {
+          "title": "YAML and properties secrets",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:yml OR ext:yaml OR ext:properties) (\"password:\" OR \"secret:\" OR \"accessKey:\")",
+          "description": "Finds application configuration with password, secret, and access-key fields.",
+          "tags": [
+            "yaml",
+            "properties",
+            "configuration"
+          ],
+          "source": "GHDB | GitDorker",
+          "icon": "🗂️"
+        },
+        {
+          "title": "WordPress configuration backups",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:wp-config.php.bak OR inurl:wp-config.bak OR inurl:\"wp-config.php~\")",
+          "description": "Finds backup copies of wp-config.php, which commonly contain database credentials and authentication keys.",
+          "tags": [
+            "wordpress",
+            "backup",
+            "database"
+          ],
+          "source": "GHDB | SecLists",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Apache status titles on Shodan",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"Apache Status\"",
+          "description": "Finds target-hosted Apache status pages using Shodan HTTP titles.",
+          "tags": [
+            "apache",
+            "shodan",
+            "diagnostics"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Backup files in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:backup.zip OR filename:backup.sql OR filename:db.sql)",
+          "description": "Finds archived target requests for common backup and database dump filenames.",
+          "tags": [
+            "backup",
+            "urlscan",
+            "database"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Historical backup URLs",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*backup*",
+          "description": "Finds archived URLs containing backup across target subdomains, including files no longer linked from the live site.",
+          "tags": [
+            "backup",
+            "wayback",
+            "history"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Rails credential key material",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:config/master.key OR path:config/credentials.yml.enc)",
+          "description": "Finds Rails encrypted credentials and their master key; together they reveal application secrets.",
+          "tags": [
+            "rails",
+            "master-key",
+            "credentials"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "🗂️"
+        },
+        {
+          "title": "Source-map references in page source",
+          "platforms": [
+            "publicwww"
+          ],
+          "query": "\"{T}\" \"sourceMappingURL\" depth:all",
+          "description": "Finds target-related source-map references that may lead to original frontend source and embedded endpoints or secrets.",
+          "tags": [
+            "sourcemap",
+            "javascript",
+            "source-code"
+          ],
+          "source": "PublicWWW query syntax | Haddix",
+          "icon": "🗂️"
+        }
+      ],
+      "icon": "🗂️"
+    },
+    {
+      "id": "pii-data-dumps",
+      "title": "PII & Sensitive Data Dumps",
+      "severity": "critical",
+      "description": "Publicly indexed personal, employee, customer, patient, identity, and regulated records.",
+      "dorks": [
+        {
+          "title": "Customer and employee spreadsheets",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:xls OR ext:xlsx OR ext:csv) (\"email\" OR \"phone\" OR \"address\") (\"customer\" OR \"employee\" OR \"members\")",
+          "description": "Finds spreadsheets with contact fields and customer, employee, or membership context that may contain bulk PII.",
+          "tags": [
+            "pii",
+            "spreadsheet",
+            "contacts"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "📊"
+        },
+        {
+          "title": "Social Security number records",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:csv OR ext:xls OR ext:xlsx OR ext:pdf) (\"SSN\" OR \"Social Security Number\")",
+          "description": "Finds documents and datasets referencing US Social Security numbers, indicating highly sensitive regulated data.",
+          "tags": [
+            "ssn",
+            "pii",
+            "regulated-data"
+          ],
+          "source": "GHDB",
+          "icon": "📊"
+        },
+        {
+          "title": "Identity document exposure",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:jpg OR ext:png OR ext:docx) (\"passport\" OR \"driver license\" OR \"national id\")",
+          "description": "Finds identity documents and scans that can expose names, photos, document numbers, and birth dates.",
+          "tags": [
+            "identity",
+            "passport",
+            "pii"
+          ],
+          "source": "GHDB | community",
+          "icon": "📊"
+        },
+        {
+          "title": "Patient and medical records",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:csv OR ext:xlsx OR ext:pdf) (\"patient\" OR \"PHI\" OR \"medical record\")",
+          "description": "Finds medical datasets and documents that may contain protected health information.",
+          "tags": [
+            "healthcare",
+            "phi",
+            "pii"
+          ],
+          "source": "GHDB | offensive-osint",
+          "icon": "📊"
+        },
+        {
+          "title": "Resumes with contact details",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:doc OR ext:docx) (\"curriculum vitae\" OR \"resume\") (\"phone\" OR \"email\")",
+          "description": "Finds resumes and candidate records with personal contact and employment history data.",
+          "tags": [
+            "resume",
+            "pii",
+            "recruitment"
+          ],
+          "source": "GHDB",
+          "icon": "📊"
+        },
+        {
+          "title": "Confidential internal documents",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:doc OR ext:docx) (\"confidential\" OR \"internal use only\" OR \"do not distribute\")",
+          "description": "Finds documents explicitly marked confidential or internal, which may contain business-sensitive or personal data.",
+          "tags": [
+            "confidential",
+            "documents",
+            "internal"
+          ],
+          "source": "TakSec | GHDB",
+          "icon": "📊"
+        },
+        {
+          "title": "User-table SQL inserts",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:sql OR ext:dump) \"INSERT INTO\" \"users\" \"email\"",
+          "description": "Finds SQL dump content inserting user records with email fields, a strong indicator of exposed account data.",
+          "tags": [
+            "sql",
+            "users",
+            "pii"
+          ],
+          "source": "GHDB | SecLists",
+          "icon": "📊"
+        },
+        {
+          "title": "PII fields in committed datasets",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:*.csv OR path:*.xlsx) (\"social security\" OR \"date_of_birth\" OR \"passport_number\")",
+          "description": "Finds target-related spreadsheets in public repositories with high-risk identity and birth-date fields.",
+          "tags": [
+            "pii",
+            "csv",
+            "github"
+          ],
+          "source": "community | GitDorker",
+          "icon": "📊"
+        },
+        {
+          "title": "Bulk target email lists",
+          "platforms": [
+            "google"
+          ],
+          "query": "\"@{T}\" (ext:csv OR ext:xlsx OR ext:txt)",
+          "description": "Finds text and spreadsheet files containing target-domain email addresses, useful for identifying bulk employee or customer exposure.",
+          "tags": [
+            "email",
+            "pii",
+            "contacts"
+          ],
+          "source": "GHDB | NahamSec",
+          "icon": "📊"
+        },
+        {
+          "title": "Target-domain identities in leak archives",
+          "platforms": [
+            "intelx"
+          ],
+          "query": "*@{T}",
+          "description": "Searches Intelligence X selectors for target-domain email identities across public web, document, and leak collections.",
+          "tags": [
+            "intelx",
+            "email",
+            "breach"
+          ],
+          "source": "Intelligence X selector search",
+          "icon": "📊"
+        },
+        {
+          "title": "Sensitive Google Docs",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:docs.google.com \"{T}\" (\"SSN\" OR \"passport\" OR \"payroll\")",
+          "description": "Finds publicly shared Google Docs referencing the target and highly sensitive identity or payroll terms.",
+          "tags": [
+            "google-docs",
+            "pii",
+            "sharing"
+          ],
+          "source": "TakSec | community",
+          "icon": "📊"
+        },
+        {
+          "title": "Spreadsheet downloads observed by urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (files.filename:csv OR files.filename:xlsx)",
+          "description": "Finds target pages that delivered CSV or XLSX downloads for manual data-sensitivity review.",
+          "tags": [
+            "csv",
+            "xlsx",
+            "urlscan"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "📊"
+        }
+      ],
+      "icon": "📊"
+    },
+    {
+      "id": "api-endpoints",
+      "title": "API Endpoints, Swagger & GraphQL",
+      "severity": "medium",
+      "description": "API routes, machine-readable schemas, interactive explorers, archived JavaScript, and public collections.",
+      "dorks": [
+        {
+          "title": "Swagger UI and routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:swagger OR intitle:\"Swagger UI\")",
+          "description": "Finds Swagger interfaces and paths that enumerate API operations, parameters, and sometimes undocumented functions.",
+          "tags": [
+            "swagger",
+            "openapi",
+            "api"
+          ],
+          "source": "TakSec | SecLists",
+          "icon": "🔌"
+        },
+        {
+          "title": "OpenAPI specification files",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:openapi.json OR inurl:openapi.yaml OR inurl:\"api-docs\")",
+          "description": "Finds machine-readable OpenAPI documents and Spring-style API docs for rapid endpoint mapping.",
+          "tags": [
+            "openapi",
+            "api-docs",
+            "schema"
+          ],
+          "source": "SecLists | Haddix",
+          "icon": "🔌"
+        },
+        {
+          "title": "GraphQL endpoints and GraphiQL",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:graphql OR inurl:graphiql OR intitle:\"GraphiQL\")",
+          "description": "Finds GraphQL routes and interactive IDEs for introspection, mutation, and authorization review.",
+          "tags": [
+            "graphql",
+            "graphiql",
+            "api"
+          ],
+          "source": "SecLists | Haddix",
+          "icon": "🔌"
+        },
+        {
+          "title": "GraphQL Playground interfaces",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"GraphQL Playground\" OR inurl:playground) (\"graphql\" OR \"GraphQL\")",
+          "description": "Finds GraphQL Playground deployments accidentally left on production or staging environments.",
+          "tags": [
+            "graphql",
+            "playground",
+            "api"
+          ],
+          "source": "SecLists | community",
+          "icon": "🔌"
+        },
+        {
+          "title": "Versioned REST API routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:/api/v1/ OR inurl:/api/v2/ OR inurl:/rest/)",
+          "description": "Finds indexed REST endpoints and older API versions for object authorization and legacy-surface review.",
+          "tags": [
+            "rest",
+            "api",
+            "versioning"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🔌"
+        },
+        {
+          "title": "SOAP WSDL documents",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:wsdl OR inurl:\"?wsdl\")",
+          "description": "Finds SOAP service descriptions that enumerate operations, message schemas, and backend service endpoints.",
+          "tags": [
+            "soap",
+            "wsdl",
+            "api"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🔌"
+        },
+        {
+          "title": "Public Postman workspaces and collections",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:postman.com \"{T}\" (inurl:workspace OR inurl:collection)",
+          "description": "Finds target-related public Postman assets containing requests, environments, example credentials, and internal endpoints.",
+          "tags": [
+            "postman",
+            "collection",
+            "api"
+          ],
+          "source": "Haddix | NahamSec",
+          "icon": "🔌"
+        },
+        {
+          "title": "Indexed JSON API responses",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:json OR inurl:/api/) (\"users\" OR \"token\" OR \"data\")",
+          "description": "Finds JSON endpoints and API responses that may expose user objects, tokens, or bulk data.",
+          "tags": [
+            "json",
+            "api",
+            "data"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🔌"
+        },
+        {
+          "title": "OpenAPI files in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "domain:{T} AND (filename:swagger.json OR filename:openapi.json)",
+          "description": "Finds scans where target-related hosts requested Swagger or OpenAPI specification files.",
+          "tags": [
+            "swagger",
+            "openapi",
+            "urlscan"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🔌"
+        },
+        {
+          "title": "GraphQL requests in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:graphql OR filename:graphiql)",
+          "description": "Finds archived target pages loading GraphQL or GraphiQL resources and routes.",
+          "tags": [
+            "graphql",
+            "urlscan",
+            "api"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🔌"
+        },
+        {
+          "title": "Archived JavaScript bundles",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*.js",
+          "description": "Finds historical JavaScript for endpoint extraction, secret review, and comparison with current production bundles.",
+          "tags": [
+            "javascript",
+            "wayback",
+            "endpoints"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "🔌"
+        },
+        {
+          "title": "Archived API URLs",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*api*",
+          "description": "Finds historical URLs containing api across target subdomains, including retired versions and forgotten routes.",
+          "tags": [
+            "api",
+            "wayback",
+            "history"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "🔌"
+        },
+        {
+          "title": "Swagger UI bodies on Shodan",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.html:\"Swagger UI\"",
+          "description": "Finds target-hosted Swagger interfaces in Shodan HTTP response bodies.",
+          "tags": [
+            "swagger",
+            "shodan",
+            "api"
+          ],
+          "source": "Shodan HTTP filters",
+          "icon": "🔌"
+        },
+        {
+          "title": "Swagger UI bodies on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && body=\"Swagger UI\"",
+          "description": "Finds target-domain Swagger interfaces through FOFA full-body matching.",
+          "tags": [
+            "swagger",
+            "fofa",
+            "api"
+          ],
+          "source": "FOFA body search",
+          "icon": "🔌"
+        },
+        {
+          "title": "GraphiQL bodies on Censys",
+          "platforms": [
+            "censys"
+          ],
+          "query": "web.hostname: \"{T}\" and web.endpoints.http.body: \"GraphiQL\"",
+          "description": "Finds GraphiQL interfaces on target web properties in Censys HTTP body data.",
+          "tags": [
+            "graphql",
+            "censys",
+            "graphiql"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🔌"
+        },
+        {
+          "title": "Committed OpenAPI specifications",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:openapi.yaml OR path:openapi.json OR path:swagger.yaml OR path:swagger.json)",
+          "description": "Finds target-related API specifications in public repositories, including specs not deployed on the public host.",
+          "tags": [
+            "openapi",
+            "swagger",
+            "github"
+          ],
+          "source": "SecLists | community",
+          "icon": "🔌"
+        }
+      ],
+      "icon": "🔌"
+    },
+    {
+      "id": "asset-discovery",
+      "title": "Subdomains & Asset Discovery",
+      "severity": "info",
+      "description": "Certificate, DNS, HTTP-scan, archive, source-code, and cloud-service pivots for mapping target assets.",
+      "dorks": [
+        {
+          "title": "Certificate Transparency wildcard",
+          "platforms": [
+            "crtsh"
+          ],
+          "query": "%.{T}",
+          "description": "Returns certificate-transparency entries for the apex and subdomains, providing a passive subdomain inventory.",
+          "tags": [
+            "crtsh",
+            "certificates",
+            "subdomains"
+          ],
+          "source": "crt.sh | Haddix",
+          "icon": "🌐"
+        },
+        {
+          "title": "Shodan hostname inventory",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\"",
+          "description": "Finds services whose observed hostnames contain the target domain, exposing ports and product fingerprints.",
+          "tags": [
+            "shodan",
+            "hostnames",
+            "services"
+          ],
+          "source": "Shodan query examples",
+          "icon": "🌐"
+        },
+        {
+          "title": "Shodan certificate-name pivot",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "ssl.cert.subject.cn:\"{T}\"",
+          "description": "Finds services presenting certificates issued for the target, including assets without matching DNS hostnames.",
+          "tags": [
+            "shodan",
+            "certificates",
+            "origin"
+          ],
+          "source": "Shodan query examples",
+          "icon": "🌐"
+        },
+        {
+          "title": "FOFA domain inventory",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\"",
+          "description": "Finds target apex and subdomain assets in FOFA's independently collected service inventory.",
+          "tags": [
+            "fofa",
+            "domain",
+            "subdomains"
+          ],
+          "source": "FOFA API | Awesome-FOFA",
+          "icon": "🌐"
+        },
+        {
+          "title": "FOFA certificate pivot",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "cert=\"{T}\"",
+          "description": "Finds services whose certificate content references the target, useful for origin and shadow-asset discovery.",
+          "tags": [
+            "fofa",
+            "certificates",
+            "origin"
+          ],
+          "source": "FOFA API | Awesome-FOFA",
+          "icon": "🌐"
+        },
+        {
+          "title": "ZoomEye hostname inventory",
+          "platforms": [
+            "zoomeye"
+          ],
+          "query": "hostname=\"{T}\"",
+          "description": "Finds target-related hosts and services using ZoomEye's hostname index.",
+          "tags": [
+            "zoomeye",
+            "hostnames",
+            "services"
+          ],
+          "source": "ZoomEye search syntax",
+          "icon": "🌐"
+        },
+        {
+          "title": "Censys host certificate pivot",
+          "platforms": [
+            "censys"
+          ],
+          "query": "host.services.cert.parsed.subject.common_name: \"{T}\"",
+          "description": "Finds hosts with services presenting target-common-name certificates using current CenQL.",
+          "tags": [
+            "censys",
+            "certificates",
+            "hosts"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🌐"
+        },
+        {
+          "title": "Censys web-property inventory",
+          "platforms": [
+            "censys"
+          ],
+          "query": "web.hostname: \"{T}\"",
+          "description": "Finds target-related Censys web properties and their HTTP endpoint observations.",
+          "tags": [
+            "censys",
+            "web",
+            "subdomains"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🌐"
+        },
+        {
+          "title": "All target contacts in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "domain:{T}",
+          "description": "Finds scans that contacted the target domain or its subdomains as either the main page or a subresource.",
+          "tags": [
+            "urlscan",
+            "domain",
+            "requests"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🌐"
+        },
+        {
+          "title": "Third-party pages loading target assets",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "domain:{T} AND NOT page.domain:{T}",
+          "description": "Finds externally hosted pages that contacted target infrastructure, revealing integrations and brand relationships.",
+          "tags": [
+            "urlscan",
+            "third-party",
+            "integrations"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🌐"
+        },
+        {
+          "title": "Complete archived URL inventory",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*",
+          "description": "Returns successful archived URLs across target subdomains for broad historical asset and route discovery.",
+          "tags": [
+            "wayback",
+            "urls",
+            "history"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "🌐"
+        },
+        {
+          "title": "Subdomains excluding the primary site",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:{T} -site:www.{T}",
+          "description": "Finds indexed target subdomains while suppressing the main www site to surface less-obvious assets.",
+          "tags": [
+            "subdomains",
+            "google",
+            "assets"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🌐"
+        },
+        {
+          "title": "Development and staging hosts",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:dev OR inurl:staging OR inurl:test OR inurl:qa OR inurl:uat)",
+          "description": "Finds non-production URLs that often have weaker controls, verbose errors, and outdated components.",
+          "tags": [
+            "staging",
+            "development",
+            "shadow-it"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🌐"
+        },
+        {
+          "title": "Heroku shadow applications",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:herokuapp.com \"{T}\"",
+          "description": "Finds target-related Heroku applications and abandoned deployment candidates.",
+          "tags": [
+            "heroku",
+            "cloud",
+            "shadow-it"
+          ],
+          "source": "Haddix | community",
+          "icon": "🌐"
+        },
+        {
+          "title": "Vercel deployments",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:vercel.app \"{T}\"",
+          "description": "Finds target-related Vercel deployments and preview applications outside the primary domain inventory.",
+          "tags": [
+            "vercel",
+            "serverless",
+            "shadow-it"
+          ],
+          "source": "community",
+          "icon": "🌐"
+        },
+        {
+          "title": "Netlify deployments",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:netlify.app \"{T}\"",
+          "description": "Finds target-related Netlify sites and deployment previews that may expose staging functionality.",
+          "tags": [
+            "netlify",
+            "serverless",
+            "shadow-it"
+          ],
+          "source": "community",
+          "icon": "🌐"
+        },
+        {
+          "title": "Azure App Service assets",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:azurewebsites.net \"{T}\"",
+          "description": "Finds target-related Azure App Service and Functions hostnames for cloud asset mapping.",
+          "tags": [
+            "azure",
+            "app-service",
+            "cloud"
+          ],
+          "source": "community",
+          "icon": "🌐"
+        },
+        {
+          "title": "GitHub Pages assets",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:github.io \"{T}\"",
+          "description": "Finds target-related GitHub Pages sites, documentation, and possible dangling-DNS references.",
+          "tags": [
+            "github-pages",
+            "shadow-it",
+            "subdomains"
+          ],
+          "source": "Haddix | community",
+          "icon": "🌐"
+        },
+        {
+          "title": "Target references across website source",
+          "platforms": [
+            "publicwww"
+          ],
+          "query": "\"{T}\" depth:all",
+          "description": "Finds websites whose indexed source references the target, supporting technology, integration, and related-asset pivots.",
+          "tags": [
+            "publicwww",
+            "source-code",
+            "related-assets"
+          ],
+          "source": "PublicWWW query syntax",
+          "icon": "🌐"
+        },
+        {
+          "title": "Subdomain strings in public code",
+          "platforms": [
+            "grepapp"
+          ],
+          "query": "(?i)([a-z0-9-]+\\.)+{T}",
+          "description": "Regex-searches public repositories for target subdomain strings in code, configuration, and documentation.",
+          "tags": [
+            "subdomains",
+            "grepapp",
+            "regex"
+          ],
+          "source": "grep.app | Haddix",
+          "icon": "🌐"
+        },
+        {
+          "title": "Repositories referencing target",
+          "platforms": [
+            "sourcegraph"
+          ],
+          "query": "\"{T}\" type:file select:repo",
+          "description": "Returns distinct Sourcegraph-indexed repositories containing the target string for code-driven asset discovery.",
+          "tags": [
+            "sourcegraph",
+            "repositories",
+            "assets"
+          ],
+          "source": "Sourcegraph query syntax | Haddix",
+          "icon": "🌐"
+        }
+      ],
+      "icon": "🌐"
+    },
+    {
+      "id": "login-auth",
+      "title": "Login, SSO & Authentication Portals",
+      "severity": "medium",
+      "description": "Interactive authentication, federation metadata, remote access, recovery flows, and identity-provider tenants.",
+      "dorks": [
+        {
+          "title": "Login and sign-in pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:login OR inurl:signin OR intitle:\"sign in\")",
+          "description": "Finds authentication portals for session, MFA, user-enumeration, and access-control review.",
+          "tags": [
+            "login",
+            "authentication",
+            "portal"
+          ],
+          "source": "TakSec | GHDB",
+          "icon": "🚪"
+        },
+        {
+          "title": "SSO, OAuth, OIDC, and SAML routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:sso OR inurl:oauth OR inurl:oidc OR inurl:saml)",
+          "description": "Finds federation and single-sign-on flows where redirect, state, and assertion handling require review.",
+          "tags": [
+            "sso",
+            "oauth",
+            "saml"
+          ],
+          "source": "Haddix | SecLists",
+          "icon": "🚪"
+        },
+        {
+          "title": "OpenID Connect discovery metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/.well-known/openid-configuration\"",
+          "description": "Finds OIDC issuer metadata exposing authorization, token, JWKS, and registration endpoints.",
+          "tags": [
+            "oidc",
+            "oauth",
+            "metadata"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🚪"
+        },
+        {
+          "title": "SAML federation metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:FederationMetadata OR inurl:saml/metadata OR inurl:metadata.php)",
+          "description": "Finds SAML metadata revealing entity IDs, signing certificates, and assertion-consumer or SSO endpoints.",
+          "tags": [
+            "saml",
+            "federation",
+            "metadata"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🚪"
+        },
+        {
+          "title": "Okta tenant references",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:okta.com \"{T}\"",
+          "description": "Finds target-related Okta tenants and login pages for identity-surface mapping.",
+          "tags": [
+            "okta",
+            "identity",
+            "sso"
+          ],
+          "source": "Haddix | NahamSec",
+          "icon": "🚪"
+        },
+        {
+          "title": "Auth0 tenant references",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:auth0.com \"{T}\"",
+          "description": "Finds target-related Auth0 tenants, hosted login pages, and identity configuration references.",
+          "tags": [
+            "auth0",
+            "identity",
+            "sso"
+          ],
+          "source": "Haddix | community",
+          "icon": "🚪"
+        },
+        {
+          "title": "Microsoft Entra tenant references",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:login.microsoftonline.com \"{T}\"",
+          "description": "Finds Microsoft Entra login and OAuth references tied to the target's Microsoft 365 identity surface.",
+          "tags": [
+            "entra",
+            "microsoft365",
+            "sso"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🚪"
+        },
+        {
+          "title": "AD FS authentication portals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:adfs OR intitle:\"AD FS\")",
+          "description": "Finds Active Directory Federation Services endpoints and forms-based authentication portals.",
+          "tags": [
+            "adfs",
+            "sso",
+            "authentication"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🚪"
+        },
+        {
+          "title": "Login routes observed by urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:login OR filename:signin)",
+          "description": "Finds archived target pages with login or sign-in resources and routes.",
+          "tags": [
+            "login",
+            "urlscan",
+            "portal"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🚪"
+        },
+        {
+          "title": "Password recovery endpoints",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:forgot-password OR inurl:reset-password OR inurl:password/reset)",
+          "description": "Finds account-recovery flows for token lifecycle, reset poisoning, and user-enumeration review.",
+          "tags": [
+            "password-reset",
+            "recovery",
+            "authentication"
+          ],
+          "source": "Haddix | community",
+          "icon": "🚪"
+        },
+        {
+          "title": "Outlook Web App portals",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.html:\"Outlook Web App\"",
+          "description": "Finds target-hosted Exchange OWA interfaces in Shodan response content.",
+          "tags": [
+            "exchange",
+            "owa",
+            "login"
+          ],
+          "source": "Shodan HTTP filters",
+          "icon": "🚪"
+        },
+        {
+          "title": "Login titles on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && (title=\"Sign In\" || title=\"Login\")",
+          "description": "Finds target-domain web assets with common authentication page titles.",
+          "tags": [
+            "login",
+            "fofa",
+            "portal"
+          ],
+          "source": "FOFA query syntax",
+          "icon": "🚪"
+        },
+        {
+          "title": "Remote-access VPN portals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:remote/login OR inurl:webvpn OR inurl:global-protect)",
+          "description": "Finds Fortinet, Cisco, and Palo Alto remote-access portals that form high-value perimeter authentication surface.",
+          "tags": [
+            "vpn",
+            "remote-access",
+            "login"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🚪"
+        }
+      ],
+      "icon": "🚪"
+    },
+    {
+      "id": "debug-errors",
+      "title": "Debug Output, Errors & Stack Traces",
+      "severity": "medium",
+      "description": "Verbose framework errors, SQL diagnostics, stack traces, debug modes, and management metadata.",
+      "dorks": [
+        {
+          "title": "SQL database error messages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"You have an error in your SQL syntax\" OR \"SQLSTATE\" OR \"ODBC Driver\")",
+          "description": "Finds verbose SQL errors that can disclose query structure, schema names, drivers, and injection candidates.",
+          "tags": [
+            "sql",
+            "errors",
+            "database"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🐛"
+        },
+        {
+          "title": "PHP warnings and fatal errors",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"Fatal error:\" OR \"Warning: mysql_\" OR \"Undefined index\")",
+          "description": "Finds PHP diagnostics that disclose filesystem paths, functions, and backend implementation details.",
+          "tags": [
+            "php",
+            "errors",
+            "path-disclosure"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🐛"
+        },
+        {
+          "title": "Python tracebacks",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} \"Traceback (most recent call last)\"",
+          "description": "Finds Python stack traces revealing source paths, dependencies, function names, and unhandled input paths.",
+          "tags": [
+            "python",
+            "traceback",
+            "debug"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🐛"
+        },
+        {
+          "title": "Java and Spring stack traces",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"org.springframework\" OR \"java.lang.NullPointerException\") \"stack trace\"",
+          "description": "Finds Java exception output with framework classes, package names, and backend call stacks.",
+          "tags": [
+            "java",
+            "spring",
+            "stacktrace"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🐛"
+        },
+        {
+          "title": "ASP.NET detailed errors",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"Server Error in '/' Application\" OR \"System.NullReferenceException\")",
+          "description": "Finds ASP.NET yellow-screen diagnostics that may disclose source lines, stack traces, and server paths.",
+          "tags": [
+            "aspnet",
+            "errors",
+            "stacktrace"
+          ],
+          "source": "GHDB",
+          "icon": "🐛"
+        },
+        {
+          "title": "Django debug mode output",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"DisallowedHost\" OR \"You're seeing this error because you have DEBUG = True\")",
+          "description": "Finds Django debug pages that can expose settings, request metadata, and detailed exception context.",
+          "tags": [
+            "django",
+            "debug",
+            "python"
+          ],
+          "source": "GHDB | community",
+          "icon": "🐛"
+        },
+        {
+          "title": "Laravel exception pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"Whoops, looks like something went wrong\" OR \"Illuminate\\Database\\QueryException\")",
+          "description": "Finds Laravel and Ignition error output that may expose queries, environment data, and source context.",
+          "tags": [
+            "laravel",
+            "php",
+            "debug"
+          ],
+          "source": "GHDB | community",
+          "icon": "🐛"
+        },
+        {
+          "title": "Rails exception output",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"ActiveRecord::StatementInvalid\" OR \"Action Controller: Exception caught\")",
+          "description": "Finds Rails error pages with SQL, routes, controllers, and application path disclosure.",
+          "tags": [
+            "rails",
+            "errors",
+            "database"
+          ],
+          "source": "GHDB | community",
+          "icon": "🐛"
+        },
+        {
+          "title": "Node.js unhandled errors",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"UnhandledPromiseRejectionWarning\" OR \"Cannot read properties of undefined\")",
+          "description": "Finds Node.js diagnostics indicating unhandled failures and possible debug response exposure.",
+          "tags": [
+            "nodejs",
+            "errors",
+            "debug"
+          ],
+          "source": "community",
+          "icon": "🐛"
+        },
+        {
+          "title": "Spring Actuator management metadata",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/actuator\" (\"mappings\" OR \"configprops\" OR \"beans\")",
+          "description": "Finds Actuator endpoints disclosing routes, configuration properties, and application beans.",
+          "tags": [
+            "spring",
+            "actuator",
+            "debug"
+          ],
+          "source": "SecLists | offensive-osint",
+          "icon": "🐛"
+        },
+        {
+          "title": "Python tracebacks on Shodan",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.html:\"Traceback (most recent call last)\"",
+          "description": "Finds target-hosted Python tracebacks captured in Shodan HTTP responses.",
+          "tags": [
+            "python",
+            "shodan",
+            "traceback"
+          ],
+          "source": "Shodan HTTP filters",
+          "icon": "🐛"
+        },
+        {
+          "title": "Debug and Actuator requests in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:debug OR filename:actuator)",
+          "description": "Finds target scans containing debug or Spring Actuator request paths for diagnostic exposure review.",
+          "tags": [
+            "debug",
+            "actuator",
+            "urlscan"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "🐛"
+        }
+      ],
+      "icon": "🐛"
+    },
+    {
+      "id": "redirect-ssrf",
+      "title": "Open-Redirect & SSRF Candidates",
+      "severity": "medium",
+      "description": "URL-fetching, callback, redirection, preview, and federation parameters suitable for controlled follow-up testing.",
+      "dorks": [
+        {
+          "title": "Common redirect parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:redirect= OR inurl:returnUrl= OR inurl:next= OR inurl:url=)",
+          "description": "Finds parameterized navigation flows that may permit external redirects or unsafe URL handling.",
+          "tags": [
+            "open-redirect",
+            "parameters",
+            "url"
+          ],
+          "source": "TakSec | TomNomNom gf",
+          "icon": "↪️"
+        },
+        {
+          "title": "OAuth and continuation redirect parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:redirect_uri= OR inurl:return_to= OR inurl:continue=)",
+          "description": "Finds OAuth and post-login continuation URLs where weak validation could enable code theft or phishing chains.",
+          "tags": [
+            "oauth",
+            "open-redirect",
+            "redirect-uri"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "↪️"
+        },
+        {
+          "title": "Remote URL fetch parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:url= OR inurl:uri= OR inurl:dest=) (inurl:http OR inurl:https)",
+          "description": "Finds endpoints accepting absolute URLs in fetch-like parameters, making them SSRF and redirect candidates.",
+          "tags": [
+            "ssrf",
+            "url-fetch",
+            "parameters"
+          ],
+          "source": "TakSec | TomNomNom gf",
+          "icon": "↪️"
+        },
+        {
+          "title": "Webhook and callback URL parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:callback= OR inurl:webhook= OR inurl:feed=)",
+          "description": "Finds callback and feed parameters that may trigger server-side requests to attacker-selectable destinations.",
+          "tags": [
+            "ssrf",
+            "webhook",
+            "callback"
+          ],
+          "source": "TomNomNom gf | community",
+          "icon": "↪️"
+        },
+        {
+          "title": "Image and media proxy parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:image= OR inurl:img= OR inurl:src=) (inurl:http OR inurl:url=)",
+          "description": "Finds remote image and media loaders that may fetch internal resources or proxy untrusted content.",
+          "tags": [
+            "ssrf",
+            "image-proxy",
+            "url-fetch"
+          ],
+          "source": "TomNomNom gf | community",
+          "icon": "↪️"
+        },
+        {
+          "title": "PDF, rendering, and preview fetchers",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:pdf OR inurl:render OR inurl:preview) (inurl:url= OR inurl:html=)",
+          "description": "Finds document generators and preview features accepting URLs or HTML, common SSRF and local-file-read candidates.",
+          "tags": [
+            "ssrf",
+            "pdf",
+            "preview"
+          ],
+          "source": "Haddix | community",
+          "icon": "↪️"
+        },
+        {
+          "title": "Archived redirect endpoints",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*redirect*",
+          "description": "Finds historical redirect routes across target subdomains, including legacy flows no longer linked publicly.",
+          "tags": [
+            "open-redirect",
+            "wayback",
+            "legacy"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "↪️"
+        },
+        {
+          "title": "Redirect parameters in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:redirect OR filename:returnUrl OR filename:next)",
+          "description": "Finds archived target URLs with common redirect parameters for reproducible candidate collection.",
+          "tags": [
+            "open-redirect",
+            "urlscan",
+            "parameters"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "↪️"
+        },
+        {
+          "title": "Archived absolute-URL parameters",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*url=*",
+          "description": "Finds archived URLs with url parameters that may represent SSRF, proxy, or open-redirect candidates.",
+          "tags": [
+            "ssrf",
+            "wayback",
+            "parameters"
+          ],
+          "source": "Internet Archive CDX | TomNomNom gf",
+          "icon": "↪️"
+        },
+        {
+          "title": "Redirect validation implementation clues",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"redirect_uri\" OR \"returnUrl\") (whitelist OR allowlist)",
+          "description": "Finds target-related redirect validation code for identifying parser mismatches and incomplete allowlists.",
+          "tags": [
+            "oauth",
+            "source-code",
+            "allowlist"
+          ],
+          "source": "community | Haddix",
+          "icon": "↪️"
+        },
+        {
+          "title": "Server-side URL request code",
+          "platforms": [
+            "sourcegraph"
+          ],
+          "query": "\"{T}\" (\"new URL\" OR \"requests.get\") file:\\.(js|ts|py)$",
+          "description": "Finds target-related JavaScript, TypeScript, and Python request code for SSRF data-flow review.",
+          "tags": [
+            "ssrf",
+            "sourcegraph",
+            "source-code"
+          ],
+          "source": "Sourcegraph query syntax",
+          "icon": "↪️"
+        },
+        {
+          "title": "SAML relay and request parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:RelayState= OR inurl:SAMLRequest=)",
+          "description": "Finds SAML flows with RelayState and request parameters that may expose redirect, XML parsing, or signature-validation issues.",
+          "tags": [
+            "saml",
+            "relaystate",
+            "redirect"
+          ],
+          "source": "Haddix | community",
+          "icon": "↪️"
+        }
+      ],
+      "icon": "↪️"
+    },
+    {
+      "id": "file-disclosure",
+      "title": "File-Disclosure & LFI Candidates",
+      "severity": "high",
+      "description": "File download, include, viewer, template, and backend file-read paths suitable for authorization and traversal testing.",
+      "dorks": [
+        {
+          "title": "File and path parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:file= OR inurl:path= OR inurl:document= OR inurl:folder=)",
+          "description": "Finds endpoints accepting file paths or document identifiers for traversal and unauthorized-file-access testing.",
+          "tags": [
+            "lfi",
+            "file-disclosure",
+            "parameters"
+          ],
+          "source": "TakSec | TomNomNom gf",
+          "icon": "📂"
+        },
+        {
+          "title": "Include and template parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:include= OR inurl:inc= OR inurl:template= OR inurl:page=)",
+          "description": "Finds dynamic include and template selection routes that may allow local or remote file inclusion.",
+          "tags": [
+            "lfi",
+            "include",
+            "template"
+          ],
+          "source": "TakSec | TomNomNom gf",
+          "icon": "📂"
+        },
+        {
+          "title": "Download and attachment parameters",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:download= OR inurl:filename= OR inurl:attachment=)",
+          "description": "Finds file download handlers where object authorization and path canonicalization should be tested.",
+          "tags": [
+            "download",
+            "file-disclosure",
+            "attachment"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "📂"
+        },
+        {
+          "title": "File viewer and read-file routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:viewer OR inurl:viewfile OR inurl:readfile)",
+          "description": "Finds document viewers and read-file handlers that may expose arbitrary local files or other users' documents.",
+          "tags": [
+            "viewer",
+            "file-disclosure",
+            "lfi"
+          ],
+          "source": "GHDB | community",
+          "icon": "📂"
+        },
+        {
+          "title": "Archived file parameters",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*file=*",
+          "description": "Finds archived target URLs containing file parameters, including legacy download and inclusion handlers.",
+          "tags": [
+            "lfi",
+            "wayback",
+            "parameters"
+          ],
+          "source": "Internet Archive CDX | TomNomNom gf",
+          "icon": "📂"
+        },
+        {
+          "title": "File handlers in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "page.domain:{T} AND (filename:download OR filename:file OR filename:attachment)",
+          "description": "Finds archived target requests to download, file, and attachment routes for candidate extraction.",
+          "tags": [
+            "file-disclosure",
+            "urlscan",
+            "download"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "📂"
+        },
+        {
+          "title": "Backend file-read implementation clues",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"readFileSync\" OR \"send_file\" OR \"FileInputStream\") (path OR filename)",
+          "description": "Finds target-related file-read code for tracing user-controlled paths and authorization checks.",
+          "tags": [
+            "lfi",
+            "source-code",
+            "file-read"
+          ],
+          "source": "community | Haddix",
+          "icon": "📂"
+        },
+        {
+          "title": "XML and SOAP parser candidates",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:xml OR inurl:soap OR inurl:wsdl) (\"DOCTYPE\" OR \"SOAPAction\")",
+          "description": "Finds XML and SOAP surfaces where external-entity handling and document disclosure deserve review.",
+          "tags": [
+            "xxe",
+            "xml",
+            "soap"
+          ],
+          "source": "Haddix | GHDB",
+          "icon": "📂"
+        },
+        {
+          "title": "Filesystem path disclosure",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (\"Document Root\" OR \"full path\" OR \"Warning: include\")",
+          "description": "Finds errors and diagnostic pages revealing absolute web-root and include paths useful for file-read exploitation.",
+          "tags": [
+            "path-disclosure",
+            "php",
+            "errors"
+          ],
+          "source": "GHDB",
+          "icon": "📂"
+        },
+        {
+          "title": "Archived download endpoints",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*download*",
+          "description": "Finds historical download routes across target subdomains for legacy file-disclosure and IDOR testing.",
+          "tags": [
+            "download",
+            "wayback",
+            "legacy"
+          ],
+          "source": "Internet Archive CDX | TomNomNom",
+          "icon": "📂"
+        }
+      ],
+      "icon": "📂"
+    },
+    {
+      "id": "iot-devices",
+      "title": "IoT, Cameras & Connected Devices",
+      "severity": "high",
+      "description": "Target-scoped cameras, remote devices, telemetry, building controls, and industrial protocols.",
+      "dorks": [
+        {
+          "title": "webcamXP interfaces",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"webcamXP\"",
+          "description": "Finds target-hosted webcamXP interfaces that may expose live video or weakly protected device controls.",
+          "tags": [
+            "camera",
+            "webcamxp",
+            "iot"
+          ],
+          "source": "Shodan query examples | GHDB",
+          "icon": "📷"
+        },
+        {
+          "title": "Generic IP camera interfaces",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"IP Camera\"",
+          "description": "Finds IP camera web interfaces associated with target hostnames.",
+          "tags": [
+            "camera",
+            "iot",
+            "video"
+          ],
+          "source": "Shodan filter reference | GHDB",
+          "icon": "📷"
+        },
+        {
+          "title": "Hikvision device fingerprint",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" product:\"Hikvision\"",
+          "description": "Finds Hikvision devices on target hosts for exposure and firmware-version review.",
+          "tags": [
+            "hikvision",
+            "camera",
+            "iot"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "📷"
+        },
+        {
+          "title": "RTSP video streams",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:554",
+          "description": "Finds Real Time Streaming Protocol services that may expose camera streams or weak authentication.",
+          "tags": [
+            "rtsp",
+            "camera",
+            "streaming"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "📷"
+        },
+        {
+          "title": "SNMP device management",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:161",
+          "description": "Finds SNMP services that may disclose device, network, and system details through weak community strings.",
+          "tags": [
+            "snmp",
+            "iot",
+            "network"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "📷"
+        },
+        {
+          "title": "Modbus industrial control",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:502",
+          "description": "Finds Modbus TCP services associated with the target; exposed industrial protocols require careful passive triage.",
+          "tags": [
+            "modbus",
+            "ics",
+            "iot"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "📷"
+        },
+        {
+          "title": "BACnet building automation",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:47808",
+          "description": "Finds BACnet services used by building automation and HVAC devices on target hosts.",
+          "tags": [
+            "bacnet",
+            "building-automation",
+            "ics"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "📷"
+        },
+        {
+          "title": "MQTT telemetry brokers",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" port:1883",
+          "description": "Finds MQTT brokers that may expose device telemetry, commands, and topic names when anonymous access is enabled.",
+          "tags": [
+            "mqtt",
+            "iot",
+            "telemetry"
+          ],
+          "source": "Shodan filter reference | offensive-osint",
+          "icon": "📷"
+        },
+        {
+          "title": "Hikvision devices on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && app=\"HIKVISION\"",
+          "description": "Finds target-domain devices fingerprinted as Hikvision by FOFA.",
+          "tags": [
+            "hikvision",
+            "fofa",
+            "camera"
+          ],
+          "source": "FOFA fingerprint guide",
+          "icon": "📷"
+        },
+        {
+          "title": "webcamXP interfaces on ZoomEye",
+          "platforms": [
+            "zoomeye"
+          ],
+          "query": "hostname=\"{T}\" && title=\"webcamXP\"",
+          "description": "Finds target-related webcamXP interfaces using ZoomEye title matching.",
+          "tags": [
+            "webcamxp",
+            "zoomeye",
+            "camera"
+          ],
+          "source": "ZoomEye search syntax",
+          "icon": "📷"
+        },
+        {
+          "title": "RTSP on Censys target records",
+          "platforms": [
+            "censys"
+          ],
+          "query": "\"{T}\" and host.services.port=554",
+          "description": "Finds RTSP services on Censys host records containing the target identifier.",
+          "tags": [
+            "rtsp",
+            "censys",
+            "camera"
+          ],
+          "source": "Censys Query Language",
+          "icon": "📷"
+        },
+        {
+          "title": "Indexed camera viewer pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Live View / - AXIS\" OR intitle:\"webcamXP\" OR inurl:view/index.shtml)",
+          "description": "Finds indexed camera interfaces and viewer scripts on target domains.",
+          "tags": [
+            "camera",
+            "axis",
+            "iot"
+          ],
+          "source": "GHDB",
+          "icon": "📷"
+        }
+      ],
+      "icon": "📷"
+    },
+    {
+      "id": "cms-specific",
+      "title": "CMS, Collaboration & CI Platforms",
+      "severity": "high",
+      "description": "WordPress, Atlassian, SharePoint, Jenkins, Drupal, Joomla, AEM, GitLab, and Magento exposure.",
+      "dorks": [
+        {
+          "title": "WordPress asset footprint",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:wp-content OR inurl:wp-includes)",
+          "description": "Identifies WordPress sites and reveals themes, plugins, uploads, and version-specific attack surface.",
+          "tags": [
+            "wordpress",
+            "cms",
+            "plugins"
+          ],
+          "source": "GHDB | SecLists",
+          "icon": "🧩"
+        },
+        {
+          "title": "WordPress public user API",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/wp-json/wp/v2/users\"",
+          "description": "Finds WordPress REST user listings that may disclose author usernames and account metadata.",
+          "tags": [
+            "wordpress",
+            "rest-api",
+            "users"
+          ],
+          "source": "Haddix | SecLists",
+          "icon": "🧩"
+        },
+        {
+          "title": "WordPress installation endpoints",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/wp-admin/install.php\"",
+          "description": "Finds orphaned or re-exposed WordPress installers that may permit unconfigured-site takeover.",
+          "tags": [
+            "wordpress",
+            "installer",
+            "cms"
+          ],
+          "source": "SecLists | GHDB",
+          "icon": "🧩"
+        },
+        {
+          "title": "WordPress XML-RPC endpoints",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:xmlrpc.php",
+          "description": "Finds XML-RPC interfaces that expand authentication, pingback, and legacy API attack surface.",
+          "tags": [
+            "wordpress",
+            "xmlrpc",
+            "api"
+          ],
+          "source": "SecLists | GHDB",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jira dashboards and portals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Jira\" OR inurl:secure/Dashboard.jspa)",
+          "description": "Finds Jira instances that may expose projects, issue metadata, filters, and user information.",
+          "tags": [
+            "jira",
+            "atlassian",
+            "issues"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jira server information API",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/rest/api/2/serverInfo\"",
+          "description": "Finds Jira serverInfo endpoints revealing product version, base URL, and deployment metadata.",
+          "tags": [
+            "jira",
+            "api",
+            "version"
+          ],
+          "source": "SecLists | offensive-osint",
+          "icon": "🧩"
+        },
+        {
+          "title": "Confluence login and instance footprint",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Confluence\" OR inurl:login.action)",
+          "description": "Finds Confluence instances for anonymous-access and version-specific exposure review.",
+          "tags": [
+            "confluence",
+            "atlassian",
+            "wiki"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "Public Confluence spaces and pages",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/display/\" (\"Confluence\" OR \"Space\")",
+          "description": "Finds anonymously readable Confluence space content that may contain architecture, credentials, or internal procedures.",
+          "tags": [
+            "confluence",
+            "wiki",
+            "anonymous"
+          ],
+          "source": "Haddix | offensive-osint",
+          "icon": "🧩"
+        },
+        {
+          "title": "SharePoint layouts and shared documents",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:_layouts OR inurl:Shared%20Documents)",
+          "description": "Finds self-hosted SharePoint interfaces and indexed shared-document libraries.",
+          "tags": [
+            "sharepoint",
+            "documents",
+            "collaboration"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "SharePoint Online tenants and files",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:sharepoint.com \"{T}\"",
+          "description": "Finds target-related SharePoint Online tenants and publicly shared content.",
+          "tags": [
+            "sharepoint",
+            "microsoft365",
+            "sharing"
+          ],
+          "source": "TakSec | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jenkins dashboards",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"Jenkins\" OR inurl:\"/jenkins/\")",
+          "description": "Finds Jenkins instances that may expose jobs, build logs, workspace files, and credentials.",
+          "tags": [
+            "jenkins",
+            "ci-cd",
+            "builds"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jenkins script consoles",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} inurl:\"/script\" (\"Jenkins\" OR \"Groovy\")",
+          "description": "Finds Jenkins Groovy script consoles that provide code execution when anonymously accessible.",
+          "tags": [
+            "jenkins",
+            "groovy",
+            "rce"
+          ],
+          "source": "GHDB | offensive-osint",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jenkins titles on Shodan",
+          "platforms": [
+            "shodan"
+          ],
+          "query": "hostname:\"{T}\" http.title:\"Jenkins\"",
+          "description": "Finds target-hosted Jenkins dashboards using Shodan HTTP title data.",
+          "tags": [
+            "jenkins",
+            "shodan",
+            "ci-cd"
+          ],
+          "source": "Shodan filter reference",
+          "icon": "🧩"
+        },
+        {
+          "title": "Jira fingerprint on FOFA",
+          "platforms": [
+            "fofa"
+          ],
+          "query": "domain=\"{T}\" && app=\"JIRA\"",
+          "description": "Finds target-domain Jira services through FOFA product fingerprinting.",
+          "tags": [
+            "jira",
+            "fofa",
+            "atlassian"
+          ],
+          "source": "FOFA fingerprint guide",
+          "icon": "🧩"
+        },
+        {
+          "title": "Confluence titles on Censys",
+          "platforms": [
+            "censys"
+          ],
+          "query": "web.hostname: \"{T}\" and web.endpoints.http.html_title: \"Confluence\"",
+          "description": "Finds Confluence web interfaces on target hostnames in Censys web data.",
+          "tags": [
+            "confluence",
+            "censys",
+            "wiki"
+          ],
+          "source": "Censys Query Language",
+          "icon": "🧩"
+        },
+        {
+          "title": "Drupal footprint and login routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:user/login OR inurl:node) \"Powered by Drupal\"",
+          "description": "Identifies Drupal sites and authentication routes for module and core exposure review.",
+          "tags": [
+            "drupal",
+            "cms",
+            "login"
+          ],
+          "source": "TakSec | GHDB",
+          "icon": "🧩"
+        },
+        {
+          "title": "Joomla administrator and component routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:administrator OR inurl:index.php?option=com_)",
+          "description": "Finds Joomla administration portals and component URLs that reveal installed extensions.",
+          "tags": [
+            "joomla",
+            "cms",
+            "admin"
+          ],
+          "source": "GHDB | TakSec",
+          "icon": "🧩"
+        },
+        {
+          "title": "Adobe Experience Manager internals",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:/content/dam OR inurl:/crx/de OR inurl:/libs/granite)",
+          "description": "Finds AEM content, CRXDE, and Granite routes that may expose authoring tools or unpublished assets.",
+          "tags": [
+            "aem",
+            "adobe",
+            "cms"
+          ],
+          "source": "TakSec | SecLists",
+          "icon": "🧩"
+        },
+        {
+          "title": "Self-hosted GitLab instances",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (intitle:\"GitLab\" OR inurl:users/sign_in)",
+          "description": "Finds GitLab instances for public project, snippet, registration, and version-exposure review.",
+          "tags": [
+            "gitlab",
+            "source-code",
+            "devops"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "🧩"
+        },
+        {
+          "title": "Magento administration and downloader",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:admin OR inurl:downloader) (\"Magento\" OR \"Mage\")",
+          "description": "Finds Magento admin and downloader surfaces that may expose store administration or vulnerable components.",
+          "tags": [
+            "magento",
+            "ecommerce",
+            "admin"
+          ],
+          "source": "GHDB | GitDorker",
+          "icon": "🧩"
+        }
+      ],
+      "icon": "🧩"
+    },
+    {
+      "id": "paste-leaks",
+      "title": "Paste, Leak & Code-Sharing Sites",
+      "severity": "high",
+      "description": "Target mentions in pastes, gists, leaked snippets, public code playgrounds, and recovery-code files.",
+      "dorks": [
+        {
+          "title": "Pastebin target mentions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:pastebin.com \"{T}\"",
+          "description": "Finds target references in public pastes containing leaked configuration, credentials, logs, or breach data.",
+          "tags": [
+            "pastebin",
+            "leak",
+            "target-mentions"
+          ],
+          "source": "Haddix | NahamSec",
+          "icon": "📋"
+        },
+        {
+          "title": "Rentry target mentions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:rentry.co \"{T}\"",
+          "description": "Finds target references in Rentry documents and leaked text collections.",
+          "tags": [
+            "rentry",
+            "paste",
+            "leak"
+          ],
+          "source": "Haddix | community",
+          "icon": "📋"
+        },
+        {
+          "title": "GitHub Gist target mentions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:gist.github.com \"{T}\"",
+          "description": "Finds public gists with target-related code, configuration, incident notes, and accidental secrets.",
+          "tags": [
+            "gist",
+            "github",
+            "leak"
+          ],
+          "source": "Haddix | NahamSec",
+          "icon": "📋"
+        },
+        {
+          "title": "Hastebin target mentions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:hastebin.com \"{T}\"",
+          "description": "Finds target references in Hastebin pastes and shared diagnostic output.",
+          "tags": [
+            "hastebin",
+            "paste",
+            "logs"
+          ],
+          "source": "Haddix | community",
+          "icon": "📋"
+        },
+        {
+          "title": "Ghostbin target mentions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:ghostbin.com \"{T}\"",
+          "description": "Finds target references in Ghostbin documents and historical paste content.",
+          "tags": [
+            "ghostbin",
+            "paste",
+            "leak"
+          ],
+          "source": "Haddix | community",
+          "icon": "📋"
+        },
+        {
+          "title": "JSFiddle code leaks",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:jsfiddle.net \"{T}\"",
+          "description": "Finds public JavaScript experiments containing target endpoints, API keys, tokens, or proprietary logic.",
+          "tags": [
+            "jsfiddle",
+            "javascript",
+            "leak"
+          ],
+          "source": "TakSec | community",
+          "icon": "📋"
+        },
+        {
+          "title": "CodePen code leaks",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:codepen.io \"{T}\"",
+          "description": "Finds target-related frontend snippets and demonstrations that may embed endpoints or credentials.",
+          "tags": [
+            "codepen",
+            "javascript",
+            "leak"
+          ],
+          "source": "TakSec | community",
+          "icon": "📋"
+        },
+        {
+          "title": "CodeBeautify shared content",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:codebeautify.org \"{T}\"",
+          "description": "Finds target-related formatted code and data shared through CodeBeautify tools.",
+          "tags": [
+            "codebeautify",
+            "code-sharing",
+            "leak"
+          ],
+          "source": "TakSec | community",
+          "icon": "📋"
+        },
+        {
+          "title": "ControlC paste references",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:controlc.com \"{T}\"",
+          "description": "Finds target references in ControlC's searchable paste archive.",
+          "tags": [
+            "controlc",
+            "paste",
+            "leak"
+          ],
+          "source": "community",
+          "icon": "📋"
+        },
+        {
+          "title": "Credential-bearing Pastebin hits",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:pastebin.com \"{T}\" (\"password\" OR \"api_key\" OR \"token\")",
+          "description": "Narrows Pastebin target mentions to pastes explicitly containing credential or token markers.",
+          "tags": [
+            "pastebin",
+            "credentials",
+            "token"
+          ],
+          "source": "Haddix | GHDB",
+          "icon": "📋"
+        },
+        {
+          "title": "Target across Intelligence X collections",
+          "platforms": [
+            "intelx"
+          ],
+          "query": "{T}",
+          "description": "Searches Intelligence X public web, historical, darknet, document, and leak collections for the target selector.",
+          "tags": [
+            "intelx",
+            "leak",
+            "darkweb"
+          ],
+          "source": "Intelligence X selector search",
+          "icon": "📋"
+        },
+        {
+          "title": "Committed account recovery codes",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:github-recovery-codes.txt OR path:gitlab-recovery-codes.txt OR path:discord_backup_codes.txt)",
+          "description": "Finds recovery-code files whose unused codes could bypass normal authentication and MFA.",
+          "tags": [
+            "recovery-codes",
+            "mfa",
+            "account-takeover"
+          ],
+          "source": "techgaun/github-dorks",
+          "icon": "📋"
+        }
+      ],
+      "icon": "📋"
+    },
+    {
+      "id": "employee-osint",
+      "title": "Employee & Email OSINT",
+      "severity": "info",
+      "description": "Public employee identities, target-domain addresses, organizational documents, and technology-focused hiring signals.",
+      "dorks": [
+        {
+          "title": "Target email addresses in documents",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:docx OR ext:xlsx) \"@{T}\"",
+          "description": "Finds target-domain email addresses in official documents and spreadsheets for role and organizational mapping.",
+          "tags": [
+            "email",
+            "documents",
+            "employees"
+          ],
+          "source": "GHDB | NahamSec",
+          "icon": "📧"
+        },
+        {
+          "title": "LinkedIn employee profiles",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:linkedin.com/in \"{T}\"",
+          "description": "Finds public employee profiles associated with the target for role, team, and technology-stack reconnaissance.",
+          "tags": [
+            "linkedin",
+            "employees",
+            "people"
+          ],
+          "source": "NahamSec | Haddix",
+          "icon": "📧"
+        },
+        {
+          "title": "LinkedIn company presence",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:linkedin.com/company \"{T}\"",
+          "description": "Finds target-related company pages and affiliated organizations for brand and subsidiary mapping.",
+          "tags": [
+            "linkedin",
+            "company",
+            "subsidiaries"
+          ],
+          "source": "NahamSec | community",
+          "icon": "📧"
+        },
+        {
+          "title": "Google Groups discussions",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:groups.google.com \"{T}\"",
+          "description": "Finds technical discussions and support archives containing employee addresses, internal hostnames, and configuration details.",
+          "tags": [
+            "google-groups",
+            "email",
+            "technical"
+          ],
+          "source": "TakSec | NahamSec",
+          "icon": "📧"
+        },
+        {
+          "title": "Author metadata in package manifests",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:.mailmap OR path:package.json OR path:setup.py) (author OR email)",
+          "description": "Finds developer names and target-domain email addresses in repository identity and package metadata.",
+          "tags": [
+            "developers",
+            "email",
+            "metadata"
+          ],
+          "source": "community | Haddix",
+          "icon": "📧"
+        },
+        {
+          "title": "Organization mailmap identities",
+          "platforms": [
+            "github"
+          ],
+          "query": "org:{T} (email OR mail) path:.mailmap",
+          "description": "Finds contributor identities and email aliases in a target GitHub organization's mailmap files.",
+          "tags": [
+            "organization",
+            "developers",
+            "mailmap"
+          ],
+          "source": "GitHub code search | community",
+          "icon": "📧"
+        },
+        {
+          "title": "Employee directories and org charts",
+          "platforms": [
+            "google"
+          ],
+          "query": "\"{T}\" (ext:pdf OR ext:xlsx) (\"employee directory\" OR \"org chart\" OR \"staff list\")",
+          "description": "Finds organizational charts and staff directories with names, roles, contact details, and reporting lines.",
+          "tags": [
+            "org-chart",
+            "employees",
+            "directory"
+          ],
+          "source": "GHDB | Haddix",
+          "icon": "📧"
+        },
+        {
+          "title": "Greenhouse and Lever job postings",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "(site:boards.greenhouse.io OR site:jobs.lever.co) \"{T}\"",
+          "description": "Finds target job postings that reveal engineering teams, internal technologies, and operational priorities.",
+          "tags": [
+            "jobs",
+            "technology-stack",
+            "hiring"
+          ],
+          "source": "NahamSec | Haddix",
+          "icon": "📧"
+        },
+        {
+          "title": "Stack Overflow developer profiles",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:stackoverflow.com/users \"{T}\"",
+          "description": "Finds developers publicly linking themselves to the target, potentially revealing technical roles and usernames.",
+          "tags": [
+            "stackoverflow",
+            "developers",
+            "usernames"
+          ],
+          "source": "NahamSec | community",
+          "icon": "📧"
+        },
+        {
+          "title": "Mailto links in indexed source",
+          "platforms": [
+            "publicwww"
+          ],
+          "query": "\"{T}\" \"mailto:\" depth:all",
+          "description": "Finds target references near mailto links in indexed website source for public contact and employee discovery.",
+          "tags": [
+            "mailto",
+            "publicwww",
+            "email"
+          ],
+          "source": "PublicWWW query syntax",
+          "icon": "📧"
+        }
+      ],
+      "icon": "📧"
+    },
+    {
+      "id": "mobile-apk",
+      "title": "Mobile Applications & APK Exposure",
+      "severity": "high",
+      "description": "Mobile app listings, installation packages, manifests, Firebase configuration, and archived mobile artifacts.",
+      "dorks": [
+        {
+          "title": "Google Play applications",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:play.google.com/store/apps \"{T}\"",
+          "description": "Finds target-related Android applications for package-name, developer, endpoint, and ownership reconnaissance.",
+          "tags": [
+            "android",
+            "google-play",
+            "mobile"
+          ],
+          "source": "NahamSec | Haddix",
+          "icon": "📱"
+        },
+        {
+          "title": "Apple App Store applications",
+          "platforms": [
+            "google",
+            "bing",
+            "duckduckgo"
+          ],
+          "query": "site:apps.apple.com \"{T}\"",
+          "description": "Finds target-related iOS applications and developer identities for mobile attack-surface mapping.",
+          "tags": [
+            "ios",
+            "app-store",
+            "mobile"
+          ],
+          "source": "NahamSec | Haddix",
+          "icon": "📱"
+        },
+        {
+          "title": "Direct Android package downloads",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} ext:apk",
+          "description": "Finds Android APK files hosted on target infrastructure for static configuration and endpoint analysis.",
+          "tags": [
+            "apk",
+            "android",
+            "package"
+          ],
+          "source": "GHDB | community",
+          "icon": "📱"
+        },
+        {
+          "title": "Direct iOS package downloads",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} ext:ipa",
+          "description": "Finds iOS IPA packages hosted on target infrastructure, including enterprise or test builds.",
+          "tags": [
+            "ipa",
+            "ios",
+            "package"
+          ],
+          "source": "GHDB | community",
+          "icon": "📱"
+        },
+        {
+          "title": "Android manifest security flags",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" path:AndroidManifest.xml (android:debuggable OR android:exported)",
+          "description": "Finds Android manifests with debuggable or exported components that may expose mobile attack surface.",
+          "tags": [
+            "android",
+            "manifest",
+            "exported"
+          ],
+          "source": "GitDorker | NahamSec",
+          "icon": "📱"
+        },
+        {
+          "title": "Android Firebase service configuration",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" path:google-services.json (api_key OR project_id)",
+          "description": "Finds google-services.json files exposing Firebase project identifiers, API keys, storage buckets, and app IDs.",
+          "tags": [
+            "android",
+            "firebase",
+            "configuration"
+          ],
+          "source": "GitDorker | community",
+          "icon": "📱"
+        },
+        {
+          "title": "iOS Firebase and deployment configuration",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:GoogleService-Info.plist OR path:firebase.json) (API_KEY OR PROJECT_ID)",
+          "description": "Finds iOS Firebase plist and project configuration containing backend identifiers and API metadata.",
+          "tags": [
+            "ios",
+            "firebase",
+            "configuration"
+          ],
+          "source": "GitDorker | community",
+          "icon": "📱"
+        },
+        {
+          "title": "Backend URLs in mobile build files",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (path:*.gradle OR path:Podfile OR path:AndroidManifest.xml) (\"http://\" OR \"https://\")",
+          "description": "Finds mobile build and manifest files containing backend URLs, deep links, cleartext endpoints, and third-party services.",
+          "tags": [
+            "mobile",
+            "endpoints",
+            "build"
+          ],
+          "source": "community | Haddix",
+          "icon": "📱"
+        },
+        {
+          "title": "Mobile package references in urlscan",
+          "platforms": [
+            "urlscan"
+          ],
+          "query": "domain:{T} AND (filename:apk OR filename:ipa)",
+          "description": "Finds archived target-related requests for Android and iOS installation packages.",
+          "tags": [
+            "apk",
+            "ipa",
+            "urlscan"
+          ],
+          "source": "urlscan.io search documentation",
+          "icon": "📱"
+        },
+        {
+          "title": "Archived Firebase Android configuration",
+          "platforms": [
+            "wayback"
+          ],
+          "query": "*.{T}/*google-services.json",
+          "description": "Finds historical google-services.json files on target hosts, including removed mobile backend configuration.",
+          "tags": [
+            "firebase",
+            "wayback",
+            "android"
+          ],
+          "source": "Internet Archive CDX | community",
+          "icon": "📱"
+        }
+      ],
+      "icon": "📱"
+    },
+    {
+      "id": "payment-financial",
+      "title": "Payment & Financial Surface",
+      "severity": "critical",
+      "description": "Payment-provider credentials, checkout flows, cardholder-data indicators, invoices, and financial integration secrets.",
+      "dorks": [
+        {
+          "title": "Checkout, payment, and billing routes",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (inurl:checkout OR inurl:payment OR inurl:billing)",
+          "description": "Finds payment and billing endpoints for workflow, price tampering, IDOR, and integration review.",
+          "tags": [
+            "payment",
+            "checkout",
+            "billing"
+          ],
+          "source": "Haddix | community",
+          "icon": "💳"
+        },
+        {
+          "title": "PayPal integration credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"PAYPAL_CLIENT_SECRET\" OR \"paypal_secret\" OR \"PAYPAL_CLIENT_ID\")",
+          "description": "Finds PayPal application credentials and merchant integration configuration associated with the target.",
+          "tags": [
+            "paypal",
+            "payment",
+            "credentials"
+          ],
+          "source": "GitDorker | techgaun/github-dorks",
+          "icon": "💳"
+        },
+        {
+          "title": "Adyen integration credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"ADYEN_API_KEY\" OR \"ADYEN_MERCHANT_ACCOUNT\")",
+          "description": "Finds Adyen API credentials and merchant accounts that may permit payment-data or transaction access.",
+          "tags": [
+            "adyen",
+            "payment",
+            "api-key"
+          ],
+          "source": "techgaun/github-dorks | community",
+          "icon": "💳"
+        },
+        {
+          "title": "Braintree integration credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"BRAINTREE_PRIVATE_KEY\" OR \"BT_MERCHANT_ID\")",
+          "description": "Finds Braintree private keys and merchant identifiers used by target payment integrations.",
+          "tags": [
+            "braintree",
+            "payment",
+            "private-key"
+          ],
+          "source": "community | GitDorker",
+          "icon": "💳"
+        },
+        {
+          "title": "Square integration credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"SQUARE_ACCESS_TOKEN\" OR \"squareSecret\" OR \"sq0csp-\")",
+          "description": "Finds Square access tokens and application secrets that can expose payment and merchant APIs.",
+          "tags": [
+            "square",
+            "payment",
+            "token"
+          ],
+          "source": "GitDorker",
+          "icon": "💳"
+        },
+        {
+          "title": "Razorpay live credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"RAZORPAY_KEY_SECRET\" OR \"rzp_live_\")",
+          "description": "Finds Razorpay live key material associated with target payment processing.",
+          "tags": [
+            "razorpay",
+            "payment",
+            "api-key"
+          ],
+          "source": "community | GitDorker",
+          "icon": "💳"
+        },
+        {
+          "title": "Mollie API credentials",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" \"MOLLIE_API_KEY\"",
+          "description": "Finds Mollie API-key configuration that may grant access to payment and refund operations.",
+          "tags": [
+            "mollie",
+            "payment",
+            "api-key"
+          ],
+          "source": "community | GitDorker",
+          "icon": "💳"
+        },
+        {
+          "title": "Card and bank-account data fields",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:csv OR ext:xlsx OR ext:sql) (\"card_number\" OR \"iban\" OR \"swift\")",
+          "description": "Finds financial datasets containing card, IBAN, or SWIFT fields and potentially regulated banking data.",
+          "tags": [
+            "pci",
+            "iban",
+            "financial-data"
+          ],
+          "source": "GHDB | offensive-osint",
+          "icon": "💳"
+        },
+        {
+          "title": "PCI and cardholder-data documents",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:docx) (\"cardholder data\" OR \"PCI DSS\" OR \"payment card\")",
+          "description": "Finds payment-security documents that may reveal cardholder-data flows, architecture, and internal controls.",
+          "tags": [
+            "pci",
+            "documents",
+            "cardholder-data"
+          ],
+          "source": "GHDB | offensive-osint",
+          "icon": "💳"
+        },
+        {
+          "title": "Invoices and billing records",
+          "platforms": [
+            "google"
+          ],
+          "query": "site:{T} (ext:pdf OR ext:xlsx) (inurl:invoice OR inurl:billing) (\"total\" OR \"amount\")",
+          "description": "Finds invoices and billing documents containing customer identities, purchase details, and financial metadata.",
+          "tags": [
+            "invoice",
+            "billing",
+            "financial-data"
+          ],
+          "source": "GHDB | community",
+          "icon": "💳"
+        },
+        {
+          "title": "Financial platform integration secrets",
+          "platforms": [
+            "github"
+          ],
+          "query": "\"{T}\" (\"PLAID_SECRET\" OR \"DWOLLA_SECRET\" OR \"COINBASE_API_SECRET\")",
+          "description": "Finds Plaid, Dwolla, and Coinbase integration secrets with potential financial-data or transaction impact.",
+          "tags": [
+            "plaid",
+            "dwolla",
+            "coinbase"
+          ],
+          "source": "community | GitDorker",
+          "icon": "💳"
+        },
+        {
+          "title": "Stripe live keys in Sourcegraph",
+          "platforms": [
+            "sourcegraph"
+          ],
+          "query": "\"{T}\" /sk_live_[0-9a-zA-Z]+/",
+          "description": "Regex-searches Sourcegraph for target-related live Stripe secret keys beyond a single code host.",
+          "tags": [
+            "stripe",
+            "sourcegraph",
+            "regex"
+          ],
+          "source": "Sourcegraph query syntax | techgaun/github-dorks",
+          "icon": "💳"
+        }
+      ],
+      "icon": "💳"
+    }
+  ]
+}

@@ -1,436 +1,567 @@
 (() => {
-  function elapsedStr(start) {
-    try {
-      const diff = Date.now() - new Date(start).getTime();
-      if (isNaN(diff)) return '';
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      if (h > 0) return `${h}h ${m}m`;
-      if (m > 0) return `${m}m ${s}s`;
-      return `${s}s`;
-    } catch (_) {
-      return '';
-    }
-  }
+ function elapsedStr(start) {
+ try {
+ const diff = Date.now() - new Date(start).getTime();
+ if (isNaN(diff)) return '';
+ const h = Math.floor(diff / 3600000);
+ const m = Math.floor((diff % 3600000) / 60000);
+ const s = Math.floor((diff % 60000) / 1000);
+ if (h > 0) return `${h}h ${m}m`;
+ if (m > 0) return `${m}m ${s}s`;
+ return `${s}s`;
+ } catch (_) {
+ return '';
+ }
+ }
 
-  function elapsedBetween(start, end) {
-    try {
-      const diff = new Date(end).getTime() - new Date(start).getTime();
-      if (isNaN(diff) || diff < 0) return '—';
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      if (h > 0) return `${h}h ${m}m`;
-      if (m > 0) return `${m}m ${s}s`;
-      return `${s}s`;
-    } catch (_) {
-      return '—';
-    }
-  }
+ function elapsedBetween(start, end) {
+ try {
+ const diff = new Date(end).getTime() - new Date(start).getTime();
+ if (isNaN(diff) || diff < 0) return '—';
+ const h = Math.floor(diff / 3600000);
+ const m = Math.floor((diff % 3600000) / 60000);
+ const s = Math.floor((diff % 60000) / 1000);
+ if (h > 0) return `${h}h ${m}m`;
+ if (m > 0) return `${m}m ${s}s`;
+ return `${s}s`;
+ } catch (_) {
+ return '—';
+ }
+ }
 
-  function scanTypeLabel(rawType) {
-    const t = String(rawType || '').toLowerCase().trim();
-    const map = {
-      recon: ' Recon Discovery',
-      domain_run: ' Full Domain',
-      subdomain_run: ' Subdomain',
-      lite: ' Lite Workflow',
-      fastlook: ' Fast Look',
-      subdomains: ' Subdomains',
-      livehosts: ' Live Hosts',
-      cnames: ' CNAMEs',
-      urls: ' URLs',
-      js: ' JS Scan',
-      jsscan: ' JS Scan',
-      reflection: '  Reflection',
-      gf: ' GF Patterns',
-      nuclei: ' Nuclei',
-      'nuclei-full': ' Nuclei Full',
-      'nuclei-cves': ' Nuclei CVEs',
-      'nuclei-panels': ' Nuclei Panels',
-      'nuclei-vulnerabilities': ' Nuclei Vulns',
-      'nuclei-default-logins': ' Nuclei Logins',
-      ports: ' Ports',
-      tech: ' Tech Detect',
-      dns: ' DNS Takeover',
-      'dns-takeover': ' DNS Takeover',
-      'dns-dangling-ip': ' Dangling IP',
-      dns_cf1016: ' CF1016 Dangling',
-      'dns-cf1016': ' CF1016 Dangling',
-      backup: ' Backup Files',
-      misconfig: ' Misconfig',
-      s3: ' S3 Scan',
-      github: ' GitHub',
-      github_org: ' GitHub Org',
-      github_scan: ' GitHub',
-      ffuf: ' FFuf Fuzz',
-      zerodays: ' Zero-Days',
-      aem: ' AEM Scan',
-      aem_scan: ' AEM Scan',
-      cleanup: ' Cleanup',
-      depconfusion: ' Dep Confusion',
-      wp_confusion: ' WP Confusion',
-      asr: ' ASR Mode',
-    };
-    if (map[t]) return map[t];
-    return t.replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || rawType;
-  }
+ function scanTypeLabel(rawType) {
+ const t = String(rawType || '').toLowerCase().trim();
+ const map = {
+ recon: ' Recon Discovery',
+ domain_run: ' Full Domain',
+ subdomain_run: ' Subdomain',
+ lite: ' Lite Workflow',
+ fastlook: ' Fast Look',
+ subdomains: ' Subdomains',
+ livehosts: ' Live Hosts',
+ cnames: ' CNAMEs',
+ urls: ' URLs',
+ js: ' Client-side',
+ jsscan: ' Client-side',
+ reflection: ' Reflection',
+ gf: ' GF Patterns',
+ nuclei: ' Nuclei',
+ 'nuclei-full': ' Nuclei Full',
+ 'nuclei-cves': ' Nuclei CVEs',
+ 'nuclei-panels': ' Nuclei Panels',
+ 'nuclei-vulnerabilities': ' Nuclei Vulns',
+ 'nuclei-default-logins': ' Nuclei Logins',
+ ports: ' Ports',
+ tech: ' Tech Detect',
+ dns: ' DNS Takeover',
+ 'dns-takeover': ' DNS Takeover',
+ 'dns-dangling-ip': ' Dangling IP',
+ dns_cf1016: ' CF1016 Dangling',
+ 'dns-cf1016': ' CF1016 Dangling',
+ firebase: ' Firebase Exposure',
+ backup: ' Backup Files',
+ misconfig: ' Misconfig',
+ s3: ' S3 Scan',
+ github: ' GitHub',
+ github_org: ' GitHub Org',
+ github_scan: ' GitHub',
+ ffuf: ' FFuf Fuzz',
+ zerodays: ' Zero-Days',
+ aem: ' AEM Scan',
+ aem_scan: ' AEM Scan',
+ cleanup: ' Cleanup',
+ depconfusion: ' Dep Confusion',
+ wp_confusion: ' WP Confusion',
+ asr: ' ASR Mode',
+ };
+ // Labels lost a leading emoji in the emoji strip; trim the space it left.
+ if (map[t]) return map[t].trim();
+ return t.replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || rawType;
+ }
 
-  function scanItemHtml(s) {
-    const target = s.target || s.Target || '';
-    const scanType = s.scan_type || s.ScanType || '';
-    const statusRaw = (s.status || s.Status || 'running').toLowerCase();
-    const currentPhase = s.current_phase || s.CurrentPhase || 0;
-    const totalPhases = s.total_phases || s.TotalPhases || 0;
-    const startedAt = s.started_at || s.StartedAt || '';
-    const phaseName = s.phase_name || s.PhaseName || '';
-    const phaseStartTime = s.phase_start_time || s.PhaseStartTime || '';
-    const completedPhases = s.completed_phases || s.CompletedPhases || [];
-    const failedPhases = s.failed_phases || s.FailedPhases || [];
-    const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
-    const errorCount = s.error_count || s.ErrorCount || 0;
-    const lastUpdate = s.last_update || s.LastUpdate || '';
-    const scanID = s.scan_id || s.ScanID || '';
+ function scanItemHtml(s) {
+ const target = s.target || s.Target || '';
+ const scanType = s.scan_type || s.ScanType || '';
+ const statusRaw = (s.status || s.Status || 'running').toLowerCase();
+ const currentPhase = s.current_phase || s.CurrentPhase || 0;
+ const totalPhases = s.total_phases || s.TotalPhases || 0;
+ const startedAt = s.started_at || s.StartedAt || '';
+ const phaseName = s.phase_name || s.PhaseName || '';
+ const phaseStartTime = s.phase_start_time || s.PhaseStartTime || '';
+ const completedPhases = s.completed_phases || s.CompletedPhases || [];
+ const failedPhases = s.failed_phases || s.FailedPhases || [];
+ const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+ const errorCount = s.error_count || s.ErrorCount || 0;
+ const lastUpdate = s.last_update || s.LastUpdate || '';
+ const scanID = s.scan_id || s.ScanID || '';
+ const customTitle = !!String(s.name || s.Name || '').trim();
+ const scanDesc = window.scanDescription(s);
 
-    const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
-    const elapsed = elapsedStr(startedAt);
-    const isActive = ['running', 'starting', 'paused', 'cancelling'].includes(statusRaw);
-    const showProgress = ['running', 'starting'].includes(statusRaw);
-    const noPhaseYet = showProgress && currentPhase === 0 && !phaseName;
+ const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
+ const elapsed = elapsedStr(startedAt);
+ const isActive = ['running', 'starting', 'paused', 'cancelling'].includes(statusRaw);
+ const showProgress = ['running', 'starting'].includes(statusRaw);
+ const noPhaseYet = showProgress && currentPhase === 0 && !phaseName;
 
-    let badge = '';
-    if (statusRaw === 'paused') badge = '<span class="badge badge-starting"> paused</span>';
-    else if (statusRaw === 'cancelling') badge = '<span class="badge badge-starting">⋯ stopping</span>';
-    else if (isActive) badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">* live</span>';
+ let badge = '';
+ if (statusRaw === 'paused') badge = '<span class="badge badge-starting"> paused</span>';
+ else if (statusRaw === 'cancelling') badge = '<span class="badge badge-starting">⋯ stopping</span>';
+ else if (isActive) badge = '<span class="badge badge-running" style="animation:pulse 1.4s ease-in-out infinite">* live</span>';
 
-    const actions = isActive ? `
-    <div class="scan-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" onclick="event.stopPropagation()">
-      ${statusRaw !== 'paused' && statusRaw !== 'cancelling'
-    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="pauseScan('${window.esc(scanID)}')"> Pause</button>` : ''}
-      ${statusRaw === 'paused'
-    ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="resumeScan('${window.esc(scanID)}')"> Resume</button>` : ''}
-      <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" onclick="cancelScan('${window.esc(scanID)}')"> Stop</button>
-      <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="goToScanResultsPage('${window.esc(scanID)}');event.stopPropagation()">→ View</button>
-    </div>` : '';
+ const actions = isActive ? `
+ <div class="scan-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center" data-scan-stop="1">
+ ${statusRaw !== 'paused' && statusRaw !== 'cancelling'
+ ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" data-scan-action="pause" data-scan-id="${window.esc(scanID)}"> Pause</button>` : ''}
+ ${statusRaw === 'paused'
+ ? `<button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" data-scan-action="resume-paused" data-scan-id="${window.esc(scanID)}"> Resume</button>` : ''}
+ <button type="button" class="btn btn-ghost scan-btn-stop" style="font-size:11px;padding:4px 10px" data-scan-action="cancel" data-scan-id="${window.esc(scanID)}"> Stop</button>
+ <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" data-scan-action="open" data-scan-id="${window.esc(scanID)}"> View</button>
+ <button type="button" class="btn btn-ghost" style="font-size:11px;padding:4px 10px" data-scan-action="edit" data-scan-id="${window.esc(scanID)}" title="Edit title and description">Edit</button>
+ </div>` : '';
 
-    const phaseElapsed = phaseStartTime ? elapsedStr(phaseStartTime) : '';
-    const phaseSteps = completedPhases.length || phaseName
-      ? [...completedPhases.map((p) => ({ name: p, state: failedPhases.includes(p) ? 'failed' : 'done' })), ...(phaseName ? [{ name: phaseName, state: 'active' }] : [])]
-      : [];
-    const phaseTimeline = phaseSteps.length ? `
-    <div style="display:flex;flex-direction:column;gap:4px;margin-top:10px;margin-bottom:6px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(255,255,255,.05)">
-      ${phaseSteps.map((step, i) => {
-    const isLast = i === phaseSteps.length - 1;
-    const icon = step.state === 'done' ? '<span style="color:#10b981;font-size:11px">OK</span>'
-      : step.state === 'failed' ? '<span style="color:#ef4444;font-size:11px">FAIL</span>'
-        : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-cyan);box-shadow:0 0 6px var(--accent-cyan);animation:pulse 1s ease-in-out infinite;vertical-align:middle"></span>';
-    const color = step.state === 'done' ? 'var(--text-muted)' : step.state === 'failed' ? '#ef4444' : 'var(--text-primary)';
-    const weight = isLast ? '600' : '400';
-    const timer = (isLast && phaseElapsed) ? `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${phaseElapsed}</span>` : '';
-    return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:${color};font-weight:${weight}">
-          <div style="width:16px;text-align:center;flex-shrink:0">${icon}</div>
-          <span style="flex:1">${window.esc(step.name)}</span>${timer}
-        </div>`;
-  }).join('')}
-    </div>` : '';
+ const phaseElapsed = phaseStartTime ? elapsedStr(phaseStartTime) : '';
+ const phaseSteps = completedPhases.length || phaseName
+ ? [...completedPhases.map((p) => ({ name: p, state: failedPhases.includes(p) ? 'failed' : 'done' })), ...(phaseName ? [{ name: phaseName, state: 'active' }] : [])]
+ : [];
+ const phaseTimeline = phaseSteps.length ? `
+ <div style="display:flex;flex-direction:column;gap:4px;margin-top:10px;margin-bottom:6px;padding:10px 12px;background:var(--bg-sunken);border-radius:8px;border:1px solid var(--border)">
+ ${phaseSteps.map((step, i) => {
+ const isLast = i === phaseSteps.length - 1;
+ const icon = step.state === 'done' ? '<span style="color:#10b981;font-size:11px">OK</span>'
+ : step.state === 'failed' ? '<span style="color:var(--accent-red);font-size:11px">FAIL</span>'
+ : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-cyan);box-shadow:0 0 6px var(--accent-cyan);animation:pulse 1s ease-in-out infinite;vertical-align:middle"></span>';
+ const color = step.state === 'done' ? 'var(--text-muted)' : step.state === 'failed' ? '#ef4444' : 'var(--text-primary)';
+ const weight = isLast ? '600' : '400';
+ const timer = (isLast && phaseElapsed) ? `<span style="font-size:10px;color:var(--text-muted);margin-left:6px">${phaseElapsed}</span>` : '';
+ return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:${color};font-weight:${weight}">
+ <div style="width:16px;text-align:center;flex-shrink:0">${icon}</div>
+ <span style="flex:1">${window.esc(step.name)}</span>${timer}
+ </div>`;
+ }).join('')}
+ </div>` : '';
 
-    let progressBlock = '';
-    if (showProgress) {
-      if (noPhaseYet) {
-        progressBlock = `<div class="progress-bar indeterminate" style="margin-top:10px"><div class="progress-fill" style="width:40%"></div></div><div style="font-size:11px;color:var(--text-muted);margin-top:5px">Starting up…</div>`;
-      } else {
-        const barColor = errorCount > 0 ? '#f59e0b' : 'var(--accent-cyan)';
-        progressBlock = `
-        <div style="margin-top:10px;background:rgba(255,255,255,.06);border-radius:6px;height:6px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}cc);border-radius:6px;transition:width .4s ease"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px">
-          <span style="font-size:11px;color:var(--text-muted)">Phase ${currentPhase}${totalPhases > 0 ? '/' + totalPhases : ''} · ${pct}%</span>
-          <div style="display:flex;gap:10px;align-items:center">
-            ${(() => {
-    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
-    const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
-    const icon = isFindingType ? '' : '';
-    return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
-  })()}
-            ${errorCount > 0 ? `<span style="font-size:10px;color:#f59e0b">[!] ${errorCount} error${errorCount !== 1 ? 's' : ''}</span>` : ''}
-            ${lastUpdate ? `<span style="font-size:10px;color:var(--text-muted)" title="${window.esc(lastUpdate)}">updated ${elapsedStr(lastUpdate)} ago</span>` : ''}
-          </div>
-        </div>`;
-      }
-    }
+ let progressBlock = '';
+ if (showProgress) {
+ if (noPhaseYet) {
+ progressBlock = `<div class="progress-bar indeterminate" style="margin-top:10px"><div class="progress-fill" style="width:40%"></div></div><div style="font-size:11px;color:var(--text-muted);margin-top:5px">Starting up…</div>`;
+ } else {
+ const barColor = errorCount > 0 ? '#f59e0b' : 'var(--accent-cyan)';
+ progressBlock = `
+ <div style="margin-top:10px;background:rgba(255,255,255,.06);border-radius:6px;height:6px;overflow:hidden">
+ <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,${barColor},${barColor}cc);border-radius:6px;transition:width .4s ease"></div>
+ </div>
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px">
+ <span style="font-size:11px;color:var(--text-muted)">Phase ${currentPhase}${totalPhases > 0 ? '/' + totalPhases : ''} · ${pct}%</span>
+ <div style="display:flex;gap:10px;align-items:center">
+ ${(() => {
+ const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'firebase', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
+ const label = isFindingType ? (filesUploaded === 1 ? 'finding' : 'findings') : (filesUploaded === 1 ? 'file' : 'files');
+ const icon = isFindingType ? '' : '';
+ return filesUploaded > 0 ? `<span style="font-size:10px;color:var(--text-muted)">${icon} ${filesUploaded} ${label}</span>` : '';
+ })()}
+ ${errorCount > 0 ? `<span style="font-size:10px;color:#f59e0b">[!] ${errorCount} error${errorCount !== 1 ? 's' : ''}</span>` : ''}
+ ${lastUpdate ? `<span style="font-size:10px;color:var(--text-muted)" title="${window.esc(lastUpdate)}">updated ${elapsedStr(lastUpdate)} ago</span>` : ''}
+ </div>
+ </div>`;
+ }
+ }
 
-    return `<div class="scan-item clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})' style="padding:14px 16px;border-radius:10px;border:1px solid ${statusRaw === 'paused' ? 'rgba(251,191,36,.25)' : 'rgba(6,182,212,.2)'};background:${statusRaw === 'paused' ? 'rgba(251,191,36,.04)' : 'rgba(6,182,212,.04)'};margin-bottom:12px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0">
-        <div style="min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="scan-target" style="font-size:14px;font-weight:700;color:var(--text-primary)">${window.esc(target)}</span>
-            <span style="font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:1px 7px;color:var(--text-secondary)" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span>
-            ${badge}
-          </div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Started ${elapsed} ago</div>
-        </div>
-      </div>
-      ${actions}
-    </div>
-    ${phaseTimeline}
-    ${progressBlock}
-  </div>`;
-  }
+ return `<div class="scan-item clickable-row" data-scan-action="open" data-scan-id="${window.esc(scanID)}" style="padding:14px 16px;border-radius:10px;border:1px solid ${statusRaw === 'paused' ? 'rgba(251,191,36,.25)' : 'rgba(6,182,212,.2)'};background:${statusRaw === 'paused' ? 'rgba(251,191,36,.04)' : 'rgba(6,182,212,.04)'};margin-bottom:12px">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+ <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0">
+ <div style="min-width:0">
+ <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+ <span class="scan-title">${window.esc(window.scanTitle(s))}</span>
+ ${customTitle ? `<span class="scan-type-chip" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span>` : ''}
+ ${badge}
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:2px"><span class="scan-target scan-target-mono">${window.esc(target)}</span> · Started ${elapsed} ago${(s.created_by || s.CreatedBy) ? ` · by ${window.esc(s.created_by || s.CreatedBy)}` : ''}</div>
+ ${scanDesc ? `<div class="scan-desc" title="${window.esc(scanDesc)}">${window.esc(scanDesc)}</div>` : ''}
+ </div>
+ </div>
+ ${actions}
+ </div>
+ ${phaseTimeline}
+ ${progressBlock}
+ </div>`;
+ }
 
-  function scanRowHtml(s) {
-    const target = s.target || s.Target || '';
-    const scanType = s.scan_type || s.ScanType || '';
-    const status = s.status || s.Status || '';
-    const statusLc = status.toLowerCase();
-    const currentPhase = s.current_phase || s.CurrentPhase || 0;
-    const totalPhases = s.total_phases || s.TotalPhases || 0;
-    const phaseName = s.phase_name || s.PhaseName || '';
-    const startedAt = s.started_at || s.StartedAt || '';
-    const completedAt = s.completed_at || s.CompletedAt || '';
-    const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
-    const resultURL = s.result_url || s.ResultURL || '';
-    const done = ['completed', 'done'].includes(statusLc);
-    const compPhases = s.completed_phases || s.CompletedPhases || [];
-    const failPhases = s.failed_phases || s.FailedPhases || [];
-    const cleanName = (n) => n.replace(/^\[Stage \d+\]\s*/i, '').replace(/^\[.*?\]\s*/, '');
-    let phaseCol = '';
-    if (done) {
-      const skipped = Math.max(0, totalPhases - (compPhases.length + failPhases.length));
-      const compList = compPhases.length ? compPhases.map((p) => `OK ${cleanName(p)}`).join('\n') : 'None';
-      const failList = failPhases.length ? failPhases.map((p) => `FAIL ${cleanName(p)}`).join('\n') : 'None';
-      const skipCount = skipped > 0 ? `${skipped} stage(s) did not run (timeout/skipped/unlaunched)` : 'All stages accounted for';
-      const tooltipText = `Completed (${compPhases.length}):\n${compList}\n\nFailed (${failPhases.length}):\n${failList}\n\nSkipped: ${skipCount}`;
-      if (pct < 100 && skipped > 0) {
-        const failPart = failPhases.length ? ` · ${failPhases.length} failed` : '';
-        phaseCol = `<span style="font-size:11px;color:var(--text-muted);border-bottom:1px dashed var(--text-muted);cursor:help" title="${window.esc(tooltipText)}">Ended at ${pct}% · ${compPhases.length} done${failPart} · ${skipped} skipped</span>`;
-      } else {
-        const failPart = failPhases.length ? ` · <span style="color:#ef4444">${failPhases.length} failed</span>` : '';
-        phaseCol = `<span style="font-size:11px;color:var(--accent-emerald);font-weight:600;border-bottom:1px dashed var(--accent-emerald);cursor:help" title="${window.esc(tooltipText)}">Done · ${compPhases.length} stages${failPart}</span>`;
-      }
-    } else {
-      phaseCol = `<span style="font-size:11px;color:var(--text-muted)">${pct}%${phaseName ? ` — ${window.esc(phaseName)}` : ''}</span>`;
-    }
+ function scanRowHtml(s) {
+ const target = s.target || s.Target || '';
+ const scanType = s.scan_type || s.ScanType || '';
+ const status = s.status || s.Status || '';
+ const statusLc = status.toLowerCase();
+ const currentPhase = s.current_phase || s.CurrentPhase || 0;
+ const totalPhases = s.total_phases || s.TotalPhases || 0;
+ const phaseName = s.phase_name || s.PhaseName || '';
+ const startedAt = s.started_at || s.StartedAt || '';
+ const completedAt = s.completed_at || s.CompletedAt || '';
+ const pct = totalPhases > 0 ? Math.round((currentPhase / totalPhases) * 100) : 0;
+ const resultURL = s.result_url || s.ResultURL || '';
+ const done = ['completed', 'done'].includes(statusLc);
+ const compPhases = s.completed_phases || s.CompletedPhases || [];
+ const failPhases = s.failed_phases || s.FailedPhases || [];
+ const cleanName = (n) => n.replace(/^\[Stage \d+\]\s*/i, '').replace(/^\[.*?\]\s*/, '');
+ let phaseCol = '';
+ if (done) {
+ const skipped = Math.max(0, totalPhases - (compPhases.length + failPhases.length));
+ const compList = compPhases.length ? compPhases.map((p) => `OK ${cleanName(p)}`).join('\n') : 'None';
+ const failList = failPhases.length ? failPhases.map((p) => `FAIL ${cleanName(p)}`).join('\n') : 'None';
+ const skipCount = skipped > 0 ? `${skipped} stage(s) did not run (timeout/skipped/unlaunched)` : 'All stages accounted for';
+ const tooltipText = `Completed (${compPhases.length}):\n${compList}\n\nFailed (${failPhases.length}):\n${failList}\n\nSkipped: ${skipCount}`;
+ if (pct < 100 && skipped > 0) {
+ const failPart = failPhases.length ? ` · ${failPhases.length} failed` : '';
+ phaseCol = `<span style="font-size:11px;color:var(--text-muted);border-bottom:1px dashed var(--text-muted);cursor:help" title="${window.esc(tooltipText)}">Ended at ${pct}% · ${compPhases.length} done${failPart} · ${skipped} skipped</span>`;
+ } else {
+ const failPart = failPhases.length ? ` · <span style="color:var(--accent-red)">${failPhases.length} failed</span>` : '';
+ phaseCol = `<span style="font-size:11px;color:var(--accent-emerald);font-weight:600;border-bottom:1px dashed var(--accent-emerald);cursor:help" title="${window.esc(tooltipText)}">Done · ${compPhases.length} stages${failPart}</span>`;
+ }
+ } else {
+ phaseCol = `<span style="font-size:11px;color:var(--text-muted)">${pct}%${phaseName ? ` — ${window.esc(phaseName)}` : ''}</span>`;
+ }
 
-    const badge = window.statusBadge(status);
-    const elapsed = completedAt ? elapsedBetween(startedAt, completedAt) : elapsedStr(startedAt);
-    const scanID = s.scan_id || s.ScanID || '';
-    const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
-    const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
-    const label = isFindingType ? 'findings' : 'files';
-    const icon = isFindingType ? '' : '';
-    const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';
-    const resultsCell = resultURL
-      ? `${badgeHtml}<a href="${window.esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
-      : `${badgeHtml}<button type="button" class="scan-control-btn-r2" onclick='event.stopPropagation();browseR2ForScan(${JSON.stringify(target)}, ${JSON.stringify(scanType)})'>Browse R2</button>`;
-    const running = ['running', 'starting', 'paused'].includes(statusLc);
-    const rescanBtn = !running
-      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" onclick='event.stopPropagation();rescanScan(${JSON.stringify(scanID)})' title="Re-run with same command"> Rescan</button>`
-      : '';
-    const cloneBtn = !running
-      ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(34,211,238,.35);color:var(--accent-cyan)" onclick='event.stopPropagation();cloneScanToLauncher(${JSON.stringify(scanType)}, ${JSON.stringify(target)})' title="Prefill the launcher to re-run with edits">Clone</button>`
-      : '';
-    const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" onclick='event.stopPropagation();deleteScan(${JSON.stringify(scanID)}, ${JSON.stringify(target)})'>Delete</button>`;
-    const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" onclick="event.stopPropagation()" aria-label="Select scan" />`;
-    return `<tr class="clickable-row" onclick='goToScanResultsPage(${JSON.stringify(scanID)})'>
-    <td onclick="event.stopPropagation()">${rowSelect}</td>
-    <td><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent-cyan)">${window.esc(target)}</span></td>
-    <td><span class="scan-type" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span></td>
-    <td>${badge}</td>
-    <td>${phaseCol}</td>
-    <td style="font-size:11px;color:var(--text-muted)">${window.fmtDate(startedAt)}</td>
-    <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${elapsed}</td>
-    <td onclick="event.stopPropagation()">${resultsCell}${rescanBtn}${cloneBtn}${deleteBtn}</td>
-  </tr>`;
-  }
+ const badge = window.statusBadge(status);
+ const elapsed = completedAt ? elapsedBetween(startedAt, completedAt) : elapsedStr(startedAt);
+ const scanID = s.scan_id || s.ScanID || '';
+ const filesUploaded = s.files_uploaded || s.FilesUploaded || 0;
+ const isFindingType = ['reflection', 'dns_cf1016', 'dns-cf1016', 'firebase', 'dns', 'dns-takeover', 'dns-dangling-ip', 'nuclei', 'nuclei-full', 'nuclei-cves', 'nuclei-panels', 'nuclei-vulnerabilities', 'nuclei-default-logins', 'misconfig', 's3', 'github', 'github_org', 'github_scan', 'zerodays', 'jwt', 'pipeline', 'gf', 'ffuf', 'sqlmap', 'backup', 'mcp-discovery'].includes(scanType);
+ const label = isFindingType ? 'findings' : 'files';
+ const icon = isFindingType ? '' : '';
+ const badgeHtml = filesUploaded > 0 ? `<span class="badge badge-running" style="font-size:10px;padding:2px 6px;margin-bottom:4px;display:inline-block;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);color:var(--accent-cyan);cursor:help" title="${filesUploaded} ${label} identified">${icon} ${filesUploaded} ${label}</span><br/>` : '';
+ const resultsCell = resultURL
+ ? `${badgeHtml}<a href="${window.esc(resultURL)}" target="_blank" onclick="event.stopPropagation()" class="scan-result-link">Download</a>`
+ : `${badgeHtml}<button type="button" class="scan-control-btn-r2" data-scan-action="browse-r2" data-scan-target="${window.esc(target)}" data-scan-type="${window.esc(scanType)}">Browse R2</button>`;
+ const running = ['running', 'starting', 'paused'].includes(statusLc);
+ const rescanBtn = !running
+ ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.35);color:var(--accent-emerald)" data-scan-action="rescan" data-scan-id="${window.esc(scanID)}" title="Re-run with same command"> Rescan</button>`
+ : '';
+ const cloneBtn = !running
+ ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(34,211,238,.35);color:var(--accent-cyan)" data-scan-action="clone" data-scan-type="${window.esc(scanType)}" data-scan-target="${window.esc(target)}" title="Prefill the launcher to re-run with edits">Clone</button>`
+ : '';
+ // Resume: only failed/timed-out/cancelled workflow scans (domain_run / subdomain_run)
+ // can continue from their last completed phase; other types must Rescan from scratch.
+ const resumable = !running && ['failed', 'timed_out', 'cancelled', 'stopped'].includes(statusLc) && ['domain_run', 'subdomain_run'].includes(scanType);
+ const resumeBtn = resumable
+ ? `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(52,211,153,.45);color:var(--accent-emerald)" data-scan-action="resume" data-scan-id="${window.esc(scanID)}" title="Resume from the last completed phase"> Resume</button>`
+ : '';
+ const deleteBtn = `<button type="button" class="scan-control-btn-r2" style="margin-left:6px;border-color:rgba(248,113,113,.35);color:var(--accent-red)" data-scan-action="delete" data-scan-id="${window.esc(scanID)}" data-scan-target="${window.esc(target)}">Delete</button>`;
+ const rowSelect = `<input type="checkbox" class="scan-row-select" data-scan-id="${window.esc(scanID)}" aria-label="Select scan" />`;
+ const createdBy = s.created_by || s.CreatedBy || '';
+ const byCell = createdBy
+ ? `<span style="font-size:11px;color:var(--text-secondary)" title="Initiated by ${window.esc(createdBy)}">${window.esc(createdBy)}</span>`
+ : '<span style="font-size:11px;color:var(--text-muted)">—</span>';
+ const rowDesc = window.scanDescription(s);
+ return `<tr class="clickable-row" data-scan-action="open" data-scan-id="${window.esc(scanID)}">
+ <td data-scan-stop="1">${rowSelect}</td>
+ <td class="scan-row-name"${rowDesc ? ` title="${window.esc(rowDesc)}"` : ''}><div class="scan-row-title">${window.esc(window.scanTitle(s))}</div><div class="scan-row-target">${window.esc(target)}</div>${rowDesc ? `<div class="scan-row-desc">${window.esc(rowDesc)}</div>` : ''}</td>
+ <td><span class="scan-type" title="${window.esc(scanType)}">${window.esc(scanTypeLabel(scanType))}</span></td>
+ <td>${byCell}</td>
+ <td>${badge}</td>
+ <td>${phaseCol}</td>
+ <td style="font-size:11px;color:var(--text-muted)">${window.fmtDate(startedAt)}</td>
+ <td style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted)">${elapsed}</td>
+ <td data-scan-stop="1">${resultsCell}${resumeBtn}${rescanBtn}${cloneBtn}${deleteBtn}</td>
+ </tr>`;
+ }
 
-  function renderScans() {
-    const container = document.getElementById('scans-container');
-    if (!container) return;
-    const scanErr = window.state.error.scans;
-    const { active_scans = [], recent_scans = [] } = window.state.scans;
-    const sUI = window.state.scanListUI;
-    const lUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
-    const filterFn = (s) => {
-      const target = (s.target || s.Target || '').toLowerCase();
-      const type = (s.scan_type || s.ScanType || '').toLowerCase();
-      const status = (s.status || s.Status || '').toLowerCase();
-      const matchesSearch = !sUI.search || target.includes(sUI.search.toLowerCase());
-      // Stored scan_type values are often suffixed (nuclei-full, dns-takeover,
-      // dns_cf1016…), so match the filter as a type prefix on a -/_ boundary,
-      // not by exact equality, or those scans become unfilterable.
-      const tf = sUI.typeFilter.toLowerCase();
-      const matchesType = sUI.typeFilter === 'all' || type === tf || type.startsWith(`${tf}-`) || type.startsWith(`${tf}_`);
-      let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
-      if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped' || status === 'timed_out')) matchesStatus = true;
-      return matchesSearch && matchesType && matchesStatus;
-    };
-    const filteredActive = active_scans.filter(filterFn);
-    const filteredRecent = recent_scans.filter(filterFn);
-    let html = '';
-    if (scanErr) {
-      html += `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-red);background:rgba(239,68,68,0.08)"><div class="card-body" style="padding:14px 16px;font-size:13px;color:var(--accent-red)">Could not load scans: ${window.esc(scanErr)}</div></div>`;
-    }
-    html += `<div class="scan-launcher">
-      <div class="scan-launcher-head">
-        <div class="scan-launcher-title"><span class="scan-launcher-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Quick Scan Launcher</div>
-        <div class="scan-launcher-sub">Pick a scan type, point it at a target, tune the flags, then launch.</div>
-      </div>
-      <div class="launcher-grid">
-        <div class="launcher-field launcher-field-type">
-          <label for="launch-type">Scan type</label>
-          <select id="launch-type">
-            <optgroup label="Workflows">
-              <option value="recon" ${lUI.scanType === 'recon' ? 'selected' : ''}>recon (Asset Discovery)</option>
-              <option value="domain_scan" ${lUI.scanType === 'domain_scan' ? 'selected' : ''}>domain_scan (Full Workflow)</option>
-              <option value="subdomain_scan" ${lUI.scanType === 'subdomain_scan' ? 'selected' : ''}>subdomain_scan (Single Subdomain)</option>
-              <option value="asr" ${lUI.scanType === 'asr' ? 'selected' : ''}>asr (Attack Surface Reduction)</option>
-            </optgroup>
-            <optgroup label="Modules">
-              <option value="urls" ${lUI.scanType === 'urls' ? 'selected' : ''}>urls</option>
-              <option value="tech" ${lUI.scanType === 'tech' ? 'selected' : ''}>tech</option>
-              <option value="nuclei" ${lUI.scanType === 'nuclei' ? 'selected' : ''}>nuclei</option>
-              <option value="ports" ${lUI.scanType === 'ports' ? 'selected' : ''}>ports</option>
-            </optgroup>
-            <optgroup label="DNS">
-              <option value="dns" ${lUI.scanType === 'dns' ? 'selected' : ''}>dns (takeover)</option>
-              <option value="dns_dangling" ${lUI.scanType === 'dns_dangling' ? 'selected' : ''}>dns (dangling-ip)</option>
-              <option value="dns_cf1016" ${lUI.scanType === 'dns_cf1016' ? 'selected' : ''}>dns-cf1016</option>
-            </optgroup>
-            <optgroup label="Cloud &amp; source">
-              <option value="s3" ${lUI.scanType === 's3' ? 'selected' : ''}>s3 (bucket)</option>
-              <option value="github" ${lUI.scanType === 'github' ? 'selected' : ''}>github</option>
-              <option value="github_org" ${lUI.scanType === 'github_org' ? 'selected' : ''}>github_org</option>
-            </optgroup>
-            <optgroup label="Advanced">
-              <option value="js" ${lUI.scanType === 'js' ? 'selected' : ''}>js</option>
-              <option value="reflection" ${lUI.scanType === 'reflection' ? 'selected' : ''}>reflection</option>
-              <option value="gf" ${lUI.scanType === 'gf' ? 'selected' : ''}>gf</option>
-              <option value="backup" ${lUI.scanType === 'backup' ? 'selected' : ''}>backup</option>
-              <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
-              <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
-              <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
-            </optgroup>
-          </select>
-        </div>
-        <div class="launcher-field launcher-field-mode">
-          <label for="launch-target-mode">Input</label>
-          <select id="launch-target-mode"></select>
-        </div>
-        <div class="launcher-field launcher-field-target" id="launch-target-field">
-          <label for="launch-target">Target</label>
-          <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
-          <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
-        </div>
-        <div class="launcher-field launcher-field-action">
-          <button class="btn-primary" id="launch-btn"><span class="launch-btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><polygon points="5 3 19 12 5 21 5 3"/></svg></span><span>Launch</span></button>
-        </div>
-      </div>
-      <div id="launch-help" class="launch-help"></div>
-      <div class="launcher-flags">
-        <details class="launcher-accordion" open>
-          <summary>Essential flags</summary>
-          <div id="launch-flags-essential" class="launch-flags-grid"></div>
-        </details>
-        <details class="launcher-accordion">
-          <summary>Advanced flags</summary>
-          <div id="launch-flags-advanced" class="launch-flags-grid"></div>
-        </details>
-      </div>
-      <div id="launch-status" class="launch-status" style="display:none"></div>
-    </div>`;
-    html += `<div class="scans-toolbar">
-      <div class="scans-toolbar-search">
-        <span class="scans-toolbar-search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span>
-        <input type="text" id="scan-search-input" class="search-input" placeholder="Search targets or scan types…" value="${window.esc(sUI.search)}" autocomplete="off" />
-      </div>
-      <select id="scan-type-filter" class="input scans-toolbar-select">
-        <option value="all">All Scan Types</option>
-        <optgroup label="Workflows">
-          <option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option>
-          <option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option>
-          <option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option>
-          <option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option>
-        </optgroup>
-        <optgroup label="Modules">
-          <option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option>
-          <option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option>
-          <option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option>
-          <option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option>
-          <option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option>
-          <option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>JS Scan</option>
-          <option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option>
-        </optgroup>
-      </select>
-      <select id="scan-status-filter" class="input scans-toolbar-select">
-        <option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option>
-        <option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option>
-        <option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option>
-        <option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option>
-        <option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option>
-      </select>
-    </div>`;
-    if (filteredActive.length) {
-      html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title"> Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
-    }
-    html += `<div class="card"><div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px"><div class="card-title"> Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:#f59e0b;border-color:rgba(245,158,11,.35)" onclick="deleteScansNoFindings()">Delete no findings</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button></div></div><div class="card-body">`;
-    if (!filteredRecent.length && !filteredActive.length) {
-      if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') html += window.emptyState('', 'No matches found', 'Adjust your filters or search term to see more scans.');
-      else html += scanErr ? window.emptyState('[!]', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('', 'No scans yet', 'Start a scan from the launcher above or via the CLI.');
-    } else if (!filteredRecent.length && recent_scans.length > 0) {
-      html += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>';
-    } else if (filteredRecent.length > 0) {
-      html += `<table class="data-table" id="recent-scans-table"><thead><tr><th style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" title="Select all" aria-label="Select all" onclick="event.stopPropagation();toggleSelectAllRecentScans(this)" /></th><th>Target</th><th>Type</th><th>Status</th><th>Phase</th><th>Started</th><th>Elapsed</th><th>Results</th></tr></thead><tbody>${filteredRecent.map((s) => scanRowHtml(s)).join('')}</tbody></table>`;
-    }
-    html += '</div></div>';
-    container.innerHTML = html;
-    const searchIn = container.querySelector('#scan-search-input');
-    if (searchIn) searchIn.oninput = (e) => { const pos = e.target.selectionStart; window.state.scanListUI.search = e.target.value; renderScans(); const inp = document.getElementById('scan-search-input'); if (inp) { inp.focus(); inp.setSelectionRange(pos, pos); } };
-    const typeSel = container.querySelector('#scan-type-filter');
-    if (typeSel) typeSel.onchange = (e) => { window.state.scanListUI.typeFilter = e.target.value; renderScans(); };
-    const statusSel = container.querySelector('#scan-status-filter');
-    if (statusSel) statusSel.onchange = (e) => { window.state.scanListUI.statusFilter = e.target.value; renderScans(); };
-    const launchBtn = container.querySelector('#launch-btn');
-    const launchType = container.querySelector('#launch-type');
-    const launchTargetMode = container.querySelector('#launch-target-mode');
-    const launchTarget = container.querySelector('#launch-target');
-    const launchTargetList = container.querySelector('#launch-target-list');
-    if (launchBtn) launchBtn.onclick = window.triggerScan;
-    if (launchType) launchType.onchange = () => {
-      window.state.scanLaunchUI = window.state.scanLaunchUI || {};
-      window.state.scanLaunchUI.scanType = launchType.value;
-      window.syncLaunchPlaceholder(true);
-    };
-    if (launchTargetMode) launchTargetMode.onchange = () => window.syncLaunchPlaceholder(false);
-    if (launchTarget) launchTarget.oninput = window.updateLaunchPreview;
-    if (launchTargetList) launchTargetList.oninput = window.updateLaunchPreview;
-    container.oninput = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
-    container.onchange = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
-    if (launchTargetMode && lUI.targetMode) launchTargetMode.dataset.preferred = lUI.targetMode;
-    window.syncLaunchPlaceholder(true);
-    // After a "Clone" prefilled the launcher, focus + scroll it into view here
-    // (reliable regardless of the async loadScans re-render that rebuilt the DOM).
-    if (window.state.scanLaunchUI && window.state.scanLaunchUI._pendingCloneFocus) {
-      delete window.state.scanLaunchUI._pendingCloneFocus;
-      const inp = document.getElementById('launch-target');
-      if (inp) { try { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* ignore */ } }
-    }
-    // Restore the post-launch status summary once (it would otherwise be wiped
-    // by this re-render). One-shot so it doesn't linger on later navigations.
-    if (window.state.scanLaunchUI && window.state.scanLaunchUI._launchStatus) {
-      const st = window.state.scanLaunchUI._launchStatus;
-      delete window.state.scanLaunchUI._launchStatus;
-      const se = document.getElementById('launch-status');
-      if (se) { se.textContent = st.text; se.style.color = st.color || 'var(--text-muted)'; se.style.display = st.text ? '' : 'none'; }
-    }
-  }
+ function renderScans() {
+ const container = document.getElementById('scans-container');
+ if (!container) return;
+ // Load the current user once so the "My scans" filter option can appear.
+ if (window.state._me === undefined) {
+ window.state._me = null; // guard against duplicate in-flight fetches
+ window.apiFetch('/api/auth/me').then((me) => { window.state._me = me; if (window.state.view === 'scans') renderScans(); }).catch(() => {});
+ }
+ const scanErr = window.state.error.scans;
+ const { active_scans = [], recent_scans = [] } = window.state.scans;
+ const sUI = window.state.scanListUI;
+ const lUI = window.state.scanLaunchUI || { scanType: 'recon', targetMode: 'domain', target: '', targetList: '' };
+ const filterFn = (s) => {
+ const target = (s.target || s.Target || '').toLowerCase();
+ const type = (s.scan_type || s.ScanType || '').toLowerCase();
+ const status = (s.status || s.Status || '').toLowerCase();
+ const matchesSearch = !sUI.search || target.includes(sUI.search.toLowerCase());
+ // Stored scan_type values are often suffixed (nuclei-full, dns-takeover,
+ // dns_cf1016…), so match the filter as a type prefix on a -/_ boundary,
+ // not by exact equality, or those scans become unfilterable.
+ const tf = sUI.typeFilter.toLowerCase();
+ const matchesType = sUI.typeFilter === 'all' || type === tf || type.startsWith(`${tf}-`) || type.startsWith(`${tf}_`);
+ let matchesStatus = sUI.statusFilter === 'all' || status === sUI.statusFilter.toLowerCase();
+ if (sUI.statusFilter === 'stopped' && (status === 'cancelled' || status === 'stopped' || status === 'timed_out')) matchesStatus = true;
+ const by = (s.created_by || s.CreatedBy || '').toLowerCase();
+ const uf = sUI.userFilter || 'all';
+ let matchesUser = true;
+ if (uf === '__mine__') matchesUser = by === ((window.state._me && window.state._me.username) || '').toLowerCase();
+ else if (uf !== 'all') matchesUser = by === uf.toLowerCase();
+ return matchesSearch && matchesType && matchesStatus && matchesUser;
+ };
+ const scanUsers = [...new Set([...active_scans, ...recent_scans].map((s) => s.created_by || s.CreatedBy || '').filter(Boolean))].sort();
+ const myName = window.state._me && window.state._me.username;
+ const filteredActive = active_scans.filter(filterFn);
+ const filteredRecent = recent_scans.filter(filterFn);
+ let html = '';
+ if (scanErr) {
+ html += `<div class="card" style="margin-bottom:16px;border:1px solid var(--accent-red);background:rgba(239,68,68,0.08)"><div class="card-body" style="padding:14px 16px;font-size:13px;color:var(--accent-red)">Could not load scans: ${window.esc(scanErr)}</div></div>`;
+ }
+ html += `<div class="scan-launcher">
+ <div class="scan-launcher-head">
+ <div class="scan-launcher-title"><span class="scan-launcher-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span> Quick Scan Launcher</div>
+ <div class="scan-launcher-sub">Pick a scan type, point it at a target, tune the flags, then launch.</div>
+ </div>
+ <div class="launcher-grid">
+ <div class="launcher-field launcher-field-type">
+ <label for="launch-type">Scan type</label>
+ <select id="launch-type">
+ <optgroup label="Workflows">
+ <option value="recon" ${lUI.scanType === 'recon' ? 'selected' : ''}>recon (Asset Discovery)</option>
+ <option value="domain_scan" ${lUI.scanType === 'domain_scan' ? 'selected' : ''}>domain_scan (Full Workflow)</option>
+ <option value="subdomain_scan" ${lUI.scanType === 'subdomain_scan' ? 'selected' : ''}>subdomain_scan (Single Subdomain)</option>
+ <option value="asr" ${lUI.scanType === 'asr' ? 'selected' : ''}>asr (Attack Surface Reduction)</option>
+ </optgroup>
+ <optgroup label="Modules">
+ <option value="urls" ${lUI.scanType === 'urls' ? 'selected' : ''}>urls</option>
+ <option value="tech" ${lUI.scanType === 'tech' ? 'selected' : ''}>tech</option>
+ <option value="nuclei" ${lUI.scanType === 'nuclei' ? 'selected' : ''}>nuclei</option>
+ <option value="ports" ${lUI.scanType === 'ports' ? 'selected' : ''}>ports</option>
+ </optgroup>
+ <optgroup label="DNS">
+ <option value="dns" ${lUI.scanType === 'dns' ? 'selected' : ''}>dns (takeover)</option>
+ <option value="dns_dangling" ${lUI.scanType === 'dns_dangling' ? 'selected' : ''}>dns (dangling-ip)</option>
+ <option value="dns_cf1016" ${lUI.scanType === 'dns_cf1016' ? 'selected' : ''}>dns-cf1016</option>
+ <option value="firebase" ${lUI.scanType === 'firebase' ? 'selected' : ''}>firebase</option>
+ </optgroup>
+ <optgroup label="Cloud &amp; source">
+ <option value="s3" ${lUI.scanType === 's3' ? 'selected' : ''}>s3 (bucket)</option>
+ <option value="github" ${lUI.scanType === 'github' ? 'selected' : ''}>github</option>
+ <option value="github_org" ${lUI.scanType === 'github_org' ? 'selected' : ''}>github_org</option>
+ </optgroup>
+ <optgroup label="Advanced">
+ <option value="js" ${lUI.scanType === 'js' ? 'selected' : ''}>client-side (JS secrets + sinks)</option>
+ <option value="reflection" ${lUI.scanType === 'reflection' ? 'selected' : ''}>reflection</option>
+ <option value="gf" ${lUI.scanType === 'gf' ? 'selected' : ''}>gf</option>
+ <option value="backup" ${lUI.scanType === 'backup' ? 'selected' : ''}>backup</option>
+ <option value="misconfig" ${lUI.scanType === 'misconfig' ? 'selected' : ''}>misconfig</option>
+ <option value="zerodays" ${lUI.scanType === 'zerodays' ? 'selected' : ''}>zerodays</option>
+ <option value="ffuf" ${lUI.scanType === 'ffuf' ? 'selected' : ''}>ffuf</option>
+ </optgroup>
+ </select>
+ </div>
+ <div class="launcher-field launcher-field-mode">
+ <label for="launch-target-mode">Input</label>
+ <select id="launch-target-mode"></select>
+ </div>
+ <div class="launcher-field launcher-field-target" id="launch-target-field">
+ <label for="launch-target">Target</label>
+ <input type="text" id="launch-target" value="${window.esc(lUI.target || '')}" placeholder="e.g. example.com" autocomplete="off" spellcheck="false" />
+ <textarea id="launch-target-list" class="launch-target-list" placeholder="one target per line" style="display:none">${window.esc(lUI.targetList || '')}</textarea>
+ </div>
+ <div class="launcher-field launcher-field-action">
+ <button class="btn-primary" id="launch-btn"><span class="launch-btn-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><polygon points="5 3 19 12 5 21 5 3"/></svg></span><span>Launch</span></button>
+ </div>
+ </div>
+ <div class="launcher-meta-row">
+ <div class="launcher-field launcher-field-title">
+ <label for="launch-title">Title (optional)</label>
+ <input type="text" id="launch-title" maxlength="120" placeholder="e.g. Q4 recon on new roots" autocomplete="off" />
+ </div>
+ <div class="launcher-field launcher-field-desc">
+ <label for="launch-desc">Description (optional)</label>
+ <input type="text" id="launch-desc" maxlength="2000" placeholder="Why this scan, what to look for" autocomplete="off" />
+ </div>
+ </div>
+ <div id="launch-help" class="launch-help"></div>
+ <div class="launcher-flags">
+ <details class="launcher-accordion" open>
+ <summary>Essential flags</summary>
+ <div id="launch-flags-essential" class="launch-flags-grid"></div>
+ </details>
+ <details class="launcher-accordion">
+ <summary>Advanced flags</summary>
+ <div id="launch-flags-advanced" class="launch-flags-grid"></div>
+ </details>
+ </div>
+ <div id="launch-status" class="launch-status" style="display:none"></div>
+ </div>`;
+ html += `<div class="scans-toolbar">
+ <div class="scans-toolbar-search">
+ <span class="scans-toolbar-search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span>
+ <input type="text" id="scan-search-input" class="search-input" placeholder="Search targets or scan types…" value="${window.esc(sUI.search)}" autocomplete="off" />
+ </div>
+ <select id="scan-type-filter" class="input scans-toolbar-select">
+ <option value="all">All Scan Types</option>
+ <optgroup label="Workflows">
+ <option value="recon" ${sUI.typeFilter === 'recon' ? 'selected' : ''}>Recon</option>
+ <option value="domain_run" ${sUI.typeFilter === 'domain_run' ? 'selected' : ''}>Full Domain</option>
+ <option value="subdomain_run" ${sUI.typeFilter === 'subdomain_run' ? 'selected' : ''}>Subdomain Run</option>
+ <option value="asr" ${sUI.typeFilter === 'asr' ? 'selected' : ''}>ASR Mode</option>
+ </optgroup>
+ <optgroup label="Modules">
+ <option value="nuclei" ${sUI.typeFilter === 'nuclei' ? 'selected' : ''}>Nuclei</option>
+ <option value="subdomains" ${sUI.typeFilter === 'subdomains' ? 'selected' : ''}>Subdomains</option>
+ <option value="livehosts" ${sUI.typeFilter === 'livehosts' ? 'selected' : ''}>Live Hosts</option>
+ <option value="tech" ${sUI.typeFilter === 'tech' ? 'selected' : ''}>Tech Detect</option>
+ <option value="ffuf" ${sUI.typeFilter === 'ffuf' ? 'selected' : ''}>FFuf Fuzz</option>
+ <option value="js" ${sUI.typeFilter === 'js' ? 'selected' : ''}>Client-side</option>
+ <option value="dns" ${sUI.typeFilter === 'dns' ? 'selected' : ''}>DNS Takeover</option>
+ </optgroup>
+ </select>
+ <select id="scan-status-filter" class="input scans-toolbar-select">
+ <option value="all" ${sUI.statusFilter === 'all' ? 'selected' : ''}>Any Status</option>
+ <option value="completed" ${sUI.statusFilter === 'completed' ? 'selected' : ''}>Completed</option>
+ <option value="failed" ${sUI.statusFilter === 'failed' ? 'selected' : ''}>Failed</option>
+ <option value="running" ${sUI.statusFilter === 'running' ? 'selected' : ''}>Running</option>
+ <option value="stopped" ${sUI.statusFilter === 'stopped' ? 'selected' : ''}>Stopped / Cancelled</option>
+ </select>
+ <select id="scan-user-filter" class="input scans-toolbar-select" title="Filter by who initiated the scan">
+ <option value="all" ${(sUI.userFilter || 'all') === 'all' ? 'selected' : ''}>All Users</option>
+ ${myName ? `<option value="__mine__" ${sUI.userFilter === '__mine__' ? 'selected' : ''}>My scans</option>` : ''}
+ ${scanUsers.length ? `<optgroup label="By user">${scanUsers.map((u) => `<option value="${window.esc(u)}" ${sUI.userFilter === u ? 'selected' : ''}>${window.esc(u)}</option>`).join('')}</optgroup>` : ''}
+ </select>
+ </div>`;
+ if (filteredActive.length) {
+ html += `<div class="card" style="margin-bottom:20px"><div class="card-header"><div class="card-title"> Active Scans <span class="badge badge-running">${filteredActive.length}</span></div></div><div class="card-body">${filteredActive.map((s) => scanItemHtml(s)).join('')}</div></div>`;
+ }
+ html += `<div class="card"><div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px"><div class="card-title"> Recent Scans ${filteredRecent.length !== recent_scans.length ? `<span style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px">(${filteredRecent.length} filtered)</span>` : ''}</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" onclick="deleteSelectedScans()">Delete selected</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:#f59e0b;border-color:rgba(245,158,11,.35)" onclick="deleteScansNoFindings()">Delete no findings</button><button type="button" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--accent-red);border-color:rgba(248,113,113,.35)" onclick="clearAllScans()">Clear all</button></div></div><div class="card-body">`;
+ if (!filteredRecent.length && !filteredActive.length) {
+ if (sUI.search || sUI.typeFilter !== 'all' || sUI.statusFilter !== 'all') html += window.emptyState('', 'No matches found', 'Adjust your filters or search term to see more scans.');
+ else html += scanErr ? window.emptyState('[!]', 'Scans unavailable', 'Fix the error above or check that the API is reachable.') : window.emptyState('', 'No scans yet', 'Start a scan from the launcher above or via the CLI.');
+ } else if (!filteredRecent.length && recent_scans.length > 0) {
+ html += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No completed scans match the current filter</div>';
+ } else if (filteredRecent.length > 0) {
+ html += `<table class="data-table" id="recent-scans-table"><thead><tr><th style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" title="Select all" aria-label="Select all" onclick="event.stopPropagation();toggleSelectAllRecentScans(this)" /></th><th>Target</th><th>Type</th><th>By</th><th>Status</th><th>Phase</th><th>Started</th><th>Elapsed</th><th>Results</th></tr></thead><tbody>${filteredRecent.map((s) => scanRowHtml(s)).join('')}</tbody></table>`;
+ }
+ html += '</div></div>';
+ container.innerHTML = html;
+ const searchIn = container.querySelector('#scan-search-input');
+ if (searchIn) searchIn.oninput = (e) => { const pos = e.target.selectionStart; window.state.scanListUI.search = e.target.value; renderScans(); const inp = document.getElementById('scan-search-input'); if (inp) { inp.focus(); inp.setSelectionRange(pos, pos); } };
+ const typeSel = container.querySelector('#scan-type-filter');
+ if (typeSel) typeSel.onchange = (e) => { window.state.scanListUI.typeFilter = e.target.value; renderScans(); };
+ const statusSel = container.querySelector('#scan-status-filter');
+ if (statusSel) statusSel.onchange = (e) => { window.state.scanListUI.statusFilter = e.target.value; renderScans(); };
+ const userSel = container.querySelector('#scan-user-filter');
+ if (userSel) userSel.onchange = (e) => { window.state.scanListUI.userFilter = e.target.value; renderScans(); };
+ const launchBtn = container.querySelector('#launch-btn');
+ const launchType = container.querySelector('#launch-type');
+ const launchTargetMode = container.querySelector('#launch-target-mode');
+ const launchTarget = container.querySelector('#launch-target');
+ const launchTargetList = container.querySelector('#launch-target-list');
+ if (launchBtn) launchBtn.onclick = window.triggerScan;
+ if (launchType) launchType.onchange = () => {
+ window.state.scanLaunchUI = window.state.scanLaunchUI || {};
+ window.state.scanLaunchUI.scanType = launchType.value;
+ window.syncLaunchPlaceholder(true);
+ };
+ if (launchTargetMode) launchTargetMode.onchange = () => window.syncLaunchPlaceholder(false);
+ if (launchTarget) launchTarget.oninput = window.updateLaunchPreview;
+ if (launchTargetList) launchTargetList.oninput = window.updateLaunchPreview;
+ container.oninput = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
+ container.onchange = (e) => { if (e.target && e.target.matches('[data-flag-key]')) window.updateLaunchPreview(); };
+ if (launchTargetMode && lUI.targetMode) launchTargetMode.dataset.preferred = lUI.targetMode;
+ window.syncLaunchPlaceholder(true);
+ // After a "Clone" prefilled the launcher, focus + scroll it into view here
+ // (reliable regardless of the async loadScans re-render that rebuilt the DOM).
+ if (window.state.scanLaunchUI && window.state.scanLaunchUI._pendingCloneFocus) {
+ delete window.state.scanLaunchUI._pendingCloneFocus;
+ const inp = document.getElementById('launch-target');
+ if (inp) { try { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { /* ignore */ } }
+ }
+ // Restore the post-launch status summary once (it would otherwise be wiped
+ // by this re-render). One-shot so it doesn't linger on later navigations.
+ if (window.state.scanLaunchUI && window.state.scanLaunchUI._launchStatus) {
+ const st = window.state.scanLaunchUI._launchStatus;
+ delete window.state.scanLaunchUI._launchStatus;
+ const se = document.getElementById('launch-status');
+ if (se) { se.textContent = st.text; se.style.color = st.color || 'var(--text-muted)'; se.style.display = st.text ? '' : 'none'; }
+ }
+ }
 
-  window.ScansPage = {
-    scanTypeLabel,
-    scanItemHtml,
-    scanRowHtml,
-    renderScans,
-  };
+ // Scan rows/cards (Scans page and the Overview "Running now" card) carry their
+ // scan id / target / type in data-* attributes and are handled by this single
+ // delegated listener. Values never pass through inline-handler JS source, where
+ // HTML escaping does not help (the browser decodes &#39; before the JS runs).
+ const SCAN_ACTIONS = {
+ open: (d) => window.goToScanResultsPage(d.scanId),
+ pause: (d) => window.pauseScan(d.scanId),
+ 'resume-paused': (d) => window.resumePausedScan(d.scanId),
+ cancel: (d) => window.cancelScan(d.scanId),
+ 'browse-r2': (d) => window.browseR2ForScan(d.scanTarget || '', d.scanType || ''),
+ rescan: (d) => window.rescanScan(d.scanId),
+ clone: (d) => window.cloneScanToLauncher(d.scanType || '', d.scanTarget || ''),
+ resume: (d) => window.resumeScan(d.scanId),
+ delete: (d) => window.deleteScan(d.scanId, d.scanTarget || ''),
+ edit: (d) => {
+ const all = [...(window.state.scans?.active_scans || []), ...(window.state.scans?.recent_scans || [])];
+ const scan = all.find((x) => (x.scan_id || x.ScanID) === d.scanId) || { scan_id: d.scanId };
+ window.editScanMeta(scan, (u) => {
+ scan.name = u.name;
+ scan.description = u.description;
+ if (window.state.view === 'scans') renderScans();
+ if (typeof window.renderOverviewActiveScans === 'function') window.renderOverviewActiveScans();
+ });
+ },
+ };
+
+ function onScanActionClick(e) {
+ const el = e.target.closest('[data-scan-action]');
+ if (!el) return;
+ const action = el.dataset.scanAction;
+ // Row/card "open" must not fire for clicks inside the action / checkbox cells
+ // (links, checkboxes, gaps between buttons) — those used to stopPropagation.
+ if (action === 'open' && el.matches('.clickable-row')) {
+ const stop = e.target.closest('[data-scan-stop]');
+ if (stop && el.contains(stop)) return;
+ }
+ const fn = SCAN_ACTIONS[action];
+ if (!fn) return;
+ if (el.tagName === 'BUTTON') e.preventDefault();
+ fn(el.dataset);
+ }
+
+ if (!window.__scanActionsWired) {
+ window.__scanActionsWired = true;
+ document.addEventListener('click', onScanActionClick);
+ }
+
+ window.ScansPage = {
+ scanTypeLabel,
+ scanItemHtml,
+ scanRowHtml,
+ renderScans,
+ };
 })();
+
+ // ── Recently discovered assets feed (Scans page) ─────────────────────────
+ async function loadDiscoveredAssets() {
+ const box = document.getElementById('discovered-assets-rows');
+ if (!box) return;
+ try {
+ const data = await window.apiFetch('/api/subdomains/discovered?limit=25&hours=168');
+ const rows = data.assets || [];
+ if (!rows.length) {
+ box.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No assets discovered in the last 7 days.</td></tr>';
+ return;
+ }
+ const esc = window.esc || ((v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
+ const ago = (ts) => {
+ if (!ts) return '—';
+ const d = Date.now() / 1000 - ts;
+ if (d < 3600) return Math.max(1, Math.round(d / 60)) + 'm ago';
+ if (d < 86400) return Math.round(d / 3600) + 'h ago';
+ return Math.round(d / 86400) + 'd ago';
+ };
+ box.innerHTML = rows.slice(0, 25).map((a) => {
+ const url = a.https_url || a.http_url || '';
+ const urlCell = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan)">${esc(url.slice(0, 60))}</a>` : '—';
+ return `<tr>
+ <td style="font-family:monospace;font-size:12px">${esc(a.subdomain)}</td>
+ <td style="font-size:12px;color:var(--text-secondary)">${esc(a.domain || '—')}</td>
+ <td>${a.is_live ? '<span style="color:var(--accent-green,#2ecc71)"></span>' : '<span style="color:var(--text-muted)"></span>'}</td>
+ <td style="font-size:12px">${urlCell}</td>
+ <td style="font-size:12px;color:var(--text-secondary)">${ago(a.created_at)}</td>
+ </tr>`;
+ }).join('');
+ } catch (e) {
+ box.innerHTML = `<tr><td colspan="5" style="color:var(--accent-red,#e74c3c)">Load failed: ${esc(e.message)}</td></tr>`;
+ }
+ }
+ window.loadDiscoveredAssets = loadDiscoveredAssets;

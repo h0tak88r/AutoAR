@@ -1,472 +1,530 @@
 (() => {
-  const PLATFORM_COLORS = {
-    h1: { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
-    bc: { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
-    it: { bg: '#1a1430', border: '#3a2a6a', accent: '#9b8cff', text: '#b3a6ff' },
-    ha: { bg: '#2e1020', border: '#5a2040', accent: '#f472b6', text: '#f472b6' },
-  };
+ const PLATFORM_COLORS = {
+ h1: { bg: '#1a2e1a', border: '#2a5a2a', accent: '#2ecc71', text: '#2ecc71' },
+ bc: { bg: '#2e1e10', border: '#5a3820', accent: '#e67e22', text: '#e67e22' },
+ it: { bg: '#1a1430', border: '#3a2a6a', accent: '#9b8cff', text: '#b3a6ff' },
+ ha: { bg: '#2e1020', border: '#5a2040', accent: '#f472b6', text: '#f472b6' },
+ };
 
-  const PLATFORM_LABELS = { h1: 'H1', bc: 'BC', it: 'IT', ha: 'HA' };
-  const STATE_LABELS = {
-    public_mode: 'Public',
-    soft_launched: 'Private',
-    open: 'Open',
-    closed: 'Closed',
-    paused: 'Paused',
-    launched: 'Launched',
-  };
+ const PLATFORM_LABELS = { h1: 'H1', bc: 'BC', it: 'IT', ha: 'HA' };
+ const STATE_LABELS = {
+ public_mode: 'Public',
+ soft_launched: 'Private',
+ open: 'Open',
+ closed: 'Closed',
+ paused: 'Paused',
+ launched: 'Launched',
+ };
 
-  let programsData = [];
-  let tokenHints = [];
-  let loadSeq = 0;
-  let scopeLoadedCount = 0;
-  let cacheWarm = false;
-  let cacheStale = false;
-  let cacheGeneratedAt = '';
-  // Default sort: freshest scope update first — that's the most actionable view
-  // for a hunter (programs that just changed scope = lowest competition right now).
-  let sortState = { key: 'latest', direction: 'desc' };
+ let programsData = [];
+ let tokenHints = [];
+ let loadSeq = 0;
+ let scopeLoadedCount = 0;
+ let cacheWarm = false;
+ let cacheStale = false;
+ let cacheGeneratedAt = '';
+ // Default sort: freshest scope update first — that's the most actionable view
+ // for a hunter (programs that just changed scope = lowest competition right now).
+ let sortState = { key: 'latest', direction: 'desc' };
 
-  function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
+ function esc(s) {
+ return String(s ?? '')
+ .replace(/&/g, '&amp;')
+ .replace(/"/g, '&quot;')
+ .replace(/'/g, '&#39;')
+ .replace(/</g, '&lt;')
+ .replace(/>/g, '&gt;');
+ }
 
-  function relativeAge(value) {
-    if (!value) return '';
-    const then = new Date(value);
-    if (Number.isNaN(then.getTime())) return '';
-    const diffMs = Date.now() - then.getTime();
-    const future = diffMs < 0;
-    const abs = Math.abs(diffMs);
-    const minute = 60 * 1000;
-    const hour = 60 * minute;
-    const day = 24 * hour;
-    const month = 30 * day;
-    const year = 365 * day;
-    let count = Math.max(1, Math.floor(abs / minute));
-    let unit = 'm';
-    if (abs >= year) {
-      count = Math.floor(abs / year);
-      unit = 'y';
-    } else if (abs >= month) {
-      count = Math.floor(abs / month);
-      unit = 'mo';
-    } else if (abs >= day) {
-      count = Math.floor(abs / day);
-      unit = 'd';
-    } else if (abs >= hour) {
-      count = Math.floor(abs / hour);
-      unit = 'h';
-    }
-    return future ? `in ${count}${unit}` : `${count}${unit} ago`;
-  }
+ // Program URLs come from platforms and aggregators (HackAdvisor "link"):
+ // only http(s) may become an href — a javascript: URL survives HTML
+ // escaping and runs on click.
+ function safeHref(u) {
+ try {
+ const parsed = new URL(String(u || ''));
+ return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : '';
+ } catch (e) {
+ return '';
+ }
+ }
 
-  function truncateText(value, max = 86) {
-    const text = String(value || '').replace(/\s+/g, ' ').trim();
-    if (text.length <= max) return text;
-    return `${text.slice(0, max - 1).trim()}…`;
-  }
+ function relativeAge(value) {
+ if (!value) return '';
+ const then = new Date(value);
+ if (Number.isNaN(then.getTime())) return '';
+ const diffMs = Date.now() - then.getTime();
+ const future = diffMs < 0;
+ const abs = Math.abs(diffMs);
+ const minute = 60 * 1000;
+ const hour = 60 * minute;
+ const day = 24 * hour;
+ const month = 30 * day;
+ const year = 365 * day;
+ let count = Math.max(1, Math.floor(abs / minute));
+ let unit = 'm';
+ if (abs >= year) {
+ count = Math.floor(abs / year);
+ unit = 'y';
+ } else if (abs >= month) {
+ count = Math.floor(abs / month);
+ unit = 'mo';
+ } else if (abs >= day) {
+ count = Math.floor(abs / day);
+ unit = 'd';
+ } else if (abs >= hour) {
+ count = Math.floor(abs / hour);
+ unit = 'h';
+ }
+ return future ? `in ${count}${unit}` : `${count}${unit} ago`;
+ }
 
-  function programKey(p) {
-    return `${String(p.platform || '').toLowerCase()}:${String(p.handle || '').toLowerCase()}`;
-  }
+ function truncateText(value, max = 86) {
+ const text = String(value || '').replace(/\s+/g, ' ').trim();
+ if (text.length <= max) return text;
+ return `${text.slice(0, max - 1).trim()}…`;
+ }
 
-  function renderStats(hydrating = false) {
-    const statsBar = document.getElementById('programs-stats-bar');
-    if (!statsBar) return;
-    const h1Count = programsData.filter(p => p.platform === 'h1').length;
-    const bcCount = programsData.filter(p => p.platform === 'bc').length;
-    const itCount = programsData.filter(p => p.platform === 'it').length;
-    const haCount = programsData.filter(p => p.platform === 'ha').length;
-    const scopeCount = programsData.filter(p => p.latest_target || p.scope_targets > 0 || p._scope_loaded).length;
-    const scopeStatus = hydrating
-      ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeLoadedCount}/${programsData.length}</strong> checked</span>`
-      : scopeCount
-        ? `<span style="color:rgba(0,212,255,0.75);">Latest: <strong>${scopeCount}</strong> ready</span>`
-        : '';
-    // Cache freshness: when served from the warm cache, show when it was built
-    // and an explicit "refresh now" that rebuilds in the background.
-    let cacheStatus = '';
-    if (cacheWarm && cacheGeneratedAt) {
-      const age = relativeAge(cacheGeneratedAt);
-      const staleNote = cacheStale ? ' · refreshing…' : '';
-      cacheStatus = ` · <span style="color:rgba(255,255,255,0.4);" title="${esc(cacheGeneratedAt)}">Updated ${esc(age)}${staleNote}</span> · <a href="#" onclick="window.ProgramsPage.refreshNow();return false;" style="color:rgba(0,212,255,0.75);text-decoration:none;">Refresh now</a>`;
-    }
-    statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:#2ecc71;">H1: <strong>${h1Count}</strong></span><span style="color:#e67e22;">BC: <strong>${bcCount}</strong></span><span style="color:#b3a6ff;">IT: <strong>${itCount}</strong></span>${haCount ? `<span style="color:#f472b6;">HA: <strong>${haCount}</strong></span>` : ''}${scopeStatus ? ` ${scopeStatus}` : ''}${cacheStatus}` + (tokenHints.length ? ` · ${tokenHints.join(' · ')}` : '');
-  }
+ function programKey(p) {
+ return `${String(p.platform || '').toLowerCase()}:${String(p.handle || '').toLowerCase()}`;
+ }
 
-  function sortDirectionFor(key) {
-    if (sortState.key !== key) return '';
-    return sortState.direction === 'asc' ? ' ^' : ' v';
-  }
+ function renderStats(hydrating = false) {
+ const statsBar = document.getElementById('programs-stats-bar');
+ if (!statsBar) return;
+ const h1Count = programsData.filter(p => p.platform === 'h1').length;
+ const bcCount = programsData.filter(p => p.platform === 'bc').length;
+ const itCount = programsData.filter(p => p.platform === 'it').length;
+ const haCount = programsData.filter(p => p.platform === 'ha').length;
+ const scopeCount = programsData.filter(p => p.latest_target || p.scope_targets > 0 || p._scope_loaded).length;
+ const scopeStatus = hydrating
+ ? `<span style="color:var(--accent-primary);">Latest: <strong>${scopeLoadedCount}/${programsData.length}</strong> checked</span>`
+ : scopeCount
+ ? `<span style="color:var(--accent-primary);">Latest: <strong>${scopeCount}</strong> ready</span>`
+ : '';
+ // Cache freshness: when served from the warm cache, show when it was built
+ // and an explicit "refresh now" that rebuilds in the background.
+ let cacheStatus = '';
+ if (cacheWarm && cacheGeneratedAt) {
+ const age = relativeAge(cacheGeneratedAt);
+ const staleNote = cacheStale ? ' · refreshing…' : '';
+ cacheStatus = `<span style="color:var(--text-muted);" title="${esc(cacheGeneratedAt)}">Updated ${esc(age)}${staleNote}</span><a href="#" onclick="window.ProgramsPage.forceRefresh();return false;" style="color:var(--accent-primary);text-decoration:none;">Refresh now</a>`;
+ }
+ statsBar.innerHTML = `<span>Total: <strong>${programsData.length}</strong> bounty programs</span><span style="color:var(--accent-emerald);">H1: <strong>${h1Count}</strong></span><span style="color:var(--accent-amber);">BC: <strong>${bcCount}</strong></span><span style="color:var(--accent-purple);">IT: <strong>${itCount}</strong></span>${haCount ? `<span style="color:var(--accent-purple);">HA: <strong>${haCount}</strong></span>` : ''}${scopeStatus}${cacheStatus}` +
+ // Missing-token hints get their own full-width row instead of being
+ // squeezed into the counts row as narrow wrapped columns.
+ (tokenHints.length ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 16px">${tokenHints.join('')}</div>` : '');
+ }
 
-  function sortHeader(label, key, align = 'left') {
-    return `<th style="padding:8px 12px;text-align:${align};">
-      <button type="button" onclick="window.ProgramsPage.setSort('${key}')" style="appearance:none;background:transparent;border:0;padding:0;color:rgba(255,255,255,0.45);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0;cursor:pointer;">${label}${sortDirectionFor(key)}</button>
-    </th>`;
-  }
+ function sortDirectionFor(key) {
+ if (sortState.key !== key) return '';
+ return sortState.direction === 'asc' ? ' ^' : ' v';
+ }
 
-  function sortValue(p, key) {
-    switch (key) {
-      case 'platform': return p.platform || '';
-      case 'name': return p.name || '';
-      case 'state': return p.state || '';
-      case 'targets': return Number(p.scope_targets || 0);
-      case 'latest': {
-        const ts = Date.parse(p.latest_target_updated_at || '');
-        return Number.isNaN(ts) ? 0 : ts;
-      }
-      case 'bounty': return p.currency || '';
-      case 'payments': return p.fast_payments ? 1 : 0;
-      case 'safe_harbor': return p.safe_harbor ? 1 : 0;
-      default: return p.name || '';
-    }
-  }
+ function sortHeader(label, key, align = 'left') {
+ return `<th style="padding:8px 12px;text-align:${align};">
+ <button type="button" onclick="window.ProgramsPage.setSort('${key}')" style="appearance:none;background:transparent;border:0;padding:0;color:var(--text-muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0;cursor:pointer;">${label}${sortDirectionFor(key)}</button>
+ </th>`;
+ }
 
-  function comparePrograms(a, b) {
-    const av = sortValue(a, sortState.key);
-    const bv = sortValue(b, sortState.key);
-    const dir = sortState.direction === 'asc' ? 1 : -1;
-    if (typeof av === 'number' || typeof bv === 'number') {
-      if (av === bv) return String(a.name || '').localeCompare(String(b.name || ''));
-      return (av - bv) * dir;
-    }
-    return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
-  }
+ function sortValue(p, key) {
+ switch (key) {
+ case 'platform': return p.platform || '';
+ case 'name': return p.name || '';
+ case 'state': return p.state || '';
+ case 'targets': return Number(p.scope_targets || 0);
+ case 'latest': {
+ const ts = Date.parse(p.latest_target_updated_at || '');
+ return Number.isNaN(ts) ? 0 : ts;
+ }
+ case 'bounty': return p.currency || '';
+ case 'payments': return p.fast_payments ? 1 : 0;
+ case 'safe_harbor': return p.safe_harbor ? 1 : 0;
+ default: return p.name || '';
+ }
+ }
 
-  function setSort(key) {
-    if (sortState.key === key) {
-      sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortState = { key, direction: ['latest', 'targets', 'payments', 'safe_harbor'].includes(key) ? 'desc' : 'asc' };
-    }
-    renderPrograms();
-  }
+ function comparePrograms(a, b) {
+ const av = sortValue(a, sortState.key);
+ const bv = sortValue(b, sortState.key);
+ const dir = sortState.direction === 'asc' ? 1 : -1;
+ if (typeof av === 'number' || typeof bv === 'number') {
+ if (av === bv) return String(a.name || '').localeCompare(String(b.name || ''));
+ return (av - bv) * dir;
+ }
+ return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
+ }
 
-  function mergeScopeSummary(program, summary) {
-    program.scope_targets = summary.scope_targets || 0;
-    program.latest_target = summary.latest_target || '';
-    program.latest_target_updated_at = summary.latest_target_updated_at || '';
-    program.latest_target_brief = summary.latest_target_brief || '';
-    program._scope_loaded = true;
-    program._scope_loading = false;
-  }
+ function setSort(key) {
+ if (sortState.key === key) {
+ sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+ } else {
+ sortState = { key, direction: ['latest', 'targets', 'payments', 'safe_harbor'].includes(key) ? 'desc' : 'asc' };
+ }
+ renderPrograms();
+ }
 
-  async function hydrateScopeSummaries(seq) {
-    const batchSize = 40;
-    const candidates = programsData.filter(p => p.platform && p.handle);
-    scopeLoadedCount = 0;
-    for (let i = 0; i < candidates.length; i += batchSize) {
-      if (seq !== loadSeq) return;
-      const batch = candidates.slice(i, i + batchSize);
-      batch.forEach(p => { p._scope_loading = true; });
-      renderStats(true);
-      renderPrograms();
+ function mergeScopeSummary(program, summary) {
+ program.scope_targets = summary.scope_targets || 0;
+ program.latest_target = summary.latest_target || '';
+ program.latest_target_updated_at = summary.latest_target_updated_at || '';
+ program.latest_target_brief = summary.latest_target_brief || '';
+ program._scope_loaded = true;
+ program._scope_loading = false;
+ }
 
-      try {
-        const res = await window.apiPost('/api/scope/program-summaries', {
-          programs: batch.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
-        });
-        const summaries = res.summaries || {};
-        batch.forEach(p => {
-          const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
-          if (summary) mergeScopeSummary(p, summary);
-          else {
-            p._scope_loaded = true;
-            p._scope_loading = false;
-          }
-        });
-      } catch (e) {
-        batch.forEach(p => { p._scope_loading = false; });
-      }
+ async function hydrateScopeSummaries(seq) {
+ const batchSize = 40;
+ const candidates = programsData.filter(p => p.platform && p.handle);
+ scopeLoadedCount = 0;
+ for (let i = 0; i < candidates.length; i += batchSize) {
+ if (seq !== loadSeq) return;
+ const batch = candidates.slice(i, i + batchSize);
+ batch.forEach(p => { p._scope_loading = true; });
+ renderStats(true);
+ renderPrograms();
 
-      scopeLoadedCount = Math.min(candidates.length, i + batch.length);
-      renderStats(i + batch.length < candidates.length);
-      renderPrograms();
-      await new Promise(resolve => setTimeout(resolve, 80));
-    }
-    renderStats(false);
-  }
+ try {
+ const res = await window.apiPost('/api/scope/program-summaries', {
+ programs: batch.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
+ });
+ const summaries = res.summaries || {};
+ batch.forEach(p => {
+ const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
+ if (summary) mergeScopeSummary(p, summary);
+ else {
+ p._scope_loaded = true;
+ p._scope_loading = false;
+ }
+ });
+ } catch (e) {
+ batch.forEach(p => { p._scope_loading = false; });
+ }
 
-  function matchesProgram(p, q) {
-    return (p.name || '').toLowerCase().includes(q) ||
-      (p.handle || '').toLowerCase().includes(q) ||
-      (p.latest_target || '').toLowerCase().includes(q) ||
-      (p.latest_target_brief || '').toLowerCase().includes(q);
-  }
+ scopeLoadedCount = Math.min(candidates.length, i + batch.length);
+ renderStats(i + batch.length < candidates.length);
+ renderPrograms();
+ await new Promise(resolve => setTimeout(resolve, 80));
+ }
+ renderStats(false);
+ }
 
-  // When the user searches, the warm program list often carries an empty/rate-limited
-  // scope for the match (the background warmer can't enrich ~800 H1 programs without
-  // hitting the API rate limit). Fetch the matched programs' scope on demand with
-  // force=true so a stale/empty cached value can't keep showing "—".
-  let scopeSearchDebounce;
-  async function hydrateMatchingScope() {
-    const q = (document.getElementById('programs-search')?.value || '').toLowerCase().trim();
-    if (q.length < 2) return;
-    const need = programsData.filter(p =>
-      p.platform && p.handle && !p._scope_loading && !p._scope_fresh &&
-      !(Number(p.scope_targets) > 0) && !p.latest_target && matchesProgram(p, q)
-    ).slice(0, 25);
-    if (!need.length) return;
-    const mySeq = loadSeq;
-    need.forEach(p => { p._scope_loading = true; });
-    renderPrograms();
-    try {
-      const res = await window.apiPost('/api/scope/program-summaries', {
-        programs: need.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
-        force: true,
-      });
-      if (mySeq !== loadSeq) return;
-      const summaries = res.summaries || {};
-      need.forEach(p => {
-        const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
-        if (summary) mergeScopeSummary(p, summary);
-        p._scope_loading = false;
-        p._scope_fresh = true; // attempted a live fetch; don't re-hit on every keystroke
-      });
-    } catch (e) {
-      need.forEach(p => { p._scope_loading = false; });
-    }
-    renderPrograms();
-  }
+ function matchesProgram(p, q) {
+ return (p.name || '').toLowerCase().includes(q) ||
+ (p.handle || '').toLowerCase().includes(q) ||
+ (p.latest_target || '').toLowerCase().includes(q) ||
+ (p.latest_target_brief || '').toLowerCase().includes(q);
+ }
 
-  // Wired to the search box: filter immediately, then live-fetch scope for matches.
-  function onSearch() {
-    renderPrograms();
-    clearTimeout(scopeSearchDebounce);
-    scopeSearchDebounce = setTimeout(hydrateMatchingScope, 350);
-  }
+ // When the user searches, the warm program list often carries an empty/rate-limited
+ // scope for the match (the background warmer can't enrich ~800 H1 programs without
+ // hitting the API rate limit). Fetch the matched programs' scope on demand with
+ // force=true so a stale/empty cached value can't keep showing "—".
+ let scopeSearchDebounce;
+ async function hydrateMatchingScope() {
+ const q = (document.getElementById('programs-search')?.value || '').toLowerCase().trim();
+ if (q.length < 2) return;
+ const need = programsData.filter(p =>
+ p.platform && p.handle && !p._scope_loading && !p._scope_fresh &&
+ !(Number(p.scope_targets) > 0) && !p.latest_target && matchesProgram(p, q)
+ ).slice(0, 25);
+ if (!need.length) return;
+ const mySeq = loadSeq;
+ need.forEach(p => { p._scope_loading = true; });
+ renderPrograms();
+ try {
+ const res = await window.apiPost('/api/scope/program-summaries', {
+ programs: need.map(p => ({ platform: p.platform, handle: p.handle, url: p.url })),
+ force: true,
+ });
+ if (mySeq !== loadSeq) return;
+ const summaries = res.summaries || {};
+ need.forEach(p => {
+ const summary = summaries[programKey(p)] || summaries[`${p.platform}:${p.handle}`];
+ if (summary) mergeScopeSummary(p, summary);
+ p._scope_loading = false;
+ p._scope_fresh = true; // attempted a live fetch; don't re-hit on every keystroke
+ });
+ } catch (e) {
+ need.forEach(p => { p._scope_loading = false; });
+ }
+ renderPrograms();
+ }
 
-  async function loadWatchStatus() {
-    try {
-      const res = await window.apiFetch('/api/scope/watch-status');
-      renderWatchStatus(res || {});
-    } catch (e) {
-      // Status is a polish surface; failing to load it shouldn't block the Programs page.
-    }
-  }
+ // Wired to the search box: filter immediately, then live-fetch scope for matches.
+ function onSearch() {
+ renderPrograms();
+ clearTimeout(scopeSearchDebounce);
+ scopeSearchDebounce = setTimeout(hydrateMatchingScope, 350);
+ }
 
-  function renderWatchStatus(s) {
-    const el = document.getElementById('programs-watch-status');
-    if (!el) return;
-    const dot = (color) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};margin-right:6px"></span>`;
-    const okColor = '#34d399', warnColor = '#fbbf24', badColor = '#f87171';
-    const statusDot = s.enabled ? dot(okColor) : (s.webhook_configured ? dot(warnColor) : dot(badColor));
-    const statusLabel = s.enabled ? 'watching' : (s.webhook_configured ? 'disabled (PROGRAM_MONITOR=off)' : 'no webhook');
-    const freshest = s.freshest_program
-      ? `<strong>${esc(s.freshest_program)}</strong>${s.freshest_asset ? ` · <span style="color:rgba(255,255,255,0.7)">${esc(s.freshest_asset)}</span>` : ''}`
-      : '<span style="color:rgba(255,255,255,0.4)">—</span>';
-    const watermark = s.watermark_iso
-      ? `<span title="${esc(s.watermark_iso)}">${esc(s.watermark_human || s.watermark_iso)}</span>`
-      : '<span style="color:rgba(255,255,255,0.4)">not yet baselined</span>';
-    const testBtn = s.webhook_configured
-      ? `<button onclick="window.ProgramsPage.testWatch()" style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:6px;padding:4px 10px;color:#9be8ff;font-size:11px;cursor:pointer;">🔔 Test webhook</button>`
-      : `<span style="color:rgba(255,255,255,0.35);font-size:11px">Set <code>MONITOR_WEBHOOK_URL</code> to enable</span>`;
-    el.innerHTML = `
-      <div style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:rgba(255,255,255,0.7)">
-        <span style="font-weight:600;color:rgba(255,255,255,0.9)">📡 Scope Update Watch</span>
-        <span>${statusDot}${esc(statusLabel)}</span>
-        <span style="color:rgba(255,255,255,0.45)">|</span>
-        <span>Freshest update: ${freshest}</span>
-        <span style="color:rgba(255,255,255,0.45)">|</span>
-        <span>Watermark: ${watermark}</span>
-        <span style="color:rgba(255,255,255,0.45)">|</span>
-        <span>Alerts this session: <strong>${Number(s.alerts_this_session) || 0}</strong></span>
-        <span style="margin-left:auto">${testBtn}</span>
-      </div>
-    `;
-  }
+ async function loadWatchStatus() {
+ if (typeof window.loadScopeAutopilot === 'function') window.loadScopeAutopilot();
+ try {
+ const res = await window.apiFetch('/api/scope/watch-status');
+ renderWatchStatus(res || {});
+ } catch (e) {
+ // Status is a polish surface; failing to load it shouldn't block the Programs page.
+ }
+ }
 
-  async function testWatch() {
-    try {
-      await window.apiPost('/api/scope/watch-test', {});
-      if (window.showToast) window.showToast('success', 'Test sent', 'Check your Discord channel for the test message.');
-      loadWatchStatus(); // refresh the session counter
-    } catch (e) {
-      if (window.showToast) window.showToast('error', 'Webhook test failed', e?.message || String(e));
-    }
-  }
+ function renderWatchStatus(s) {
+ const el = document.getElementById('programs-watch-status');
+ if (!el) return;
+ const dot = (color) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};margin-right:6px"></span>`;
+ const okColor = '#34d399', warnColor = '#fbbf24', badColor = '#f87171';
+ const statusDot = s.enabled ? dot(okColor) : (s.webhook_configured ? dot(warnColor) : dot(badColor));
+ const statusLabel = s.enabled ? 'watching' : (s.webhook_configured ? 'disabled (PROGRAM_MONITOR=off)' : 'no webhook');
+ const freshest = s.freshest_program
+ ? `<strong>${esc(s.freshest_program)}</strong>${s.freshest_asset ? ` · <span style="color:var(--text-secondary)">${esc(s.freshest_asset)}</span>` : ''}`
+ : '<span style="color:var(--text-muted)">—</span>';
+ const watermark = s.watermark_iso
+ ? `<span title="${esc(s.watermark_iso)}">${esc(s.watermark_human || s.watermark_iso)}</span>`
+ : '<span style="color:var(--text-muted)">not yet baselined</span>';
+ const testBtn = s.webhook_configured
+ ? `<button type="button" class="btn btn-sm" onclick="window.ProgramsPage.testWatch()">Test webhook</button>`
+ : `<span style="color:var(--text-faint);font-size:11px">Set <code>MONITOR_WEBHOOK_URL</code> to enable</span>`;
+ el.innerHTML = `
+ <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:var(--text-secondary)">
+ <span style="font-weight:600;color:var(--text-primary)">Scope Update Watch</span>
+ <span>${statusDot}${esc(statusLabel)}</span>
+ <span style="color:var(--text-muted)">|</span>
+ <span>Freshest update: ${freshest}</span>
+ <span style="color:var(--text-muted)">|</span>
+ <span>Watermark: ${watermark}</span>
+ <span style="color:var(--text-muted)">|</span>
+ <span>Alerts this session: <strong>${Number(s.alerts_this_session) || 0}</strong></span>
+ <span style="margin-left:auto">${testBtn}</span>
+ </div>
+ `;
+ }
 
-  async function loadPrograms(force = false) {
-    const seq = ++loadSeq;
-    const platform = document.getElementById('programs-platform-filter')?.value || 'all';
-    const container = document.getElementById('programs-container');
-    if (container) container.innerHTML = '<div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>';
-    loadWatchStatus();
+ async function testWatch() {
+ try {
+ await window.apiPost('/api/scope/watch-test', {});
+ if (window.showToast) window.showToast('success', 'Test sent', 'Check your Discord channel for the test message.');
+ loadWatchStatus(); // refresh the session counter
+ } catch (e) {
+ if (window.showToast) window.showToast('error', 'Webhook test failed', e?.message || String(e));
+ }
+ }
 
-    try {
-      const params = new URLSearchParams({ platform, sort: 'name' });
-      if (force) params.set('refresh', 'true');
-      const data = await window.apiFetch('/api/scope/programs?' + params.toString());
-      if (seq !== loadSeq) return;
-      programsData = data.programs || [];
-      cacheWarm = !!data.warm;
-      cacheStale = !!data.stale;
-      cacheGeneratedAt = data.generated_at || '';
+ async function loadPrograms(force = false) {
+ const seq = ++loadSeq;
+ const platform = document.getElementById('programs-platform-filter')?.value || 'all';
+ const container = document.getElementById('programs-container');
+ if (container) container.innerHTML = '<div class="empty-state"><div class="empty-icon">...</div><div class="empty-title">Loading programs…</div></div>';
+ loadWatchStatus();
 
-      tokenHints = [];
-      if (!data.has_h1_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">H1 token not set — latest scope requires H1 auth</span>');
-      if (!data.has_bc_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
-      if (!data.has_it_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">Intigriti token not set — set INTIGRITI_TOKEN to load Intigriti programs</span>');
-      if (!data.has_ha_token) tokenHints.push('<span style="color:rgba(255,255,255,0.35);">HackAdvisor token not set — set HACKADVISOR_TOKEN for external targets (Immunefi, Standoff365, …)</span>');
+ try {
+ const params = new URLSearchParams({ platform, sort: 'name' });
+ if (force) params.set('refresh', 'true');
+ const data = await window.apiFetch('/api/scope/programs?' + params.toString());
+ if (seq !== loadSeq) return;
+ programsData = data.programs || [];
+ cacheWarm = !!data.warm;
+ cacheStale = !!data.stale;
+ cacheGeneratedAt = data.generated_at || '';
 
-      if (data.scope_included) {
-        // Warm cache already carries scope counts + latest targets — no per-program
-        // hydration needed. The whole table renders fully populated in one shot.
-        scopeLoadedCount = programsData.length;
-        programsData.forEach(p => { p._scope_loaded = true; });
-        renderPrograms();
-        renderStats(false);
-      } else {
-        // Cold path: base list only — fill the scope column progressively.
-        scopeLoadedCount = 0;
-        renderPrograms();
-        renderStats(false);
-        hydrateScopeSummaries(seq);
-      }
-    } catch (e) {
-      if (container) container.innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><div class="empty-title">Failed to load</div><div class="empty-sub">${esc(e.message)}</div></div>`;
-      tokenHints = [];
-      renderStats(false);
-    }
-  }
+ tokenHints = [];
+ if (!data.has_h1_token) tokenHints.push('<span style="color:var(--text-faint);">H1 token not set — latest scope requires H1 auth</span>');
+ if (!data.has_bc_token) tokenHints.push('<span style="color:var(--text-faint);">BC token not set — set BUGCROWD_TOKEN to load Bugcrowd programs</span>');
+ if (!data.has_it_token) tokenHints.push('<span style="color:var(--text-faint);">Intigriti token not set — set INTIGRITI_TOKEN to load Intigriti programs</span>');
+ if (!data.has_ha_token) tokenHints.push('<span style="color:var(--text-faint);">HackAdvisor token not set — set HACKADVISOR_TOKEN for external targets (Immunefi, Standoff365, …)</span>');
 
-  // refreshNow forces a server-side cache rebuild (in the background) and reloads
-  // the fresh data once it has likely finished.
-  function refreshNow() {
-    if (window.showToast) window.showToast('info', 'Refreshing', 'Rebuilding the program cache in the background…');
-    // Allow the on-search live scope fetch to re-attempt after a manual refresh.
-    programsData.forEach(p => { p._scope_fresh = false; });
-    loadPrograms(true);
-    setTimeout(() => { if (window.state && window.state.view === 'programs') loadPrograms(false); }, 30000);
-  }
+ if (data.scope_included) {
+ // Warm cache already carries scope counts + latest targets — no per-program
+ // hydration needed. The whole table renders fully populated in one shot.
+ scopeLoadedCount = programsData.length;
+ programsData.forEach(p => { p._scope_loaded = true; });
+ renderPrograms();
+ renderStats(false);
+ } else {
+ // Cold path: base list only — fill the scope column progressively.
+ scopeLoadedCount = 0;
+ renderPrograms();
+ renderStats(false);
+ hydrateScopeSummaries(seq);
+ }
+ } catch (e) {
+ if (container) container.innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><div class="empty-title">Failed to load</div><div class="empty-sub">${esc(e.message)}</div></div>`;
+ tokenHints = [];
+ renderStats(false);
+ }
+ }
 
-  function renderPrograms() {
-    const container = document.getElementById('programs-container');
-    if (!container) return;
+ // Navigation AND the top-bar Refresh button both reach refreshNow() through
+ // refreshCurrentView(). A forced refresh is a ~20-minute upstream rebuild
+ // (1000+ calls on the operator's tokens), so only a real click on Refresh —
+ // or the stats-bar "Refresh now" link — may force it; plain navigation
+ // reloads the warm cache. The click is seen in the capture phase, before the
+ // button's own handler runs.
+ let manualRefreshAt = 0;
+ document.addEventListener('click', (ev) => {
+ if (ev.target && typeof ev.target.closest === 'function' && ev.target.closest('#refresh-btn')) {
+ manualRefreshAt = Date.now();
+ }
+ }, true);
 
-    const query = (document.getElementById('programs-search')?.value || '').toLowerCase();
-    let filtered = programsData;
-    if (query) {
-      filtered = programsData.filter(p =>
-        (p.name || '').toLowerCase().includes(query) ||
-        (p.handle || '').toLowerCase().includes(query) ||
-        (p.latest_target || '').toLowerCase().includes(query) ||
-        (p.latest_target_brief || '').toLowerCase().includes(query)
-      );
-    }
-    filtered = filtered.slice().sort(comparePrograms);
+ const FORCE_REFRESH_MIN_GAP_MS = 5 * 60 * 1000; // mirrors the server-side limit
+ let lastForcedAt = 0;
 
-    if (filtered.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="empty-icon">0</div><div class="empty-title">No programs found</div><div class="empty-sub">Try adjusting your filters or check your API credentials</div></div>';
-      return;
-    }
+ function refreshNow() {
+ const manual = Date.now() - manualRefreshAt < 2000;
+ manualRefreshAt = 0;
+ if (!manual) {
+ loadPrograms(false);
+ return;
+ }
+ forceRefresh();
+ }
 
-    const rows = filtered.map(p => {
-      const colors = PLATFORM_COLORS[p.platform] || PLATFORM_COLORS.h1;
-      const badge = PLATFORM_LABELS[p.platform] || p.platform.toUpperCase();
-      const stateLabel = STATE_LABELS[p.state] || p.state || '?';
-      const latestAge = relativeAge(p.latest_target_updated_at);
-      const latestBrief = truncateText(p.latest_target_brief || '');
-      const latestTitle = [p.latest_target, latestAge, p.latest_target_brief].filter(Boolean).join(' | ');
-      const latestCell = p.latest_target
-        ? `<div style="display:flex;flex-direction:column;gap:5px;min-width:0;">
-            <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;">
-              <span style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:3px 7px;border-radius:4px;background:rgba(0,212,255,0.08);color:#9be8ff;border:1px solid rgba(0,212,255,0.18);" title="${esc(latestTitle)}">${esc(p.latest_target)}</span>
-              ${latestAge ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>` : ''}
-            </div>
-            ${latestBrief ? `<div style="font-size:10px;line-height:1.35;color:rgba(255,255,255,0.45);max-width:280px;white-space:normal;">${esc(latestBrief)}</div>` : ''}
-          </div>`
-        : p._scope_loading
-          ? '<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);">checking...</span>'
-        : latestAge
-          // No representative target (e.g. HackAdvisor list rows) but we DO know when
-          // scope last changed — show the age so the "latest update" column isn't blank.
-          ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>`
-        : '<span style="color:rgba(255,255,255,0.25);">-</span>';
+ // forceRefresh asks the server for a cache rebuild (in the background) and
+ // reloads the fresh data once it has likely finished.
+ function forceRefresh() {
+ if (Date.now() - lastForcedAt < FORCE_REFRESH_MIN_GAP_MS) {
+ if (window.showToast) window.showToast('info', 'Rebuild already requested', 'A rebuild was started less than 5 minutes ago — showing the cached catalogue.');
+ loadPrograms(false);
+ return;
+ }
+ lastForcedAt = Date.now();
+ if (window.showToast) window.showToast('info', 'Refreshing', 'Rebuilding the program cache in the background…');
+ // Allow the on-search live scope fetch to re-attempt after a manual refresh.
+ programsData.forEach(p => { p._scope_fresh = false; });
+ loadPrograms(true);
+ setTimeout(() => { if (window.state && window.state.view === 'programs') loadPrograms(false); }, 30000);
+ }
 
-      return `
-      <tr class="program-row" style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.15s;">
-        <td style="padding:10px 12px;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.05em;background:${colors.bg};color:${colors.text};border:1px solid ${colors.border};">${badge}</span>
-            <span style="color:#${p.offers_bounties ? '2ecc71' : '888'};font-size:10px;" title="${p.offers_bounties ? 'Offers bounties' : 'No bounties'}">${p.offers_bounties ? '$' : '-'}</span>
-          </div>
-        </td>
-        <td style="padding:10px 12px;">
-          <a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:#fff;text-decoration:none;font-weight:600;font-size:13px;" onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">${esc(p.name)}</a>
-          <div style="font-size:10px;color:rgba(255,255,255,0.35);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <span>${esc(p.handle)}</span>
-            ${p.external_platform ? `<span style="padding:1px 6px;border-radius:4px;background:rgba(244,114,182,0.12);color:#f9a8d4;border:1px solid rgba(244,114,182,0.25);font-size:9px;font-weight:600;">${esc(p.external_platform)}</span>` : ''}
-          </div>
-        </td>
-        <td style="padding:10px 12px;">
-          <span style="font-size:11px;padding:3px 8px;border-radius:12px;background:${stateColor(p.state)};color:${stateTextColor(p.state)};font-weight:500;">${stateLabel}</span>
-          ${p.submission_state && p.submission_state !== p.state ? `<span style="font-size:10px;padding:3px 8px;border-radius:12px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);margin-left:4px;">${esc(p.submission_state)}</span>` : ''}
-        </td>
-        <td style="padding:10px 12px;text-align:center;font-size:12px;color:rgba(255,255,255,0.6);">
-          ${p.scope_targets > 0 ? `<strong style="color:#fff;">${p.scope_targets}</strong>` : '<span style="color:rgba(255,255,255,0.25);">-</span>'}
-        </td>
-        <td style="padding:10px 12px;max-width:320px;">
-          ${latestCell}
-        </td>
-        <td style="padding:10px 12px;text-align:center;">
-          ${p.offers_bounties ? `<span style="font-size:12px;color:#2ecc71;">${esc(p.currency.toUpperCase())}</span>` : '<span style="color:rgba(255,255,255,0.2);">-</span>'}
-        </td>
-        <td style="padding:10px 12px;text-align:center;">
-          ${p.fast_payments ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,204,113,0.15);color:#2ecc71;">Fast</span>' : '<span style="color:rgba(255,255,255,0.2);">-</span>'}
-        </td>
-        <td style="padding:10px 12px;text-align:center;">
-          ${p.safe_harbor ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(52,152,219,0.15);color:#3498db;">SH</span>' : '<span style="color:rgba(255,255,255,0.2);">-</span>'}
-        </td>
-      </tr>`;
-    }).join('');
+ function renderPrograms() {
+ const container = document.getElementById('programs-container');
+ if (!container) return;
 
-    container.innerHTML = `
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="border-bottom:1px solid rgba(255,255,255,0.08);">
-              ${sortHeader('Platform', 'platform')}
-              ${sortHeader('Program', 'name')}
-              ${sortHeader('State', 'state')}
-              ${sortHeader('Targets', 'targets', 'center')}
-              ${sortHeader('Latest In-Scope', 'latest')}
-              ${sortHeader('Bounty', 'bounty', 'center')}
-              ${sortHeader('Payments', 'payments', 'center')}
-              ${sortHeader('Safe Harbor', 'safe_harbor', 'center')}
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-      </div>`;
-  }
+ const query = (document.getElementById('programs-search')?.value || '').toLowerCase();
+ let filtered = programsData;
+ if (query) {
+ filtered = programsData.filter(p =>
+ (p.name || '').toLowerCase().includes(query) ||
+ (p.handle || '').toLowerCase().includes(query) ||
+ (p.latest_target || '').toLowerCase().includes(query) ||
+ (p.latest_target_brief || '').toLowerCase().includes(query)
+ );
+ }
+ filtered = filtered.slice().sort(comparePrograms);
 
-  function stateColor(state) {
-    switch (state) {
-      case 'public_mode': return 'rgba(46,204,113,0.15)';
-      case 'soft_launched': return 'rgba(155,89,182,0.15)';
-      case 'open': return 'rgba(46,204,113,0.15)';
-      case 'launched': return 'rgba(46,204,113,0.15)';
-      case 'closed': return 'rgba(231,76,60,0.15)';
-      case 'paused': return 'rgba(241,196,15,0.15)';
-      default: return 'rgba(255,255,255,0.06)';
-    }
-  }
+ if (filtered.length === 0) {
+ container.innerHTML = '<div class="empty-state"><div class="empty-icon">0</div><div class="empty-title">No programs found</div><div class="empty-sub">Try adjusting your filters or check your API credentials</div></div>';
+ return;
+ }
 
-  function stateTextColor(state) {
-    switch (state) {
-      case 'public_mode': return '#2ecc71';
-      case 'soft_launched': return '#9b59b6';
-      case 'open': return '#2ecc71';
-      case 'launched': return '#2ecc71';
-      case 'closed': return '#e74c3c';
-      case 'paused': return '#f1c40f';
-      default: return 'rgba(255,255,255,0.5)';
-    }
-  }
+ const rows = filtered.map(p => {
+ const colors = PLATFORM_COLORS[p.platform] || PLATFORM_COLORS.h1;
+ const badge = esc(PLATFORM_LABELS[p.platform] || String(p.platform || '').toUpperCase());
+ const stateLabel = esc(STATE_LABELS[p.state] || p.state || '?');
+ const href = safeHref(p.url);
+ const nameStyle = 'color:var(--text-primary);text-decoration:none;font-weight:600;font-size:13px;';
+ const nameCell = href
+ ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" style="${nameStyle}" onmouseenter="this.style.textDecoration='underline'" onmouseleave="this.style.textDecoration='none'">${esc(p.name)}</a>`
+ : `<span style="${nameStyle}">${esc(p.name)}</span>`;
+ const latestAge = relativeAge(p.latest_target_updated_at);
+ const latestBrief = truncateText(p.latest_target_brief || '');
+ const latestTitle = [p.latest_target, latestAge, p.latest_target_brief].filter(Boolean).join(' | ');
+ const latestCell = p.latest_target
+ ? `<div style="display:flex;flex-direction:column;gap:5px;min-width:0;">
+ <div style="display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap;">
+ <span style="display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:3px 7px;border-radius:4px;background:rgba(0,212,255,0.08);color:var(--text-accent);border:1px solid rgba(0,212,255,0.18);" title="${esc(latestTitle)}">${esc(p.latest_target)}</span>
+ ${latestAge ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:var(--bg-raise);color:var(--text-secondary);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>` : ''}
+ </div>
+ ${latestBrief ? `<div style="font-size:10px;line-height:1.35;color:var(--text-muted);max-width:280px;white-space:normal;">${esc(latestBrief)}</div>` : ''}
+ </div>`
+ : p._scope_loading
+ ? '<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:var(--bg-raise);color:var(--text-muted);">checking...</span>'
+ : latestAge
+ // No representative target (e.g. HackAdvisor list rows) but we DO know when
+ // scope last changed — show the age so the "latest update" column isn't blank.
+ ? `<span style="font-size:10px;padding:3px 6px;border-radius:4px;background:var(--bg-raise);color:var(--text-secondary);" title="${esc(p.latest_target_updated_at)}">${esc(latestAge)}</span>`
+ : '<span style="color:var(--text-faint);">-</span>';
 
-  window.ProgramsPage = { loadPrograms, renderPrograms, onSearch, setSort, refreshNow, testWatch };
+ return `
+ <tr class="program-row" style="border-bottom:1px solid var(--bg-raise);transition:background 0.15s;">
+ <td style="padding:10px 12px;">
+ <div style="display:flex;align-items:center;gap:8px;">
+ <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:0.05em;background:var(--bg-raise);color:var(--text-secondary);border:1px solid var(--border);"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:1px;background:${colors.accent}"></span>${badge}</span>
+ <span style="color:#${p.offers_bounties ? '2ecc71' : '888'};font-size:10px;" title="${p.offers_bounties ? 'Offers bounties' : 'No bounties'}">${p.offers_bounties ? '$' : '-'}</span>
+ </div>
+ </td>
+ <td style="padding:10px 12px;">
+ ${nameCell}
+ <div style="font-size:10px;color:var(--text-faint);display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+ <span>${esc(p.handle)}</span>
+ ${p.external_platform ? `<span style="padding:1px 6px;border-radius:4px;background:rgba(244,114,182,0.12);color:#f9a8d4;border:1px solid rgba(244,114,182,0.25);font-size:9px;font-weight:600;">${esc(p.external_platform)}</span>` : ''}
+ </div>
+ </td>
+ <td style="padding:10px 12px;">
+ <span style="font-size:11px;padding:3px 8px;border-radius:12px;background:${stateColor(p.state)};color:${stateTextColor(p.state)};font-weight:500;">${stateLabel}</span>
+ ${p.submission_state && p.submission_state !== p.state ? `<span style="font-size:10px;padding:3px 8px;border-radius:12px;background:var(--bg-raise);color:var(--text-muted);margin-left:4px;">${esc(p.submission_state)}</span>` : ''}
+ </td>
+ <td style="padding:10px 12px;text-align:center;font-size:12px;color:var(--text-secondary);">
+ ${p.scope_targets > 0 ? `<strong style="color:var(--text-primary);">${p.scope_targets}</strong>` : '<span style="color:var(--text-faint);">-</span>'}
+ </td>
+ <td style="padding:10px 12px;max-width:320px;">
+ ${latestCell}
+ </td>
+ <td style="padding:10px 12px;text-align:center;">
+ ${p.offers_bounties ? `<span style="font-size:12px;color:var(--accent-emerald);">${esc(String(p.currency || '').toUpperCase())}</span>` : '<span style="color:var(--border-strong);">-</span>'}
+ </td>
+ <td style="padding:10px 12px;text-align:center;">
+ ${p.fast_payments ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,204,113,0.15);color:var(--accent-emerald);">Fast</span>' : '<span style="color:var(--border-strong);">-</span>'}
+ </td>
+ <td style="padding:10px 12px;text-align:center;">
+ ${p.safe_harbor ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(52,152,219,0.15);color:#3498db;">SH</span>' : '<span style="color:var(--border-strong);">-</span>'}
+ </td>
+ </tr>`;
+ }).join('');
+
+ container.innerHTML = `
+ <div style="overflow-x:auto;">
+ <table style="width:100%;border-collapse:collapse;">
+ <thead>
+ <tr style="border-bottom:1px solid var(--border);">
+ ${sortHeader('Platform', 'platform')}
+ ${sortHeader('Program', 'name')}
+ ${sortHeader('State', 'state')}
+ ${sortHeader('Targets', 'targets', 'center')}
+ ${sortHeader('Latest In-Scope', 'latest')}
+ ${sortHeader('Bounty', 'bounty', 'center')}
+ ${sortHeader('Payments', 'payments', 'center')}
+ ${sortHeader('Safe Harbor', 'safe_harbor', 'center')}
+ </tr>
+ </thead>
+ <tbody>
+ ${rows}
+ </tbody>
+ </table>
+ </div>`;
+ }
+
+ function stateColor(state) {
+ switch (state) {
+ case 'public_mode': return 'rgba(46,204,113,0.15)';
+ case 'soft_launched': return 'rgba(155,89,182,0.15)';
+ case 'open': return 'rgba(46,204,113,0.15)';
+ case 'launched': return 'rgba(46,204,113,0.15)';
+ case 'closed': return 'rgba(231,76,60,0.15)';
+ case 'paused': return 'rgba(241,196,15,0.15)';
+ default: return 'var(--bg-raise)';
+ }
+ }
+
+ function stateTextColor(state) {
+ switch (state) {
+ case 'public_mode': return '#2ecc71';
+ case 'soft_launched': return '#9b59b6';
+ case 'open': return '#2ecc71';
+ case 'launched': return '#2ecc71';
+ case 'closed': return '#e74c3c';
+ case 'paused': return '#f1c40f';
+ default: return 'var(--text-muted)';
+ }
+ }
+
+ window.ProgramsPage = { loadPrograms, renderPrograms, onSearch, setSort, refreshNow, forceRefresh, testWatch };
 })();

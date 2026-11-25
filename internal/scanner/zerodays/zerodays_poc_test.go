@@ -1,7 +1,12 @@
 package zerodays
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/h0tak88r/AutoAR/internal/tools/next88"
@@ -47,11 +52,45 @@ func TestCapPoC(t *testing.T) {
 	}
 }
 
-func TestPreviewLeak(t *testing.T) {
-	// 'A', NUL, 'B', newline, tab → printable kept, non-printable shown as '.'
-	out := previewLeak([]byte{0x41, 0x00, 0x42, 0x0a, 0x09})
-	if out != "A.B\n\t" {
-		t.Fatalf("previewLeak: got %q want %q", out, "A.B\n\t")
+func TestLeakProof(t *testing.T) {
+	out := leakProof([]byte{0x41, 0x00, 0x42})
+	if !strings.Contains(out, "41 00 42") || strings.Contains(out, "discarded") {
+		t.Fatalf("leakProof small: got %q", out)
+	}
+	// Only the first leakProofBytes are kept; a secret past that must not leak
+	// into the stored proof.
+	big := append(make([]byte, leakProofBytes), []byte("SECRET-PII-TAIL")...)
+	out = leakProof(big)
+	if strings.Contains(out, "SECRET") || !strings.Contains(out, "discarded") {
+		t.Fatalf("leakProof must cap to %d bytes: got %q", leakProofBytes, out)
+	}
+	if strings.Count(out, "\n") > leakProofBytes/16+1 {
+		t.Fatalf("leakProof too long: %d lines", strings.Count(out, "\n"))
+	}
+}
+
+func TestMongoReadCap(t *testing.T) {
+	if got := mongoReadCap(65536); got != 65536+64<<10 {
+		t.Fatalf("mongoReadCap(64K) = %d", got)
+	}
+	// A hostile 4 GB length header can never exceed the hard cap.
+	if got := mongoReadCap(1 << 31); got != maxMongoLeakBytes {
+		t.Fatalf("mongoReadCap(2G) = %d, want %d", got, maxMongoLeakBytes)
+	}
+}
+
+func TestReact2ShellSafeByDefault(t *testing.T) {
+	t.Setenv(envExploitChecks, "")
+	if exploitChecksAllowed() {
+		t.Fatal("exploit checks must be off by default")
+	}
+	t.Setenv(envExploitChecks, "true")
+	if !exploitChecksAllowed() {
+		t.Fatal("opt-in env not honoured")
+	}
+	got := react2ShellFindingText("safe-check")
+	if !strings.Contains(got, "no code executed") || strings.Contains(got, "RCE exploitation") {
+		t.Fatalf("safe-check finding text = %q", got)
 	}
 }
 
@@ -77,5 +116,45 @@ func TestNext88EvidenceHelpers(t *testing.T) {
 	}
 	if next88StatusCode(next88.ScanResult{}) != 0 {
 		t.Fatalf("nil status code should be 0")
+	}
+}
+
+// TestRunNext88ScanSafeByDefault drives the real next88 path against a local
+// server: without the opt-in, even a "-smart-scan" request must send only the
+// non-executing safe payload — and the signature hit must still surface.
+func TestRunNext88ScanSafeByDefault(t *testing.T) {
+	t.Setenv(envExploitChecks, "")
+	var mu sync.Mutex
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "0:{\"a\":\"$@1\"}\n1:E{\"digest\":\"2971658870\"}")
+	}))
+	defer srv.Close()
+
+	res, err := runNext88Scan(context.Background(), []string{srv.URL}, []string{"-smart-scan"}, 1, true)
+	if err != nil {
+		t.Fatalf("runNext88Scan: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) == 0 {
+		t.Fatal("no request reached the server")
+	}
+	for _, b := range bodies {
+		if strings.Contains(b, "execSync") || strings.Contains(b, "child_process") {
+			t.Fatalf("exploit payload sent without opt-in: %q", b)
+		}
+	}
+	r, ok := res[srv.URL]
+	if !ok {
+		t.Fatalf("safe-check signature hit not reported: %+v", res)
+	}
+	if r.VulnType != "safe-check" {
+		t.Fatalf("VulnType = %q, want safe-check", r.VulnType)
 	}
 }

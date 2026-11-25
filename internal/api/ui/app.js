@@ -42,8 +42,8 @@ function openAuditorInNewTab(view) {
   return callPageMethod('NavigationUIPage', 'openAuditorInNewTab', [view]);
 }
 
-function navigateTo(view) {
-  return callPageMethod('RouterNavigationPage', 'navigateTo', [view]);
+function navigateTo(view, opts) {
+  return callPageMethod('RouterNavigationPage', 'navigateTo', [view, opts]);
 }
 
 /** Deep-linked scan results page (/scans/:id). */
@@ -88,6 +88,20 @@ async function apiPost(path, body, customHeaders = {}) {
   throw new Error('apiPost unavailable');
 }
 
+async function apiPut(path, body, customHeaders = {}) {
+  const v = callPageMethod('ApiClientPage', 'apiPut', [path, body, customHeaders]);
+  if (v !== undefined) return v;
+  throw new Error('apiPut unavailable');
+}
+
+// Findings status/report saves and CVE Radar labels call window.apiPatch; it
+// had no wrapper here, so every one of those clicks threw "not a function".
+async function apiPatch(path, body) {
+  const v = callPageMethod('ApiClientPage', 'apiPatch', [path, body]);
+  if (v !== undefined) return v;
+  throw new Error('apiPatch unavailable');
+}
+
 async function apiDelete(path) {
   const v = callPageMethod('ApiClientPage', 'apiDelete', [path]);
   if (v !== undefined) return v;
@@ -114,6 +128,10 @@ async function rescanScan(scanID) {
   return callPageMethod('ScanActionsPage', 'rescanScan', [scanID]);
 }
 
+async function resumeScan(scanID) {
+  return callPageMethod('ScanActionsPage', 'resumeScan', [scanID]);
+}
+
 function toggleSelectAllRecentScans(master) {
   return callPageMethod('ScanActionsPage', 'toggleSelectAllRecentScans', [master]);
 }
@@ -138,8 +156,8 @@ async function pauseScan(scanID) {
   return callPageMethod('ScanActionsPage', 'pauseScan', [scanID]);
 }
 
-async function resumeScan(scanID) {
-  return callPageMethod('ScanActionsPage', 'resumeScan', [scanID]);
+async function resumePausedScan(scanID) {
+  return callPageMethod('ScanActionsPage', 'resumePausedScan', [scanID]);
 }
 
 async function loadResource(key, path, stateKey) {
@@ -574,12 +592,6 @@ function renderSettings() {
   return callPageMethod('SettingsPage', 'renderSettings');
 }
 
-function saveOpenRouterKey() {
-  return callPageMethod('SettingsPage', 'saveOpenRouterKey');
-}
-function saveGeminiKey() {
-  return callPageMethod('SettingsPage', 'saveGeminiKey');
-}
 function saveTimeoutSettings() {
   return callPageMethod('SettingsPage', 'saveTimeoutSettings');
 }

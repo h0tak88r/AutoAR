@@ -941,11 +941,19 @@
       $('jwtAttackResults').innerHTML = results.length
         ? results.map(r => `<div class="attack-token-row">
             <b style="font-size:13px">${escapeHTML(r.label)}</b>
-            ${r.token ? `<div class="attack-token-code">${escapeHTML(r.token)}<button class="btn ghost" style="float:right;padding:2px 8px;font-size:10px;margin:-2px 0 0 8px" onclick="navigator.clipboard.writeText('${escapeHTML(r.token).replace(/'/g,"\\'")}')">Copy</button></div>` : ''}
+            ${r.token ? `<div class="attack-token-code">${escapeHTML(r.token)}<button type="button" class="btn ghost" style="float:right;padding:2px 8px;font-size:10px;margin:-2px 0 0 8px" data-copy-token="${escapeHTML(r.token)}">Copy</button></div>` : ''}
             <div class="muted">${escapeHTML(r.desc)}</div>
           </div>`).join('')
         : '<div class="item muted">No tokens generated.</div>';
     }
+
+    // Token text is read from data-copy-token (escaped-in-attribute values are
+    // decoded by the browser) instead of being spliced into an inline onclick.
+    $('jwtAttackResults').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-copy-token]');
+      if (!btn) return;
+      ssrfCopyText(btn.dataset.copyToken).catch(() => {});
+    });
 
     document.querySelectorAll('.jwt-attack-btn').forEach(btn => {
       btn.addEventListener('click', () => runAttack(btn.dataset.attack));
@@ -1456,33 +1464,29 @@
     $('ssrfGenerate').addEventListener('click', renderSSRF);
     $('ssrfFilter').addEventListener('input', renderSSRF);
     if (window.SSRF_PAYLOADS) renderSSRF();
+    else window.addEventListener('ssrf-loaded', renderSSRF, { once: true });
 
     // ─────────────────────────────────────────────
-    //  Recon Dorks (client-side search-engine dork generator)
+    //  Recon Dorks (backend-resolved search-engine dork generator)
     // ─────────────────────────────────────────────
     (function () {
-      if (!window.DORKS_DB) return;
-      const DORKS = window.DORKS_DB;
       const SEV_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
       const SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info / Recon' };
       const BADGE_CLASS = { google: 'bg-google', github: 'bg-github', shodan: 'bg-shodan', wayback: 'bg-wayback', crtsh: 'bg-crtsh', censys: 'bg-censys', urlscan: 'bg-urlscan', fofa: 'bg-fofa', grep: 'bg-grep', intx: 'bg-intx' };
 
+      // Dorks are resolved by the backend (/api/dorks?format=full&target=…) so the
+      // page shows exactly what the MCP recon_dorks tool returns — one source of
+      // truth, and the server builds every platform URL (Google wrap, FOFA base64…).
       let target = 'example.com';
       let filterText = '';
       const activeSevs = new Set(SEV_ORDER);
       let visibleQueries = [];
+      let dorks = [];      // resolved dorks for the current target
+      let loadToken = 0;   // discards out-of-order responses
 
       function sanitize(raw) {
         if (!raw) return 'example.com';
         return raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/[^a-zA-Z0-9.\-_]/g, '') || 'example.com';
-      }
-      // google queries become a Google search URL; every other platform's query is already a full URL.
-      function buildUrl(d, t) {
-        const q = d.query.replace(/\{T\}/g, t);
-        if ((d.platforms || []).includes('google') && !/^https?:/i.test(q)) {
-          return 'https://www.google.com/search?q=' + encodeURIComponent(q);
-        }
-        return q;
       }
       function copyAllLabel() { return visibleQueries.length ? `Copy All (${visibleQueries.length})` : 'Copy All'; }
 
@@ -1511,19 +1515,17 @@
         visibleQueries = [];
         for (const sev of SEV_ORDER) {
           if (!activeSevs.has(sev)) continue;
-          const list = (DORKS[sev] || []).filter(d => !ft || d.title.toLowerCase().includes(ft) || d.query.toLowerCase().includes(ft));
+          const list = dorks.filter(d => d.severity === sev && (!ft || d.title.toLowerCase().includes(ft) || (d.query || '').toLowerCase().includes(ft) || (d.description || '').toLowerCase().includes(ft)));
           if (!list.length) continue;
           total += list.length;
           html += `<div class="dork-sec-head"><span class="dork-dot dot-${sev}"></span><h3 class="sev-${sev}">${SEV_LABEL[sev]}</h3><span class="dork-sec-count">${list.length} dork${list.length !== 1 ? 's' : ''}</span></div><div class="dork-grid">`;
           for (const d of list) {
-            const q = d.query.replace(/\{T\}/g, target);
-            const url = buildUrl(d, target);
             const idx = visibleQueries.length;
-            visibleQueries.push(q);
+            visibleQueries.push(d.query);
             const badges = (d.platforms || []).map(p => `<span class="dork-badge ${BADGE_CLASS[p] || 'bg-google'}">${escapeHTML(p)}</span>`).join(' ');
-            html += `<a href="${escapeHTML(url)}" target="_blank" rel="noopener" class="dork-card">
+            html += `<a href="${escapeHTML(d.url)}" target="_blank" rel="noopener" class="dork-card" title="${escapeHTML(d.description || '')}">
               <div class="dt"><span>${escapeHTML(d.icon || '🔎')}</span>${escapeHTML(d.title)}</div>
-              <div class="dq">${escapeHTML(q)}</div>
+              <div class="dq">${escapeHTML(d.query)}</div>
               <div class="df"><span>${badges}</span><button class="dork-copy" data-i="${idx}">copy</button></div>
             </a>`;
           }
@@ -1534,11 +1536,27 @@
         $('dorkCopyAll').textContent = copyAllLabel();
       }
 
+      function load() {
+        const my = ++loadToken;
+        $('dorkStats').textContent = `Loading dorks for ${target}…`;
+        const p = window.loadReconDorks ? window.loadReconDorks(target) : Promise.reject(new Error('dork loader missing'));
+        p.then(function (data) {
+          if (my !== loadToken) return;            // a newer target superseded this request
+          dorks = (data && data.dorks) || [];
+          render();
+        }).catch(function (err) {
+          if (my !== loadToken) return;
+          console.error('[dorks] load failed:', err);
+          $('dorkResults').innerHTML = '<div class="item muted" style="padding:20px">Failed to load dorks from the backend (/api/dorks).</div>';
+          $('dorkStats').textContent = '0 dorks';
+        });
+      }
+
       function applyTarget() {
         target = sanitize($('dorkTarget').value);
         $('dorkTarget').value = target;
-        render();
         renderQuick(target);
+        load();
       }
 
       $('dorkApply').addEventListener('click', applyTarget);
@@ -1582,8 +1600,8 @@
         });
       });
 
-      render();
       renderQuick(target);
+      load();
     })();
 
     // ─────────────────────────────────────────────
@@ -1787,8 +1805,9 @@
         }
       });
     });
-    // Pre-init on load
+    // Pre-init on load (or when the backend dataset arrives)
     if (window.XSS_PAYLOADS) initXSS();
+    else window.addEventListener('xss-loaded', initXSS, { once: true });
   </script>
   <script src="takeover-reference.js"></script>
 </body>

@@ -19,6 +19,10 @@ import (
 
 const (
 	boundary = "----WebKitFormBoundaryx8jO2oVc6SWP3Sad"
+
+	// maxDOSRequests / maxDOSConcurrency hard-cap the DoS test burst per host.
+	maxDOSRequests    = 100
+	maxDOSConcurrency = 10
 )
 
 // ScanResult mirrors the result structure from the original next88 tool.
@@ -576,9 +580,15 @@ func checkVulnerability(host string, opts ScanOptions) ScanResult {
 		result.RequestBody = body
 		result.ResponseBody = respBody[:min(5000, len(respBody))]
 
+		// The body was drained above; hand the checker a fresh reader so body-
+		// based checks (isVulnerableSafeCheck's E{"digest" match) can still see it.
+		resp.Body = io.NopCloser(strings.NewReader(respBody))
 		if isVulnerable(resp) {
 			vuln := true
 			result.Vulnerable = &vuln
+			if opts.SafeCheck {
+				result.VulnType = "safe-check"
+			}
 			return result
 		}
 	}
@@ -876,9 +886,11 @@ func checkDOS(host string, opts ScanOptions) ScanResult {
 	if requestCount <= 0 {
 		requestCount = 100 // Default
 	}
+	// Hard caps: this burst hits third-party production hosts.
+	requestCount = min(requestCount, maxDOSRequests)
 
 	// Use goroutines to send requests concurrently
-	concurrency := min(opts.Threads, requestCount)
+	concurrency := min(min(opts.Threads, requestCount), maxDOSConcurrency)
 	if concurrency <= 0 {
 		concurrency = 1
 	}

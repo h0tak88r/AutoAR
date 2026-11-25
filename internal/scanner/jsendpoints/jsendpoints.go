@@ -30,7 +30,21 @@ type Endpoint struct {
 const (
 	maxMonitorHosts = 100 // cap live hosts processed per cycle (weak-VPS friendly)
 	maxMonitorJS    = 600 // cap distinct JS bundles downloaded per cycle
+
+	maxHTMLBytes = 2 << 20 // cap per host HTML page
+	maxJSBytes   = 5 << 20 // cap per JS bundle
 )
+
+// newFetchClient returns the SSRF-guarded client used for every target fetch:
+// public-IP validation on each redirect hop and at connect time.
+func newFetchClient() *http.Client {
+	client := utils.NewPublicHTTPClient(15 * time.Second)
+	// TLS verification is deliberately skipped: this only downloads public
+	// target content (HTML/JS) and sends nothing sensitive, and in-scope hosts
+	// with expired/self-signed/mismatched certs must still be reachable.
+	client.Transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return client
+}
 
 // CollectEndpointsForHosts discovers API endpoints from the live hosts' current JS bundles,
 // entirely in memory: it fetches each host's HTML, resolves its <script src> bundles,
@@ -46,10 +60,7 @@ func CollectEndpointsForHosts(hosts []string, threads int) ([]Endpoint, error) {
 		hosts = hosts[:maxMonitorHosts]
 	}
 
-	client := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-		Timeout:   15 * time.Second,
-	}
+	client := newFetchClient()
 
 	// Phase 1: discover unique JS bundle URLs across all hosts (HTML <script src>).
 	jsSet := make(map[string]struct{})
@@ -66,7 +77,7 @@ func CollectEndpointsForHosts(hosts []string, threads int) ([]Endpoint, error) {
 			defer hwg.Done()
 			hsem <- struct{}{}
 			defer func() { <-hsem }()
-			html, err := downloadFile(client, hostURL)
+			html, err := downloadFile(client, hostURL, maxHTMLBytes)
 			if err != nil {
 				return
 			}
@@ -117,7 +128,7 @@ func CollectEndpointsForHosts(hosts []string, threads int) ([]Endpoint, error) {
 			defer jwg.Done()
 			jsem <- struct{}{}
 			defer func() { <-jsem }()
-			content, err := downloadFile(client, jsURL)
+			content, err := downloadFile(client, jsURL, maxJSBytes)
 			if err != nil {
 				return
 			}
@@ -218,10 +229,7 @@ func Run(opts Options) (*Result, error) {
 	logger.GetLogger().Infof("[INFO] jsendpoints: Extracting endpoints from %d JS files for %s", len(jsURLs), opts.Domain)
 
 	outFile := filepath.Join(jsVulnDir, "js-endpoints.txt")
-	client := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-		Timeout:   15 * time.Second,
-	}
+	client := newFetchClient()
 
 	sem := make(chan struct{}, opts.Threads)
 	var wg sync.WaitGroup
@@ -239,7 +247,7 @@ func Run(opts Options) (*Result, error) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			content, err := downloadFile(client, u)
+			content, err := downloadFile(client, u, maxJSBytes)
 			if err != nil {
 				return
 			}
@@ -350,7 +358,14 @@ func isNoise(ep string) bool {
 	return false
 }
 
-func downloadFile(client *http.Client, url string) (string, error) {
+// downloadFile GETs a target-supplied URL (host list, <script src>, crawled
+// js-urls.txt — all attacker-influenceable). The URL is SSRF-validated here,
+// every redirect hop by the client's CheckRedirect, and the connected IP by its
+// transport; the body is capped at maxBytes.
+func downloadFile(client *http.Client, url string, maxBytes int64) (string, error) {
+	if err := utils.ValidatePublicHTTPURL(url); err != nil {
+		return "", err
+	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -364,7 +379,7 @@ func downloadFile(client *http.Client, url string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("non-200 status: %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5 MB cap per file
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 	if err != nil {
 		return "", err
 	}

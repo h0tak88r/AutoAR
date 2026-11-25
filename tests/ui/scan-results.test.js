@@ -48,6 +48,7 @@ function loadBrowserScripts() {
   for (const rel of [
     'internal/api/ui/pages/scan-common.js',
     'internal/api/ui/pages/scan-results-core.js',
+    'internal/api/ui/pages/scan-detail-manifest.js',
     'internal/api/ui/pages/scan-detail.js',
   ]) {
     const code = fs.readFileSync(path.join(repoRoot, rel), 'utf8');

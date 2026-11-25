@@ -1,10 +1,21 @@
 title = "AutoAR gitleaks config"
 
+# Keep gitleaks' built-in rules (AWS, GitHub, Slack, Discord, private keys, …);
+# the rules below only add to them. Without this, ONLY the custom rules ran.
+[extend]
+useDefault = true
+
+# gitleaks matches allowlist paths as regular expressions, not globs — the
+# old "**/README.md" entries made gitleaks panic on load.
 [allowlist]
 paths = [
-  "autoar.sample.yaml",
-  "**/README.md",
-  "**/DEMO.md",
+  '''(^|/)autoar\.sample\.yaml$''',
+  '''(^|/)README\.md$''',
+  '''(^|/)DEMO\.md$''',
+  # Reference corpora of secret-shaped PATTERNS (dork queries, detection rules),
+  # not real secrets — they exist to hunt for secrets, so they trip every rule.
+  '''(^|/)internal/dorks/dorks\.json$''',
+  '''(^|/)regexes/.*\.yaml$''',
 ]
 
 [[rules]]

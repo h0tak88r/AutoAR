@@ -25,15 +25,21 @@ const State = {
     currentOpenBytes: null,
 };
 
+// Everything rendered here comes from the uploaded APK (zip entry names, manifest
+// strings, DEX strings, certificates) and is attacker-controlled. esc() must be
+// safe in BOTH element text and quoted attribute values — the `html` template tag
+// below uses it for every interpolation, including data-path="…" / title="…" —
+// so it escapes quotes too (a textContent→innerHTML round-trip does not).
 function esc(text) {
     if (text == null) return '';
-    const d = document.createElement('div');
-    d.textContent = String(text);
-    return d.innerHTML;
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
-function escAttr(t) {
-    return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const escAttr = esc;
 function html(strings, ...values) {
     let out = '';
     strings.forEach((s, i) => {
@@ -57,6 +63,28 @@ function fmtSize(b) {
     while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
     return b.toFixed(b < 10 && i > 0 ? 2 : 1) + ' ' + u[i];
 }
+// copyText writes to the clipboard. The async Clipboard API is denied in some
+// contexts (plain-HTTP origins, the dashboard's sandboxed iframe), so fall back
+// to a selected textarea + execCommand('copy'), which only needs the click's
+// user activation.
+async function copyText(text) {
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return;
+        }
+    } catch (_) { /* fall back below */ }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } finally { ta.remove(); }
+    if (!ok) throw new Error('Copy failed');
+}
+
 function toast(message, type) {
     const c = document.getElementById('toastContainer') || (() => {
         const d = document.createElement('div');
@@ -72,9 +100,28 @@ function toast(message, type) {
     setTimeout(() => t.remove(), 4500);
 }
 
+// spawnAnalyzerWorker starts the analysis worker. The dashboard embeds this tool
+// in a sandboxed iframe (opaque origin), where a worker script URL on the server
+// counts as cross-origin and `new Worker(url)` throws; a blob: worker created by
+// this document is same-origin, so it bootstraps the real worker by absolute URL.
+function spawnAnalyzerWorker() {
+    try {
+        return new Worker('src/analyzer.worker.js');
+    } catch (e) {
+        const base = new URL('src/', location.href).href;
+        const boot = 'self.APKA_WORKER_BASE=' + JSON.stringify(base) + ';importScripts(' + JSON.stringify(base + 'analyzer.worker.js') + ');';
+        const url = URL.createObjectURL(new Blob([boot], { type: 'text/javascript' }));
+        try {
+            return new Worker(url);
+        } finally {
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+        }
+    }
+}
+
 function setupWorker() {
     try {
-        const w = new Worker('src/analyzer.worker.js');
+        const w = spawnAnalyzerWorker();
         w.addEventListener('error', (e) => {
             console.warn('Worker error:', e.message);
             State.workerFailed = true;
@@ -515,14 +562,14 @@ function renderFindings(r) {
             const line = inst.line || 0;
             const clickAttr = file ? `data-jump-file="${escAttr(file)}" data-jump-line="${parseInt(line) || 0}"` : '';
             const confBar = inst.confidence != null
-                ? `<span class="confidence-badge ${inst.confidenceLabel || 'medium'}" title="Confidence ${inst.confidence}%">${inst.confidence}%</span>`
+                ? `<span class="confidence-badge ${escAttr(inst.confidenceLabel || 'medium')}" title="Confidence ${escAttr(inst.confidence)}%">${esc(inst.confidence)}%</span>`
                 : '';
-            const entropy = inst.entropy != null ? `<span class="entropy-badge" title="Shannon entropy">H=${inst.entropy}</span>` : '';
+            const entropy = inst.entropy != null ? `<span class="entropy-badge" title="Shannon entropy">H=${esc(inst.entropy)}</span>` : '';
             return html`
               <div class="instance-item">
                 <div class="instance-header">
                   <span class="instance-number">#${j + 1}</span>
-                  ${file ? raw(`<button class="instance-file clickable" ${clickAttr} aria-label="Open ${escAttr(file)}">${esc(file)}${line ? ':' + line : ''}</button>`) : ''}
+                  ${file ? raw(`<button class="instance-file clickable" ${clickAttr} aria-label="Open ${escAttr(file)}">${esc(file)}${line ? ':' + esc(line) : ''}</button>`) : ''}
                   ${raw(confBar)}
                   ${raw(entropy)}
                 </div>
@@ -569,7 +616,7 @@ function renderFindings(r) {
         e.stopPropagation();
         const text = b.getAttribute('data-copy');
         try {
-            await navigator.clipboard.writeText(text);
+            await copyText(text);
             b.classList.add('copied');
             const orig = b.textContent;
             b.textContent = 'OK';
@@ -718,7 +765,7 @@ function renderComponents(r) {
     container.innerHTML = list.map((cmp, idx) => renderComponentCard(cmp, pkg, idx)).join('');
     container.querySelectorAll('.comp-cmd').forEach(el => el.addEventListener('click', async () => {
         try {
-            await navigator.clipboard.writeText(el.dataset.cmd || el.textContent.trim());
+            await copyText(el.dataset.cmd || el.textContent.trim());
             const orig = el.textContent;
             el.classList.add('copied');
             el.textContent = 'OK copied';
@@ -765,7 +812,7 @@ function renderComponentCard(cmp, pkg, idx) {
 
     return '<article class="comp-card ' + (cmp.exported ? 'exported' : 'private') + '" data-comp-id="comp-' + idx + '">' +
         '<button class="comp-card-header" aria-expanded="false" aria-controls="comp-body-' + idx + '">' +
-            '<span class="comp-type-badge ' + cmp.type + '">' + cmp.type + '</span>' +
+            '<span class="comp-type-badge ' + escAttr(cmp.type) + '">' + esc(cmp.type) + '</span>' +
             '<span class="comp-name">' + esc(simple) + '</span>' +
             '<span class="comp-badges-inline">' + badges.join('') + '</span>' +
             '<span class="finding-toggle" aria-hidden="true"></span>' +
@@ -932,7 +979,7 @@ function buildTree(tree, prefix) {
             const lower = name.toLowerCase();
             const important = lower === 'androidmanifest.xml' || lower === 'classes.dex' || /^classes\d+\.dex$/.test(lower)
                             || lower === 'resources.arsc' || lower.endsWith('.rsa') || lower.endsWith('.dsa') || lower.endsWith('.ec');
-            out += '<button class="tree-file' + (important ? ' important' : '') + '" data-path="' + escAttr(node._path) + '" data-ext="' + ext + '" title="' + escAttr(node._path) + '" role="treeitem">' +
+            out += '<button class="tree-file' + (important ? ' important' : '') + '" data-path="' + escAttr(node._path) + '" data-ext="' + escAttr(ext) + '" title="' + escAttr(node._path) + '" role="treeitem">' +
                     '<span class="file-icon" aria-hidden="true">' + ic + '</span>' +
                     '<span class="file-name">' + esc(name) + '</span></button>';
         }
@@ -1190,7 +1237,7 @@ function renderFile(viewer, path, arrayBuffer) {
         const url = URL.createObjectURL(blob);
         viewer.innerHTML = '<div class="image-viewer">' +
             '<div class="image-info">' +
-            '<span class="info-badge">' + ext.toUpperCase() + '</span>' +
+            '<span class="info-badge">' + esc(ext.toUpperCase()) + '</span>' +
             '<span class="info-badge">' + fmtSize(bytes.length) + '</span>' +
             '</div>' +
             '<div class="image-container"><img src="' + url + '" alt="' + escAttr(path) + '" loading="lazy"></div>' +
@@ -1400,7 +1447,9 @@ function setupExport() {
 
 function setupTheme() {
     document.documentElement.dataset.theme = 'dark';
-    localStorage.removeItem('theme');
+    // Throws in a sandboxed (opaque-origin) frame — the dashboard embeds this
+    // tool sandboxed, so storage access must be optional.
+    try { localStorage.removeItem('theme'); } catch (_) { /* no storage */ }
 }
 
 function setupDragDrop() {
@@ -1527,10 +1576,13 @@ function setupPreviewRotator() {
 
 function init() {
     setupGlobalErrors();
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister())).catch(() => {});
-        if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
-    }
+    // These getters throw SecurityError in a sandboxed (opaque-origin) frame.
+    try {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister())).catch(() => {});
+            if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+        }
+    } catch (_) { /* sandboxed: no service workers / CacheStorage */ }
     setupTheme();
     setupTabs();
     setupFindingsFilters();

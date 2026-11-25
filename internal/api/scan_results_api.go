@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -200,7 +204,7 @@ var domainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "tech-detect", Description: "Technology detection", PhaseKey: "tech"},
 	{Module: "port-scan", Description: "Port scanning", PhaseKey: "ports"},
 	{Module: "url-collection", Description: "URL collection", PhaseKey: "urls"},
-	{Module: "js-analysis", Description: "JavaScript scan", PhaseKey: "jsscan"},
+	{Module: "js-analysis", Description: "Client-side scan (JS secrets + sinks)", PhaseKey: "jsscan"},
 	{Module: "dns-takeover", Description: "DNS takeover scan", PhaseKey: "dns"},
 	{Module: "mcp-discovery", Description: "MCP server discovery", PhaseKey: "mcp-discovery"},
 	{Module: "aem", Description: "AEM webapp discovery and scan", PhaseKey: "aem"},
@@ -214,7 +218,6 @@ var domainWorkflowPhaseSpecs = []workflowPhaseSpec{
 	{Module: "nuclei", Description: "Nuclei scan", PhaseKey: "nuclei"},
 	{Module: "ffuf-fuzzing", Description: "FFuf fuzzing", PhaseKey: "ffuf"},
 }
-
 
 func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 	if rec == nil {
@@ -275,7 +278,7 @@ func workflowPhaseManifestModules(rec *db.ScanRecord) []moduleExecutionEntry {
 			status = "running"
 			durationMS = now.Sub(rec.StartedAt).Milliseconds()
 
-		// ── Smart inference for any phase not explicitly tracked ──────────
+			// ── Smart inference for any phase not explicitly tracked ──────────
 		} else {
 			if hasArtifacts {
 				// Phase produced files -> definitely ran.
@@ -352,11 +355,17 @@ func collectScanOutputFilesByModule(scanID string) map[string][]string {
 	return out
 }
 
+// maxResultsPage bounds ?page= so (page-1)*perPage can never overflow.
+const maxResultsPage = 1_000_000
+
 func parseScanResultsPagination(c *gin.Context) (page, perPage int) {
 	page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ = strconv.Atoi(c.DefaultQuery("per_page", "20"))
 	if page < 1 {
 		page = 1
+	}
+	if page > maxResultsPage {
+		page = maxResultsPage
 	}
 	if perPage < 1 {
 		perPage = 20
@@ -367,16 +376,37 @@ func parseScanResultsPagination(c *gin.Context) (page, perPage int) {
 	return page, perPage
 }
 
+// pageBounds returns the [start, end) slice bounds of a 1-based page over total
+// items, clamped to [0, total] without overflowing: a huge ?page= used to make
+// (page-1)*perPage wrap negative and panic the slice expression (HTTP 500).
+func pageBounds(page, perPage, total int) (start, end int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 1
+	}
+	pages := total / perPage
+	if total%perPage != 0 {
+		pages++
+	}
+	if page-1 >= pages {
+		return total, total
+	}
+	start = (page - 1) * perPage
+	end = total
+	if perPage < total-start {
+		end = start + perPage
+	}
+	return start, end
+}
+
 func paginateFileEntries(entries []fileEntry, page, perPage int) (pageItems []fileEntry, total int) {
 	total = len(entries)
-	start := (page - 1) * perPage
-	if start > total {
-		start = total
-	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	start, end := pageBounds(page, perPage, total)
 	return entries[start:end], total
 }
 
@@ -404,7 +434,7 @@ func inferModuleFromFileName(name string) string {
 	case strings.Contains(n, "js-endpoint"):
 		return "js-endpoints"
 	// js-secrets / js-exposure: actual secret/vuln findings from JS analysis
-	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure"):
+	case strings.Contains(n, "js-secret") || strings.Contains(n, "js-exposure") || strings.Contains(n, "js-clientside"):
 		return "js-analysis"
 	case strings.Contains(n, "github-secret") || strings.Contains(n, "github-secrets") || (strings.Contains(n, "github") && strings.Contains(n, "secret")):
 		return "github-scan"
@@ -528,9 +558,7 @@ func listLocalFiles(scanID string) ([]fileEntry, error) {
 			isJSON := strings.HasSuffix(strings.ToLower(name), ".json")
 			lineCount := 0
 			if !isJSON {
-				if data, readErr := os.ReadFile(path); readErr == nil {
-					lineCount = strings.Count(string(data), "\n")
-				}
+				lineCount = cachedLineCount(path, info)
 			}
 			relName := info.Name()
 			if rel, rErr := filepath.Rel(scanDir, path); rErr == nil && rel != "" {
@@ -645,16 +673,55 @@ func writeJSONToFile(scanID, fileName string, jsonData interface{}) error {
 	return err
 }
 
-// loadFileContent loads content from local file first, then R2
-func loadFileContent(scanID, fileName string) ([]byte, string, error) {
-	scanDir := getScanResultsDir(scanID)
+// resultFileTooLargeError reports a result file over the read cap. It carries
+// the size and, when the file is on local disk, its path, so callers can say so
+// or stream it (parseOversizedJSONLFile) instead of reading it whole.
+type resultFileTooLargeError struct {
+	Size      int64
+	LocalPath string
+}
+
+func (e *resultFileTooLargeError) Error() string {
+	if e.Size > 0 {
+		return fmt.Sprintf("file too large to load inline (%d bytes)", e.Size)
+	}
+	return "file too large to load inline"
+}
+
+// localScanResultFile returns the on-disk path and info of a scan's result file
+// (regular files only) or ok=false when it isn't stored locally.
+func localScanResultFile(scanID, fileName string) (path string, info os.FileInfo, ok bool) {
 	// #5: Prevent path traversal by ensuring the filename is just a base name.
+	path = filepath.Join(getScanResultsDir(scanID), filepath.Base(fileName))
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", nil, false
+	}
+	return path, info, true
+}
+
+// loadFileContent loads content from local file first, then R2, refusing files
+// over scanResultMaxBody (see loadFileContentMax).
+func loadFileContent(scanID, fileName string) ([]byte, string, error) {
+	return loadFileContentMax(scanID, fileName, scanResultMaxBody)
+}
+
+// loadFileContentMax loads content from local file first, then R2. Files larger
+// than maxBytes are NOT read: the size is checked first (os.Stat / the indexed
+// artifact size / a bounded R2 read) and a *resultFileTooLargeError returned.
+// Reading whole files before the cap let a viewer looping GET /results/parsed
+// on a multi-hundred-MB JSONL buffer it on every request and OOM the box.
+func loadFileContentMax(scanID, fileName string, maxBytes int64) ([]byte, string, error) {
 	fileName = filepath.Base(fileName)
-	filePath := filepath.Join(scanDir, fileName)
 
 	// Try local file first — return even if empty (0 bytes = no results found)
-	if data, err := os.ReadFile(filePath); err == nil {
-		return data, "local", nil
+	if filePath, info, ok := localScanResultFile(scanID, fileName); ok {
+		if info.Size() > maxBytes {
+			return nil, "local", &resultFileTooLargeError{Size: info.Size(), LocalPath: filePath}
+		}
+		if data, err := os.ReadFile(filePath); err == nil {
+			return data, "local", nil
+		}
 	}
 
 	// Not available locally. Try R2 using the indexed artifact R2 key.
@@ -664,6 +731,7 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 
 	// Look up the correct R2 key from the scan_artifacts table (most reliable).
 	r2Key := ""
+	var indexedSize int64
 	if artifacts, err := db.ListScanArtifacts(scanID); err == nil {
 		base := filepath.Base(fileName)
 		for _, a := range artifacts {
@@ -672,13 +740,13 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 			}
 			if filepath.Base(a.FileName) == base || a.FileName == fileName {
 				if a.R2Key != "" {
-					r2Key = a.R2Key
+					r2Key, indexedSize = a.R2Key, a.SizeBytes
 					break
 				}
 				// Derive key from public URL if R2Key wasn't stored
 				if a.PublicURL != "" {
 					if k := r2storage.ExtractObjectKeyFromPublicURL(a.PublicURL); k != "" {
-						r2Key = k
+						r2Key, indexedSize = k, a.SizeBytes
 						break
 					}
 				}
@@ -686,7 +754,7 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 		}
 	}
 
-       	// Fall back to bare filename if no artifact record found.
+	// Fall back to bare filename if no artifact record found.
 	// IMPORTANT: Only use a bare key if we have a scan-scoped prefix to avoid
 	// returning files from other scans/domains (e.g. "all-subs.txt" globally).
 	if r2Key == "" {
@@ -696,11 +764,17 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("file not found in scan artifacts: %s", fileName)
 	}
 
-	data, err := r2storage.GetObjectBytes(r2Key)
+	if indexedSize > maxBytes {
+		return nil, "r2", &resultFileTooLargeError{Size: indexedSize}
+	}
+	data, err := r2storage.GetObjectBytesMax(r2Key, maxBytes)
+	if errors.Is(err, r2storage.ErrObjectTooLarge) {
+		return nil, "r2", &resultFileTooLargeError{Size: indexedSize}
+	}
 	if err != nil {
 		// Also try bare filename as final fallback if a structured key was tried
 		if r2Key != fileName {
-			if data2, err2 := r2storage.GetObjectBytes(fileName); err2 == nil {
+			if data2, err2 := r2storage.GetObjectBytesMax(fileName, maxBytes); err2 == nil {
 				return data2, "r2", nil
 			}
 		}
@@ -708,6 +782,75 @@ func loadFileContent(scanID, fileName string) ([]byte, string, error) {
 	}
 
 	return data, "r2", nil
+}
+
+// Line counts for listLocalFiles, memoized by path + size + mtime: every
+// summary / files / parsed / report call lists the scan's files, and reading
+// each non-JSON file in full on every call (to count newlines) let a viewer
+// loop pin memory and disk on multi-hundred-MB outputs.
+type lineCountEntry struct {
+	size  int64
+	mod   time.Time
+	lines int
+}
+
+var (
+	lineCountMu    sync.Mutex
+	lineCountCache = map[string]lineCountEntry{}
+)
+
+const (
+	lineCountCacheMax = 4096
+	// Files above this are not counted at all (LineCount 0).
+	lineCountMaxBytes = 1 << 30
+)
+
+// cachedLineCount returns the newline count of path, streaming the file at
+// most once per (size, mtime).
+func cachedLineCount(path string, info os.FileInfo) int {
+	if info == nil || info.Size() == 0 || info.Size() > lineCountMaxBytes {
+		return 0
+	}
+	lineCountMu.Lock()
+	e, ok := lineCountCache[path]
+	lineCountMu.Unlock()
+	if ok && e.size == info.Size() && e.mod.Equal(info.ModTime()) {
+		return e.lines
+	}
+	n, err := countLinesStreaming(path, info.Size())
+	if err != nil {
+		return 0
+	}
+	lineCountMu.Lock()
+	if len(lineCountCache) >= lineCountCacheMax {
+		lineCountCache = map[string]lineCountEntry{}
+	}
+	lineCountCache[path] = lineCountEntry{size: info.Size(), mod: info.ModTime(), lines: n}
+	lineCountMu.Unlock()
+	return n
+}
+
+// countLinesStreaming counts '\n' in the first maxBytes of path with a fixed
+// 64 KiB buffer.
+func countLinesStreaming(path string, maxBytes int64) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	buf := make([]byte, 64*1024)
+	r := io.LimitReader(f, maxBytes)
+	n := 0
+	for {
+		k, rerr := r.Read(buf)
+		n += bytes.Count(buf[:k], []byte{'\n'})
+		if rerr == io.EOF {
+			return n, nil
+		}
+		if rerr != nil {
+			return n, rerr
+		}
+	}
 }
 
 // GET /api/scans/:id/results/summary — scan metadata + local file list
@@ -816,6 +959,9 @@ func apiScanResultFileContent(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+	if page > maxResultsPage {
+		page = maxResultsPage
+	}
 	if perPage < 1 {
 		perPage = 100
 	}
@@ -830,6 +976,17 @@ func apiScanResultFileContent(c *gin.Context) {
 	}
 
 	raw, source, err := loadFileContent(scanID, fileName)
+	var tooLarge *resultFileTooLargeError
+	if errors.As(err, &tooLarge) {
+		c.JSON(http.StatusOK, gin.H{
+			"format":      "too_large",
+			"error":       "file too large for inline preview",
+			"max_bytes":   scanResultMaxBody,
+			"size_bytes":  tooLarge.Size,
+			"source_used": source,
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -877,14 +1034,7 @@ func apiScanResultFileContent(c *gin.Context) {
 		lines = lines[:len(lines)-1]
 	}
 	total := len(lines)
-	start := (page - 1) * perPage
-	if start > total {
-		start = total
-	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
+	start, end := pageBounds(page, perPage, total)
 	slice := lines[start:end]
 	if !utf8.ValidString(string(raw)) {
 		c.JSON(http.StatusOK, gin.H{
@@ -942,8 +1092,15 @@ func apiScanResultFileDownload(c *gin.Context) {
 		}
 	}
 
-	// Fallback: serve file from local disk
-	raw, _, err := loadFileContent(scanID, fileName)
+	// Fallback: serve file from local disk, streamed (never buffered whole).
+	if path, _, ok := localScanResultFile(scanID, fileName); ok {
+		// Pre-set the type so ServeFile doesn't sniff (e.g. text/html).
+		c.Header("Content-Type", "application/octet-stream")
+		c.FileAttachment(path, filepath.Base(fileName))
+		return
+	}
+	// R2 object without a public URL: bounded read.
+	raw, _, err := loadFileContentMax(scanID, fileName, r2storage.MaxGetObjectBytes)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("file not found: %v", err)})
 		return
@@ -968,14 +1125,7 @@ func buildJSONPreview(raw []byte, page, perPage int) gin.H {
 	switch v := top.(type) {
 	case []interface{}:
 		total := len(v)
-		start := (page - 1) * perPage
-		if start > total {
-			start = total
-		}
-		end := start + perPage
-		if end > total {
-			end = total
-		}
+		start, end := pageBounds(page, perPage, total)
 		return gin.H{
 			"format":      "json-array",
 			"page":        page,
@@ -989,14 +1139,7 @@ func buildJSONPreview(raw []byte, page, perPage int) gin.H {
 		for _, key := range []string{"results", "findings", "matches", "issues", "vulnerabilities", "data", "items"} {
 			if arr, ok := v[key].([]interface{}); ok && len(arr) > 0 {
 				total := len(arr)
-				start := (page - 1) * perPage
-				if start > total {
-					start = total
-				}
-				end := start + perPage
-				if end > total {
-					end = total
-				}
+				start, end := pageBounds(page, perPage, total)
 				return gin.H{
 					"format":         "json-array",
 					"array_field":    key,
@@ -1115,6 +1258,10 @@ func inferReconKind(fileName string) string {
 	// JS URLs
 	case strings.Contains(b, "js-url") || strings.Contains(b, "jsurl") || strings.Contains(b, "js-enum"):
 		return "js_urls"
+	// JS client-side bug candidates — their own dataset kind so the dashboard
+	// can show them in a dedicated view (not mixed into secrets).
+	case strings.Contains(b, "js-clientside"):
+		return "js-clientside"
 	// JS secrets / exposures -> js-analysis (do not use strings.Contains(b,"js") — it matches ".json")
 	case strings.Contains(b, "js-secret") || strings.Contains(b, "js-exposure") ||
 		(strings.Contains(b, "javascript") && (strings.Contains(b, "secret") || strings.Contains(b, "exposure"))):
@@ -1449,6 +1596,29 @@ func parseFindingFromObject(v map[string]interface{}, fallback string) parsedFin
 		}
 	}
 
+	// jsscan structured findings (emitSecretFindings / emitClientSideFindings):
+	// {template-id, matched-at, severity, finding, module, secret_type, secret}
+	// or {…, pattern_type, match}. Give them an explicit Kind so the dashboard
+	// can route secrets and client-side candidates to their own views instead
+	// of re-guessing from the raw finding string.
+	if jsMod, _ := v["module"].(string); (v["matched-at"] != nil && (v["secret_type"] != nil || v["pattern_type"] != nil)) || jsMod == "js-secrets" || jsMod == "js-clientside" {
+		kind := "js-secret"
+		if jsMod == "js-clientside" || v["pattern_type"] != nil {
+			kind = "js-clientside"
+		}
+		normRawJS := make(map[string]interface{}, len(v)+4)
+		for k, val := range v {
+			normRawJS[strings.ReplaceAll(k, "-", "_")] = val
+		}
+		return parsedFinding{
+			Severity: firstNonEmpty(fmt.Sprint(v["severity"]), "info"),
+			Target:   firstNonEmpty(fmt.Sprint(v["matched-at"])),
+			Finding:  firstNonEmpty(fmt.Sprint(v["template-id"]), fmt.Sprint(v["finding"])),
+			Kind:     kind,
+			Raw:      normRawJS,
+		}
+	}
+
 	// Structured subdomain enumeration result.
 	if v["subdomain"] != nil {
 		sub := strings.TrimSpace(fmt.Sprint(v["subdomain"]))
@@ -1601,6 +1771,53 @@ func isNoiseFinding(finding, target string) bool {
 	return false
 }
 
+// parseOversizedJSONLFile streams a JSONL results file larger than
+// scanResultMaxBody (watch-scan output embeds the encoded template in every
+// row, so a few thousand hits easily exceed the inline-load cap). Lines are
+// fed to parseArtifactFindings in bounded batches — memory stays flat and
+// parsing stops as soon as maxRows findings are collected.
+func parseOversizedJSONLFile(path, module, category string, maxRows int) []parsedFinding {
+	if maxRows < 1 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	out := make([]parsedFinding, 0, minInt(maxRows, 256))
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // single JSONL lines can reach ~1 MB with encoded templates
+	var batch strings.Builder
+	batchLines := 0
+	flush := func() {
+		if batchLines == 0 || len(out) >= maxRows {
+			batch.Reset()
+			batchLines = 0
+			return
+		}
+		for _, r := range parseArtifactFindings([]byte(batch.String()), module, category, maxRows-len(out)) {
+			if len(out) >= maxRows {
+				break
+			}
+			out = append(out, r)
+		}
+		batch.Reset()
+		batchLines = 0
+	}
+	for sc.Scan() && len(out) < maxRows {
+		batch.Write(sc.Bytes())
+		batch.WriteByte('\n')
+		batchLines++
+		if batchLines >= 2000 { // ~2000 × ~5 KB rows ≈ 10 MB worst case, under the inline cap
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
 func parseArtifactFindings(raw []byte, module, category string, maxRows int) []parsedFinding {
 	if maxRows < 1 {
 		maxRows = 1
@@ -1634,8 +1851,8 @@ func parseArtifactFindings(raw []byte, module, category string, maxRows int) []p
 				return
 			}
 			switch t := x.(type) {
-		case map[string]interface{}:
-			// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
+			case map[string]interface{}:
+				// ZeroDays summary-only guard: TotalVulnerable==0 with no findings -> skip.
 				if tv, hasTV := t["TotalVulnerable"]; hasTV {
 					if n, ok := tv.(float64); ok && n == 0 {
 						return
@@ -1801,11 +2018,73 @@ func apiScanParsedResults(c *gin.Context) {
 		limit = 5000
 	}
 
-	// Use local files instead of artifact DB
-	entries, err := listLocalFiles(scanID)
+	rows, err := collectParsedRows(scanID, section, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to list files: %v", err)})
 		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"scan_id": scanID,
+		"section": section,
+		"total":   len(rows),
+		"rows":    rows,
+		"limit":   limit,
+	})
+}
+
+// parsedRawSuperseded maps raw result files to the structured JSON that
+// replaces them; "__pipeline_input__" marks tool inputs that are never findings.
+var parsedRawSuperseded = map[string]string{
+	"misconfig-scan-results.txt": "misconfig-vulnerabilities.json",
+	"ffuf-results.txt":           "ffuf-results.json",
+	"ffuf-webhook-messages.txt":  "ffuf-results.json",
+	"kxss-results.txt":           "xss-reflection-vulnerabilities.json",
+	"exposure-findings.txt":      "exposure-vulnerabilities.json",
+	// js-secrets.txt is superseded by js-secrets-vulnerabilities.json
+	"js-secrets.txt": "js-secrets-vulnerabilities.json",
+	// js-clientside.txt is superseded by js-clientside-vulnerabilities.json
+	"js-clientside.txt":        "js-clientside-vulnerabilities.json",
+	"wp-confusion-results.txt": "wp-confusion-vulnerabilities.json",
+	// URL corpus files — never findings; these are pipeline inputs (lists of URLs/JS files to feed into later scanners)
+	"js-urls.json": "__pipeline_input__",
+	"js-urls.txt":  "__pipeline_input__",
+	// Subdomain / port list envelopes — raw line lists, not structured findings
+	// "subdomains.json":                "__pipeline_input__",
+	// "ports.json":                     "__pipeline_input__",
+	// Live hosts — served by /assets, never by /parsed findings
+	"livehosts.json": "__pipeline_input__",
+	// CNAME recon — served by DNS section, not findings
+	"cname-records.json": "__pipeline_input__",
+	// Pipeline input files — never findings, always skip
+	// "all-subs.txt":                  "__pipeline_input__",
+	// "live-subs.txt":                 "__pipeline_input__",
+	"live-hosts.txt": "__pipeline_input__",
+	// "all-urls.txt":                  "__pipeline_input__",
+	// "subdomains.txt":                "__pipeline_input__",
+	// "enumerated-subs.txt":           "__pipeline_input__",
+	"nuclei-summary.txt": "__pipeline_input__",
+	// DNS raw intermediate files
+	"dangling-ip.txt":               "dns-takeover-vulnerabilities.json",
+	"ns-takeover-raw.txt":           "dns-takeover-vulnerabilities.json",
+	"ns-servers-vuln.txt":           "dns-takeover-vulnerabilities.json",
+	"azure-takeover.txt":            "dns-takeover-vulnerabilities.json",
+	"aws-takeover.txt":              "dns-takeover-vulnerabilities.json",
+	"gcp-takeover.txt":              "dns-takeover-vulnerabilities.json",
+	"cloudflare-tunnel-errors.txt":  "dns-takeover-vulnerabilities.json",
+	"cname-takeover-raw.txt":        "dns-takeover-vulnerabilities.json",
+	"cname-takeover-vulnerable.txt": "dns-takeover-vulnerabilities.json",
+	// CF1016 text report is for human reading only — skip line-by-line finding parsing
+	"cf1016-dangling.txt": "__pipeline_input__",
+}
+
+// collectParsedRows parses a scan's local result files into unified rows —
+// the same rows the scan page shows. section: all | vulnerability | recon.
+func collectParsedRows(scanID, section string, limit int) ([]parsedFinding, error) {
+	// Use local files instead of artifact DB
+	entries, err := listLocalFiles(scanID)
+	if err != nil {
+		return nil, err
 	}
 
 	rows := make([]parsedFinding, 0, minInt(limit, 256))
@@ -1836,46 +2115,6 @@ func apiScanParsedResults(c *gin.Context) {
 	// rawToJSON maps a raw shadowed filename to the JSON that supersedes it.
 	// Also maps pipeline input files (subdomains/URLs) to a sentinel "" to mark
 	// them as "always skip" — the sentinel is never present so they are dropped.
-	rawToJSON := map[string]string{
-		"misconfig-scan-results.txt": "misconfig-vulnerabilities.json",
-		"ffuf-results.txt":           "ffuf-results.json",
-		"ffuf-webhook-messages.txt":  "ffuf-results.json",
-		"kxss-results.txt":           "xss-reflection-vulnerabilities.json",
-		"exposure-findings.txt":      "exposure-vulnerabilities.json",
-		// js-secrets.txt is superseded by js-secrets-vulnerabilities.json
-		"js-secrets.txt":             "js-secrets-vulnerabilities.json",
-		"wp-confusion-results.txt":   "wp-confusion-vulnerabilities.json",
-		// URL corpus files — never findings; these are pipeline inputs (lists of URLs/JS files to feed into later scanners)
-		"js-urls.json": "__pipeline_input__",
-		"js-urls.txt":  "__pipeline_input__",
-		// Subdomain / port list envelopes — raw line lists, not structured findings
-		// "subdomains.json":                "__pipeline_input__",
-		// "ports.json":                     "__pipeline_input__",
-		// Live hosts — served by /assets, never by /parsed findings
-		"livehosts.json": "__pipeline_input__",
-		// CNAME recon — served by DNS section, not findings
-		"cname-records.json": "__pipeline_input__",
-		// Pipeline input files — never findings, always skip
-		// "all-subs.txt":                  "__pipeline_input__",
-		// "live-subs.txt":                 "__pipeline_input__",
-		"live-hosts.txt": "__pipeline_input__",
-		// "all-urls.txt":                  "__pipeline_input__",
-		// "subdomains.txt":                "__pipeline_input__",
-		// "enumerated-subs.txt":           "__pipeline_input__",
-		"nuclei-summary.txt": "__pipeline_input__",
-		// DNS raw intermediate files
-		"dangling-ip.txt":               "dns-takeover-vulnerabilities.json",
-		"ns-takeover-raw.txt":           "dns-takeover-vulnerabilities.json",
-		"ns-servers-vuln.txt":           "dns-takeover-vulnerabilities.json",
-		"azure-takeover.txt":            "dns-takeover-vulnerabilities.json",
-		"aws-takeover.txt":              "dns-takeover-vulnerabilities.json",
-		"gcp-takeover.txt":              "dns-takeover-vulnerabilities.json",
-		"cloudflare-tunnel-errors.txt":  "dns-takeover-vulnerabilities.json",
-		"cname-takeover-raw.txt":        "dns-takeover-vulnerabilities.json",
-		"cname-takeover-vulnerable.txt": "dns-takeover-vulnerabilities.json",
-		// CF1016 text report is for human reading only — skip line-by-line finding parsing
-		"cf1016-dangling.txt": "__pipeline_input__",
-	}
 
 	for _, e := range entries {
 
@@ -1892,7 +2131,7 @@ func apiScanParsedResults(c *gin.Context) {
 		// (handles existing scans indexed before the shouldSkipArtifact fix).
 		// Files mapped to "__pipeline_input__" are always skipped (they are tool
 		// inputs like all-subs.txt, never dashboard findings).
-		if jsonReplacement, isRaw := rawToJSON[strings.ToLower(e.FileName)]; isRaw {
+		if jsonReplacement, isRaw := parsedRawSuperseded[strings.ToLower(e.FileName)]; isRaw {
 			if jsonReplacement == "__pipeline_input__" {
 				continue
 			}
@@ -1900,27 +2139,32 @@ func apiScanParsedResults(c *gin.Context) {
 				continue
 			}
 		}
-		// Read from local file
+		// Read from local file (size-checked before reading)
 		raw, _, loadErr := loadFileContent(scanID, e.FileName)
-
-		if loadErr != nil || len(raw) == 0 {
+		var tooLarge *resultFileTooLargeError
+		if errors.As(loadErr, &tooLarge) {
+			// Oversized result file (e.g. watch-scan JSONL where every row
+			// embeds the encoded template): the 12 MB load cap exists to
+			// protect memory, not to hide findings — stream-parse JSONL from
+			// disk in bounded batches instead of silently dropping the file.
+			path := tooLarge.LocalPath
+			if path == "" {
+				path = e.LocalPath
+			}
+			if e.IsJSON && path != "" {
+				ps := parseOversizedJSONLFile(path, e.Module, e.Category, limit-len(rows))
+				appendRows(ps, e)
+			}
 			continue
 		}
-		if len(raw) > scanResultMaxBody {
+		if loadErr != nil || len(raw) == 0 {
 			continue
 		}
 		ps := parseArtifactFindings(raw, e.Module, e.Category, 250)
 		appendRows(ps, e)
 	}
 	rows = dedupeParsedRows(rows)
-
-	c.JSON(http.StatusOK, gin.H{
-		"scan_id": scanID,
-		"section": section,
-		"total":   len(rows),
-		"rows":    rows,
-		"limit":   limit,
-	})
+	return rows, nil
 }
 
 // GET /api/scans/:id/logs/stream — SSE live log stream for a scan.
@@ -1936,6 +2180,13 @@ func apiStreamScanLogs(c *gin.Context) {
 	scanID := strings.TrimSpace(c.Param("id"))
 	if scanID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "scan id required"})
+		return
+	}
+	// The fallback path tails <resultsDir>/<scanID>/module.log — reject anything
+	// that could traverse out of the results root (":id" is one path segment, so
+	// a literal ".." would read one level up).
+	if strings.Contains(scanID, "..") || strings.ContainsAny(scanID, `/\`) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan id"})
 		return
 	}
 

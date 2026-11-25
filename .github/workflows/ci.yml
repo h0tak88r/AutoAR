@@ -8,7 +8,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # The self-hosted runner on the AutoAR VPS (systemd service
+    # actions.runner.h0tak88r-AutoAR-private.autoar-vps, user ghrunner): builds
+    # there cost no Actions minutes. To use GitHub's runners again, set this
+    # back to ubuntu-latest.
+    runs-on: [self-hosted, autoar-vps]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,14 +21,18 @@ jobs:
           fetch-depth: 0
 
       - name: Install system dependencies
+        # Preinstalled on the VPS runner (its user has no sudo); GitHub's
+        # runners install them.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libpcap-dev
+          if ! dpkg -s libpcap-dev >/dev/null 2>&1 || ! command -v zip >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y libpcap-dev zip
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
           cache-dependency-path: go.sum
 
       - name: Download dependencies
@@ -43,7 +51,7 @@ jobs:
           echo "Build successful!"
 
   security:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, autoar-vps]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +59,7 @@ jobs:
           submodules: false
 
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.28.0 # pinned — @master runs whatever lands upstream
         with:
           args: '-no-fail -fmt json -out gosec-report.json ./...'
 
@@ -62,3 +70,35 @@ jobs:
           name: gosec-report
           path: gosec-report.json
 
+  secrets:
+    # Blocking secret scan of the pushed/PR commits. A hardcoded Discord webhook
+    # token reached master once because the only gitleaks step was release-only
+    # and continue-on-error.
+    runs-on: [self-hosted, autoar-vps]
+    # gitleaks-action lists the PR's commits through the API on pull_request
+    # events; the default token here can't (403 "Resource not accessible by
+    # integration"), so grant exactly that.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The self-hosted runner persists /tmp between jobs; a crashed gitleaks
+      # download leaves /tmp/gitleaks* and wedges the next run. GitHub's runners
+      # start clean, so this only runs on the VPS.
+      - name: Clear stale gitleaks temp (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: rm -rf "${RUNNER_TEMP:-/tmp}"/gitleaks* /tmp/gitleaks* || true
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # PR comments need pull-requests: write; a 403 there would mask a real
+          # finding. The failed check + uploaded report are enough.
+          GITLEAKS_ENABLE_COMMENTS: "false"

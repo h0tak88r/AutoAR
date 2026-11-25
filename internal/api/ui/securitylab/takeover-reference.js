@@ -33,13 +33,13 @@ function initTakeoverRef() {
 
 async function loadTakeoverData() {
   try {
-    const subRes = await fetch('/static/data/subdomain-takeover.json');
+    const subRes = await fetch('/api/seclab/takeover-subdomain');
     subdomainData = await subRes.json();
     filteredSubdomainData = [...subdomainData];
     renderSubdomainTable();
     updateSubdomainStats();
 
-    const dnsRes = await fetch('/static/data/dns-takeover.json');
+    const dnsRes = await fetch('/api/seclab/takeover-dns');
     dnsData = await dnsRes.json();
     filteredDnsData = [...dnsData];
     renderDnsTable();

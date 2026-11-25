@@ -17,6 +17,11 @@ services:
                 RUN_SETUP_AT_BUILD: "true"
         image: autoar:latest
         container_name: autoar-api
+        # Runs as root (overriding the image's non-root USER) because dnsreaper is
+        # launched through the mounted Docker socket below and older results volumes
+        # are root-owned. Both effectively grant host root to anything that gets code
+        # execution in this container. If you don't use the dnsreaper scanner,
+        # remove the docker.sock mount and this line to run as the image's `autoar` user.
         user: root
         restart: unless-stopped
         env_file:
@@ -124,7 +129,11 @@ services:
             - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID:-}
             - R2_SECRET_KEY=${R2_SECRET_KEY:-}
             - R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
-            # AI / LLM providers — set whichever you use. See README "AI-Driven Security Framework".
+            # AI / LLM providers — optional seeds; normally set in Settings ▸ AI Providers.
+            # AI_PROVIDER picks the active one (default: deepseek).
+            - AI_PROVIDER=${AI_PROVIDER:-}
+            - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+            - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
             - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
             - OPENCODE_MODEL=${OPENCODE_MODEL:-}
             - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -161,10 +170,16 @@ services:
             POSTGRES_DB: ${POSTGRES_DB:-bughunt}
         volumes:
             - autoar-pgdata:/var/lib/postgresql/data
+        # Bound to loopback: the API reaches Postgres over the compose network
+        # (postgres:5432), so the host port is only for local admin tools. Docker
+        # publishes ports around ufw, and the DB holds the JWT signing secret and
+        # platform tokens — never expose it publicly with the default password.
+        # Set POSTGRES_BIND=0.0.0.0 only if you really need remote access (and
+        # change POSTGRES_PASSWORD first).
         ports:
-            - "${POSTGRES_PORT:-5432}:5432"
+            - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U autoar -d bughunt"]
+            test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
             interval: 5s
             timeout: 5s
             retries: 10

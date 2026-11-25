@@ -1798,11 +1798,18 @@ function updateProgress(percent, text) {
     if (textEl) textEl.textContent = text;
 }
 
+// IPA contents (file names, plist strings, binary strings) are attacker-controlled.
+// escapeHtml is also used inside quoted attributes (title="…", alt="…",
+// value="…"), so it must escape quotes — a textContent→innerHTML round-trip
+// does not.
 function escapeHtml(text) {
     if (text == null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function escapeAttr(text) {
@@ -1815,16 +1822,17 @@ function escapeAttr(text) {
         .replace(/>/g, '&gt;');
 }
 
+// escapeJs produces the body of a single-quoted JS string literal that is ALSO
+// safe inside a double-quoted HTML attribute (onclick="fn('…')"): the browser
+// HTML-decodes the attribute before the JS runs, so every HTML-significant
+// character (& " ' < >) is emitted as a \xHH escape instead of a raw or
+// entity-encoded character that could close the attribute or the string.
 function escapeJs(text) {
     if (text == null) return '';
-    return String(text)
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/</g, '\\x3c')
-        .replace(/>/g, '\\x3e');
+    return String(text).replace(/[\\'"&<>\n\r\u2028\u2029]/g, (c) => {
+        const code = c.charCodeAt(0);
+        return code > 0xff ? '\\u' + code.toString(16).padStart(4, '0') : '\\x' + code.toString(16).padStart(2, '0');
+    });
 }
 
 function renderResults(results) {

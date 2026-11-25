@@ -9,11 +9,11 @@ import (
 )
 
 type SubdomainTakeoverEntry struct {
-	Engine       string `json:"engine"`
-	Status       string `json:"status"`
-	Verified     string `json:"verified"`
-	Fingerprint  string `json:"fingerprint"`
-	Discussion   string `json:"discussion"`
+	Engine        string `json:"engine"`
+	Status        string `json:"status"`
+	Verified      string `json:"verified"`
+	Fingerprint   string `json:"fingerprint"`
+	Discussion    string `json:"discussion"`
 	Documentation string `json:"documentation"`
 }
 
@@ -195,7 +195,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile("web/static/data/subdomain-takeover.json", subdomainJSON, 0644); err != nil {
+	if err := os.WriteFile("internal/seclab/data/takeover-subdomain.json", subdomainJSON, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing subdomain JSON: %v\n", err)
 		os.Exit(1)
 	}
@@ -207,12 +207,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile("web/static/data/dns-takeover.json", dnsJSON, 0644); err != nil {
+	if err := os.WriteFile("internal/seclab/data/takeover-dns.json", dnsJSON, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing DNS JSON: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf(" Parsed %d subdomain takeover entries\n", len(subdomainEntries))
 	fmt.Printf(" Parsed %d DNS takeover entries\n", len(dnsEntries))
-	fmt.Println(" JSON files written to web/static/data/")
+	fmt.Println(" JSON files written to internal/seclab/data/")
 }

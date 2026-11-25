@@ -14,6 +14,7 @@ package utils
 // falls back to the env var for subprocess compatibility.
 
 import (
+	"context"
 	"os"
 	"runtime"
 	"strconv"
@@ -100,4 +101,57 @@ func IsScanCancelled(scanID string) bool {
 		return false
 	}
 	return isCancelledFn(scanID)
+}
+
+// scanContextFn is a hook registered by the api package (same circular-import
+// avoidance as RegisterCancelChecker): it resolves a scan ID to the scan's
+// lifetime context, which CancelScanByID and the scan timeout can cancel.
+var scanContextFn func(scanID string) context.Context
+
+// RegisterScanContextResolver lets the api package inject its scanID →
+// context.Context lookup once at startup.
+func RegisterScanContextResolver(fn func(scanID string) context.Context) {
+	scanContextFn = fn
+}
+
+// goroutineScanCtxs holds per-goroutine context overrides (goroutine-id →
+// context.Context), e.g. a phase-timeout child of the scan's context.
+var goroutineScanCtxs sync.Map
+
+// SetGoroutineScanContext makes CurrentScanContext return ctx on the calling
+// goroutine (typically a child of the scan context with a phase deadline, so
+// the phase's engine stops on cancel AND on the phase timeout). Call
+// ClearGoroutineScanContext (via defer) when the work returns.
+func SetGoroutineScanContext(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	goroutineScanCtxs.Store(goroutineID(), ctx)
+}
+
+// ClearGoroutineScanContext removes the calling goroutine's context override.
+func ClearGoroutineScanContext() {
+	goroutineScanCtxs.Delete(goroutineID())
+}
+
+// CurrentScanContext returns the lifetime context of the scan running on this
+// goroutine (see GetCurrentScanID), or context.Background() when no scan is
+// active (CLI runs). Scanner engines must be built on this context — one built
+// on context.Background() ignores UI cancels and the scan timeout, and keeps
+// sweeping hosts + firing webhooks after the scan was marked done. A context
+// registered with SetGoroutineScanContext on this goroutine takes precedence.
+func CurrentScanContext() context.Context {
+	if v, ok := goroutineScanCtxs.Load(goroutineID()); ok {
+		if ctx, ok := v.(context.Context); ok && ctx != nil {
+			return ctx
+		}
+	}
+	id := GetCurrentScanID()
+	if id == "" || scanContextFn == nil {
+		return context.Background()
+	}
+	if ctx := scanContextFn(id); ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }
