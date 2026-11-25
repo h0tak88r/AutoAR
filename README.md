@@ -57,6 +57,16 @@ Backend-driven recon helpers that render instantly from the dashboard (no scan r
 
 ![AutoAR Security Lab — Recon Dorks](docs/screenshots/security-lab-dorks.png)
 
+### Mobile app auditors — client-side APK / IPA / ADB analysis
+
+Three mobile auditors embedded directly in the dashboard — everything runs in the browser, nothing leaves the tab. **APK Auditor** (real DEX parsing, AXML manifest, signing certificate, entropy-aware secret detection), **IPA Auditor** (iOS, regex secret scanning + OWASP MASVS-aligned checks), and **ADB Auditor** (live on-device analysis over WebUSB + ADB).
+
+<p align="center">
+  <img src="docs/screenshots/apk-auditor.png" width="32%" alt="APK Auditor" />
+  <img src="docs/screenshots/ipa-auditor.png" width="32%" alt="IPA Auditor" />
+  <img src="docs/screenshots/adb-auditor.png" width="32%" alt="ADB Auditor" />
+</p>
+
 
 ---
 
