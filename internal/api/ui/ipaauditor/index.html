@@ -498,7 +498,70 @@
             .finding-stat { padding: 12px 16px; min-width: 70px; }
             .finding-stat-value { font-size: 20px; }
         }
+
+        /* ===== Light theme =====
+           Follows the parent AutoAR dashboard: it sets data-theme="light" on the root
+           element (applied by the theme-sync script right after this style block). With
+           no attribute (graphite) or "midnight" the dark palette in :root above applies
+           untouched — everything below is scoped to :root[data-theme="light"]. */
+        :root[data-theme="light"] {
+            --bg-primary: #eef2f7;
+            --bg-secondary: #f1f3f7;
+            --bg-tertiary: #e8ebf1;
+            --bg-card: #ffffff;
+            --bg-elevated: #f8fafc;
+            --border-subtle: rgba(17,24,39,0.06);
+            --border-default: rgba(17,24,39,0.10);
+            --border-hover: rgba(17,24,39,0.16);
+            --text-primary: #151a2e;
+            --text-secondary: #475069;
+            --text-muted: #6b7280;
+            --accent-primary: #4f46e5;
+            --accent-subtle: rgba(79,70,229,0.08);
+            --code-bg: #f5f7fb;
+            /* status colours darkened so text/icons keep WCAG-AA contrast on white / light-grey surfaces */
+            --cyan: #0c6882;
+            --green: #04704f;
+            --red: #be123c;
+            --orange: #b13a0b;
+        }
+        /* Hardcoded dark surfaces the variables above don't reach:
+           fixed top bar + full-screen loading overlay (near-black translucent) */
+        :root[data-theme="light"] .header { background: rgba(255,255,255,0.85); border-bottom-color: var(--border-default); }
+        :root[data-theme="light"] .loading-overlay { background: rgba(238,242,247,0.95); }
+        :root[data-theme="light"] .loader { border-color: rgba(17,24,39,0.10); border-top-color: var(--accent-primary); }
+        :root[data-theme="light"] .progress-bar { background: rgba(17,24,39,0.10); }
+        /* faint white background grid -> faint ink grid */
+        :root[data-theme="light"] .grid-pattern { background-image: linear-gradient(rgba(17,24,39,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(17,24,39,0.04) 1px, transparent 1px); }
+        /* code / mono surfaces */
+        :root[data-theme="light"] .instance-snippet { background: rgba(17,24,39,0.05); color: #3730a3; }
+        :root[data-theme="light"] .hex-highlight { background: rgba(251,146,60,0.35); color: #7c2d12 !important; }
+        /* white-tint overlays (invisible on a light page) -> ink-tint overlays */
+        :root[data-theme="light"] .finding-header:hover,
+        :root[data-theme="light"] .code-line:hover { background: rgba(17,24,39,0.03); }
+        :root[data-theme="light"] .tree-folder-header:hover { background: rgba(17,24,39,0.05); }
+        :root[data-theme="light"] .instance-count { background: rgba(17,24,39,0.07); }
+        :root[data-theme="light"] .instance-item:hover { background: #eff1fd; }
+        :root[data-theme="light"] .hex-line,
+        :root[data-theme="light"] .string-entry { border-bottom-color: rgba(17,24,39,0.05); }
+        /* black drop-shadows are too heavy on light; raised elements get soft ink shadows */
+        :root[data-theme="light"] .dropzone { box-shadow: 0 8px 32px rgba(17,24,39,0.10); }
+        :root[data-theme="light"] .dropzone:hover { box-shadow: 0 16px 48px rgba(79,70,229,0.18); }
+        :root[data-theme="light"] .dropzone.drag-over { box-shadow: 0 20px 60px rgba(34,211,238,0.25); }
+        :root[data-theme="light"] .feature-card:hover { box-shadow: 0 20px 40px rgba(17,24,39,0.12); }
+        :root[data-theme="light"] .tab.active { background: #ffffff; box-shadow: 0 1px 4px rgba(17,24,39,0.12); }
+        :root[data-theme="light"] .toast { box-shadow: 0 8px 24px rgba(17,24,39,0.12); }
+        /* hardcoded-colour SVGs: toast icons (injected from JS) and the logo gradients */
+        :root[data-theme="light"] .toast.success svg { stroke: var(--green); }
+        :root[data-theme="light"] .toast.error svg { stroke: var(--red); }
+        :root[data-theme="light"] #logoGrad stop:first-child,
+        :root[data-theme="light"] #footerGrad stop:first-child { stop-color: #4f46e5; }
+        :root[data-theme="light"] #logoGrad stop:last-child,
+        :root[data-theme="light"] #footerGrad stop:last-child { stop-color: #0c6882; }
     </style>
+<script>
+(function(){function apply(t){if(t==='light'||t==='midnight')document.documentElement.setAttribute('data-theme',t);else document.documentElement.removeAttribute('data-theme');}try{apply(window.parent.document.documentElement.getAttribute('data-theme')||'graphite');}catch(e){}window.addEventListener('message',function(e){if(e&&e.data&&e.data.type==='autoar-theme')apply(e.data.theme);});})();
+</script>
 </head>
 <body>
     <div class="particle-field" id="particleField"></div>

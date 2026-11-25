@@ -1051,3 +1051,189 @@ input, select { font: inherit; color: inherit; }
     border: 1px solid var(--lum-30); color: var(--lum-70);
 }
 .mitm-tip { font-size: 12.5px; line-height: 1.55; color: var(--lum-70); }
+
+/* ── Light theme ───────────────────────────────────────────────────────────────
+   The AutoAR dashboard drives this page's theme: the sync script in index.html
+   sets data-theme="light" on <html>. Nothing is set for the default dark theme,
+   so every rule above is untouched. The tokens flip first; the rules after them
+   cover surfaces that hardcode white/black overlays, which tokens can't reach.
+   Those use :where(:root[data-theme="light"]) so the prefix adds no specificity:
+   hover / active / variant rules above (.filter-btn.active, .finding-card.high,
+   .toast.success, …) keep winning exactly as they do in dark.
+   Palette: page #eef2f7 · card #fff · inset #f8fafc · border rgba(17,24,39,.10) · text #151a2e
+   ──────────────────────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+    --void: #ffffff;
+    --depth-1: #eef2f7;
+    --depth-2: #f1f3f7;
+    --depth-3: #e8ebf1;
+    --depth-4: #ffffff;
+    --depth-5: #f8fafc;
+    --lum-100: #151a2e;
+    --lum-90: #27272a;
+    --lum-80: #3f3f46;
+    --lum-70: #52525b;
+    --lum-50: #71717a;
+    --lum-30: #a1a1aa;
+    --lum-10: #e4e4e7;
+    --pulse: #4f46e5;
+    --pulse-subtle: rgba(79, 70, 229, 0.08);
+}
+/* <meta name="color-scheme" content="dark"> would keep native scrollbars / select popups dark */
+:root[data-theme="light"] { color-scheme: light; }
+
+/* page, ambient & floating header */
+:where(:root[data-theme="light"]) body { background: #eef2f7; }
+:where(:root[data-theme="light"]) .site-header { background: rgba(255,255,255,.82); border-color: rgba(17,24,39,.10); box-shadow: 0 8px 28px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.7); }
+:where(:root[data-theme="light"]) .header-divider { background: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .nav-link:hover { background: rgba(17,24,39,.05); }
+
+/* buttons */
+:where(:root[data-theme="light"]) .btn-ghost { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .btn-ghost:hover { background: #f8fafc; border-color: rgba(17,24,39,.18); }
+
+/* hero / landing */
+:where(:root[data-theme="light"]) .hero-tag { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .hero-title-accent { background-image: linear-gradient(135deg, #4f46e5 0%, #7c3aed 40%, #0891b2 100%); }
+:where(:root[data-theme="light"]) .hero-feats-row { border-top-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .dropzone { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .dropzone::after { background: #ffffff; }
+:where(:root[data-theme="light"]) .dropzone-toprow { background: #f8fafc; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .preview-card { background: #ffffff; border-top-color: rgba(17,24,39,.10); border-right-color: rgba(17,24,39,.10); border-bottom-color: rgba(17,24,39,.10); box-shadow: 0 8px 24px rgba(15,23,42,.08); }
+:where(:root[data-theme="light"]) .preview-card::after { background: #f1f5f9; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .preview-match { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+
+/* footer, app header, menus & toasts */
+:where(:root[data-theme="light"]) .site-footer { border-top-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .app-header { border-bottom-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .export-dropdown { border-color: rgba(17,24,39,.10); box-shadow: 0 14px 36px rgba(15,23,42,.16); }
+:where(:root[data-theme="light"]) .toast { border-color: rgba(17,24,39,.10); box-shadow: 0 8px 24px rgba(15,23,42,.14); }
+
+/* tabs */
+:where(:root[data-theme="light"]) .tabs { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .tab:hover { background: rgba(17,24,39,.05); }
+:where(:root[data-theme="light"]) .tab.active { background: #eef2f7; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+
+/* overview: stat cards, score ring, severity rows */
+:where(:root[data-theme="light"]) .stat-card { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .score-ring { background: conic-gradient(var(--score-color, var(--pulse)) calc(var(--score) * 1%), rgba(17,24,39,.08) 0); }
+:where(:root[data-theme="light"]) .score-ring::before { background: #ffffff; }
+:where(:root[data-theme="light"]) .finding-row { background: #f8fafc; }
+:where(:root[data-theme="light"]) .finding-row:hover { border-color: rgba(17,24,39,.18); }
+
+/* results sections & info tiles */
+:where(:root[data-theme="light"]) .results-section { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .results-header { border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .info-item,
+:where(:root[data-theme="light"]) .permission-item,
+:where(:root[data-theme="light"]) .cert-item { background: #f8fafc; border-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .permission-reason { background: #f1f5f9; }
+:where(:root[data-theme="light"]) .scheme-tag { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+
+/* form controls & toolbar buttons */
+:where(:root[data-theme="light"]) .filter-btn,
+:where(:root[data-theme="light"]) .search-wrap input,
+:where(:root[data-theme="light"]) .sort-wrap select,
+:where(:root[data-theme="light"]) .bulk-btn,
+:where(:root[data-theme="light"]) .pager-btn,
+:where(:root[data-theme="light"]) .explorer-controls input,
+:where(:root[data-theme="light"]) .viewer-btn,
+:where(:root[data-theme="light"]) .view-tab,
+:where(:root[data-theme="light"]) .hex-nav,
+:where(:root[data-theme="light"]) .strings-nav-btn,
+:where(:root[data-theme="light"]) .hex-search-btn,
+:where(:root[data-theme="light"]) .hex-search-prev,
+:where(:root[data-theme="light"]) .hex-search-next,
+:where(:root[data-theme="light"]) .hex-goto,
+:where(:root[data-theme="light"]) .hex-search,
+:where(:root[data-theme="light"]) .strings-filter,
+:where(:root[data-theme="light"]) .strings-minlen-input,
+:where(:root[data-theme="light"]) .components-toolbar .filter-bar { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .filter-btn:hover,
+:where(:root[data-theme="light"]) .bulk-btn:hover,
+:where(:root[data-theme="light"]) .pager-btn:hover:not(:disabled),
+:where(:root[data-theme="light"]) .viewer-btn:hover:not(:disabled),
+:where(:root[data-theme="light"]) .view-tab:hover { border-color: rgba(17,24,39,.22); }
+:where(:root[data-theme="light"]) .filter-btn.active { background: var(--pulse-subtle); border-color: var(--pulse); }
+:where(:root[data-theme="light"]) .view-tab.active { background: rgba(34,211,238,.10); border-color: var(--synth); }
+:where(:root[data-theme="light"]) .copy-btn { border-color: rgba(17,24,39,.14); }
+:where(:root[data-theme="light"]) .hex-page-info,
+:where(:root[data-theme="light"]) .strings-page-info,
+:where(:root[data-theme="light"]) .explorer-search-mode { background: #f1f5f9; }
+:where(:root[data-theme="light"]) .explorer-search-mode { border-color: rgba(17,24,39,.10); }
+
+/* finding cards, instances & chips */
+:where(:root[data-theme="light"]) .finding-card { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .finding-header:hover { background: rgba(17,24,39,.03); }
+:where(:root[data-theme="light"]) .finding-body { border-top-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .confidence-pill.noise,
+:where(:root[data-theme="light"]) .instance-count,
+:where(:root[data-theme="light"]) .meta-tag.category,
+:where(:root[data-theme="light"]) .confidence-badge.noise,
+:where(:root[data-theme="light"]) .prov-dist.badge-unknown,
+:where(:root[data-theme="light"]) .ent-val,
+:where(:root[data-theme="light"]) .folder-count { background: rgba(17,24,39,.06); }
+:where(:root[data-theme="light"]) .instance-item { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .instance-snippet { background: #f1f5f9; }
+:where(:root[data-theme="light"]) .checksec-item { background: #f8fafc; border-left-color: rgba(17,24,39,.10); }
+
+/* components, URLs & warnings */
+:where(:root[data-theme="light"]) .comp-card { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .comp-card-header:hover { background: rgba(17,24,39,.03); }
+:where(:root[data-theme="light"]) .comp-type-badge,
+:where(:root[data-theme="light"]) .comp-badge { background: #f8fafc; border-color: rgba(17,24,39,.12); }
+:where(:root[data-theme="light"]) .comp-card-body { border-top-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .comp-cmd { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .content-preview { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .url-host { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .url-host summary:hover { background: rgba(17,24,39,.03); }
+:where(:root[data-theme="light"]) .url-line { background: #f8fafc; }
+:where(:root[data-theme="light"]) .warnings-card { background: #ffffff; }
+:where(:root[data-theme="light"]) .warnings-card[open] summary { border-bottom-color: rgba(17,24,39,.08); }
+
+/* tables & lists */
+:where(:root[data-theme="light"]) .segments-table,
+:where(:root[data-theme="light"]) .ats-table,
+:where(:root[data-theme="light"]) .ent-table { background: #f8fafc; }
+:where(:root[data-theme="light"]) .segments-table th,
+:where(:root[data-theme="light"]) .ats-table th,
+:where(:root[data-theme="light"]) .ent-table th { background: #f1f5f9; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .segments-table td,
+:where(:root[data-theme="light"]) .ats-table td,
+:where(:root[data-theme="light"]) .ent-table td,
+:where(:root[data-theme="light"]) .library-item { border-bottom-color: rgba(17,24,39,.06); }
+:where(:root[data-theme="light"]) .libraries-list .library-item:hover { background: rgba(17,24,39,.03); }
+
+/* explorer: sidebar, file tree, viewers, hex / strings */
+:where(:root[data-theme="light"]) .explorer-sidebar { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .quick-access,
+:where(:root[data-theme="light"]) .explorer-controls,
+:where(:root[data-theme="light"]) #fileSearchResults { border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .quick-access-header,
+:where(:root[data-theme="light"]) .tree-section-header { background: #f1f5f9; }
+:where(:root[data-theme="light"]) .quick-access-item { background: #f8fafc; border-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .tree-folder-header:hover { background: rgba(17,24,39,.05); }
+:where(:root[data-theme="light"]) .tree-folder-content { border-left-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .explorer-main { background: #ffffff; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .explorer-toolbar { background: #f1f5f9; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .code-viewer { background: #f8fafc; box-shadow: inset 0 0 0 1px rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .image-container { background: #f8fafc; border-color: rgba(17,24,39,.10); }
+:where(:root[data-theme="light"]) .binary-toolbar { background: #f1f5f9; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .hex-controls,
+:where(:root[data-theme="light"]) .hex-search-bar,
+:where(:root[data-theme="light"]) .strings-controls,
+:where(:root[data-theme="light"]) .strings-nav { background: #f8fafc; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .binary-body { background: #f8fafc; }
+:where(:root[data-theme="light"]) .hex-table-header { background: #f1f5f9; border-bottom-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .hex-ascii { border-left-color: rgba(17,24,39,.08); }
+:where(:root[data-theme="light"]) .string-entry:nth-child(even) { background: rgba(17,24,39,.03); }
+:where(:root[data-theme="light"]) .string-entry:hover { background: var(--pulse-subtle); }
+
+/* loading overlay */
+:where(:root[data-theme="light"]) .loading-overlay { background: rgba(238,242,247,.94); }
+:where(:root[data-theme="light"]) .progress-bar { background: rgba(17,24,39,.10); }
+
+/* MITM readiness card (tokens flip --depth-1 / --lum-30, so pin these) */
+:where(:root[data-theme="light"]) .mitm-card { border-top-color: rgba(17,24,39,.12); border-right-color: rgba(17,24,39,.12); border-bottom-color: rgba(17,24,39,.12); }
+:where(:root[data-theme="light"]) .mitm-chip { border-color: rgba(17,24,39,.14); }
+:where(:root[data-theme="light"]) .mitm-badge { color: #030306; }

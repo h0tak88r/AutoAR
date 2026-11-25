@@ -1446,7 +1446,10 @@ function setupExport() {
 }
 
 function setupTheme() {
-    document.documentElement.dataset.theme = 'dark';
+    // The dashboard owns the theme: the sync script in index.html sets data-theme
+    // (light / midnight) from the parent. Only default to 'dark' when nothing is set,
+    // so init never overwrites the synced value.
+    if (!document.documentElement.hasAttribute('data-theme')) document.documentElement.dataset.theme = 'dark';
     // Throws in a sandboxed (opaque-origin) frame — the dashboard embeds this
     // tool sandboxed, so storage access must be optional.
     try { localStorage.removeItem('theme'); } catch (_) { /* no storage */ }

@@ -30,4 +30,11 @@
  let saved = 'light';
  try { saved = localStorage.getItem('autoar_theme') || 'light'; } catch (e) { /* ignore */ }
  apply(saved);
+ // Sandboxed iframe sub-pages (apk/ipa auditors run at an opaque origin) cannot
+ // read the parent's theme on load; push it to every iframe as its document loads.
+ // Same-origin frames (securitylab/adb) already self-sync and harmlessly re-apply it.
+ document.addEventListener('load', (e) => {
+  const f = e.target;
+  if (f && f.tagName === 'IFRAME') { try { f.contentWindow.postMessage({ type: 'autoar-theme', theme: current() }, '*'); } catch (_) { /* cross-origin frame */ } }
+ }, true);
 })();

@@ -2814,7 +2814,306 @@
             .tech-grid { grid-template-columns: 1fr; }
             .privacy-badge { flex-wrap: wrap; justify-content: center; }
         }
+
+        /* ==========================================================================
+           LIGHT THEME
+           Active when the parent AutoAR dashboard is in light mode: the theme-sync
+           script that follows this style block sets data-theme="light" on the root
+           element (read from the parent on load, then kept in sync via 'autoar-theme'
+           messages). With no attribute (graphite) or "midnight" nothing below applies, so the
+           default dark appearance is untouched. Palette is shared with the rest of
+           the themed AutoAR UI.
+           Notes for maintainers:
+           - Overrides use background-color / background-image longhands, never the
+             `background` shorthand: the shorthand would reset background-clip:text on
+             the hero title and the select chevron's background-image.
+           - The :root[data-theme] prefix out-specifies the base rules, so :hover /
+             :focus variants that change the same property are mirrored below.
+           ========================================================================== */
+        :root[data-theme="light"] {
+            /* surfaces: page/base, secondary, card, elevated, tertiary */
+            --void: #eef2f7;
+            --depth-1: #f1f3f7;
+            --depth-2: #ffffff;
+            --depth-3: #f8fafc;
+            --depth-4: #e8ebf1;
+            --depth-5: #ffffff;
+            /* text: primary, secondary, muted, faint; --lum-10 is only ever used as a border/divider */
+            --lum-100: #151a2e;
+            --lum-90: #151a2e;
+            --lum-70: #475069;
+            --lum-50: #6b7280;
+            --lum-30: #7f8799;
+            --lum-10: rgba(17, 24, 39, 0.16);
+            /* primary accent (--synth/--vital/--alert/--warm and the gradients are kept as-is) */
+            --pulse: #4f46e5;
+            --pulse-glow: rgba(79, 70, 229, 0.35);
+            --pulse-subtle: rgba(79, 70, 229, 0.10);
+        }
+
+        /* --- ambient background, header, dock ---------------------------------- */
+        :root[data-theme="light"] .ambient-orb.active { opacity: 0.14; }
+        :root[data-theme="light"] .header {
+            background-color: rgba(255, 255, 255, 0.82);
+            border-color: rgba(17, 24, 39, 0.10);
+            box-shadow: 0 8px 32px rgba(17, 24, 39, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        }
+        :root[data-theme="light"] .status-pill.connected {
+            background-color: rgba(16, 185, 129, 0.14);
+            color: #047857;
+        }
+        /* select chevron is a white SVG data-URI: swap for a dark one */
+        :root[data-theme="light"] .device-select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23475069' viewBox='0 0 24 24'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+        }
+        :root[data-theme="light"] .add-device-btn {
+            background-color: rgba(79, 70, 229, 0.10);
+            border-color: rgba(79, 70, 229, 0.30);
+            color: #4f46e5;
+        }
+        :root[data-theme="light"] .add-device-btn:hover {
+            background-color: rgba(79, 70, 229, 0.18);
+            border-color: rgba(79, 70, 229, 0.50);
+            color: #3730a3;
+        }
+        :root[data-theme="light"] .add-device-menu { box-shadow: 0 8px 32px rgba(17, 24, 39, 0.14); }
+        :root[data-theme="light"] .add-menu-item:hover { background-color: rgba(79, 70, 229, 0.08); }
+        :root[data-theme="light"] .dock {
+            background-color: rgba(255, 255, 255, 0.72);
+            border-color: rgba(17, 24, 39, 0.10);
+            box-shadow: 0 8px 32px rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .dock-item:hover:not(.disabled) { background-color: rgba(17, 24, 39, 0.05); }
+        :root[data-theme="light"] .dock-tooltip { box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.10), 0 6px 16px rgba(17, 24, 39, 0.12); }
+
+        /* --- buttons ------------------------------------------------------------ */
+        :root[data-theme="light"] .btn-ghost {
+            background-color: #f1f3f7;
+            border-color: rgba(17, 24, 39, 0.12);
+        }
+        :root[data-theme="light"] .btn-ghost:hover {
+            background-color: #e8ebf1;
+            border-color: rgba(17, 24, 39, 0.18);
+        }
+
+        /* --- landing hero ------------------------------------------------------- */
+        /* big saturated glows are toned down so muted text on top stays readable */
+        :root[data-theme="light"] .glow-primary { background-image: radial-gradient(circle, rgba(79, 70, 229, 0.22) 0%, rgba(124, 58, 237, 0.12) 40%, transparent 70%); }
+        :root[data-theme="light"] .glow-secondary { background-image: radial-gradient(circle, rgba(34, 211, 238, 0.20) 0%, rgba(79, 70, 229, 0.10) 40%, transparent 70%); }
+        :root[data-theme="light"] .glow-tertiary { background-image: radial-gradient(circle, rgba(168, 85, 247, 0.14) 0%, transparent 60%); }
+        :root[data-theme="light"] .hero-grid {
+            background-image:
+                linear-gradient(rgba(79, 70, 229, 0.07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(79, 70, 229, 0.07) 1px, transparent 1px);
+        }
+        :root[data-theme="light"] .hero-eyebrow {
+            background-color: rgba(79, 70, 229, 0.08);
+            border-color: rgba(79, 70, 229, 0.20);
+            color: #4338ca;
+        }
+        /* gradient text (background-clip:text): the dark theme's #fff -> pale indigo is invisible on light */
+        :root[data-theme="light"] .hero-title .title-gradient { background-image: linear-gradient(135deg, #151a2e 0%, #3730a3 55%, #4f46e5 100%); }
+        :root[data-theme="light"] .hero-title .title-accent { background-image: linear-gradient(135deg, #4f46e5 0%, #7c3aed 40%, #9333ea 70%, #0891b2 100%); }
+        :root[data-theme="light"] .trust-item {
+            background-color: rgba(255, 255, 255, 0.75);
+            border-color: rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .trust-item:hover {
+            background-color: rgba(79, 70, 229, 0.08);
+            border-color: rgba(79, 70, 229, 0.25);
+        }
+        :root[data-theme="light"] .btn-hero-secondary {
+            background-color: rgba(255, 255, 255, 0.70);
+            border-color: rgba(17, 24, 39, 0.14);
+        }
+        :root[data-theme="light"] .btn-hero-secondary:hover {
+            background-color: #ffffff;
+            border-color: rgba(17, 24, 39, 0.22);
+        }
+        :root[data-theme="light"] .scroll-indicator { border-color: rgba(17, 24, 39, 0.25); }
+
+        /* --- landing sections: feature / setup / tech cards, footer ------------- */
+        :root[data-theme="light"] .feature-card {
+            background-color: #ffffff;
+            border-color: rgba(17, 24, 39, 0.08);
+            box-shadow: 0 1px 3px rgba(17, 24, 39, 0.04);
+        }
+        :root[data-theme="light"] .feature-card:hover {
+            background-color: #ffffff;
+            border-color: rgba(79, 70, 229, 0.30);
+            box-shadow: 0 20px 50px rgba(17, 24, 39, 0.12);
+        }
+        :root[data-theme="light"] .feature-card:hover .feature-icon svg { color: #4338ca; }
+        :root[data-theme="light"] .feature-card:hover h3 { color: #151a2e; }
+        :root[data-theme="light"] .setup-step,
+        :root[data-theme="light"] .tech-item {
+            background-color: #ffffff;
+            border-color: rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .setup-step:hover,
+        :root[data-theme="light"] .tech-item:hover {
+            background-color: #ffffff;
+            border-color: rgba(79, 70, 229, 0.30);
+        }
+        :root[data-theme="light"] .landing-footer { border-top-color: rgba(17, 24, 39, 0.08); }
+
+        /* --- app pages: cards, stats, lists, drop zone, search ------------------ */
+        :root[data-theme="light"] .page-header { border-bottom-color: rgba(17, 24, 39, 0.08); }
+        :root[data-theme="light"] .card,
+        :root[data-theme="light"] .stat-card,
+        :root[data-theme="light"] .security-panel {
+            background-color: #ffffff;
+            border-color: rgba(17, 24, 39, 0.08);
+            box-shadow: 0 1px 3px rgba(17, 24, 39, 0.04);
+        }
+        :root[data-theme="light"] .card:hover {
+            border-color: rgba(17, 24, 39, 0.14);
+            box-shadow: 0 16px 48px rgba(17, 24, 39, 0.10);
+        }
+        :root[data-theme="light"] .stat-card:hover { border-color: rgba(17, 24, 39, 0.14); }
+        :root[data-theme="light"] .card-header { border-bottom-color: rgba(17, 24, 39, 0.08); }
+        :root[data-theme="light"] .prop-item,
+        :root[data-theme="light"] .app-item,
+        :root[data-theme="light"] .file-item { border-bottom-color: rgba(17, 24, 39, 0.06); }
+        :root[data-theme="light"] .prop-item:hover,
+        :root[data-theme="light"] .app-item:hover,
+        :root[data-theme="light"] .file-item:hover { background-color: rgba(17, 24, 39, 0.03); }
+        :root[data-theme="light"] .drop-zone { border-color: rgba(17, 24, 39, 0.18); }
+        :root[data-theme="light"] .drop-zone:hover,
+        :root[data-theme="light"] .drop-zone.drag-over { border-color: var(--pulse); }
+        /* the drop zone has no fill, so the #e8ebf1 tile would vanish into the page */
+        :root[data-theme="light"] .drop-icon {
+            background-color: #ffffff;
+            box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .search-input {
+            background-color: #ffffff;
+            border-color: rgba(17, 24, 39, 0.14);
+        }
+        :root[data-theme="light"] .search-input:focus { border-color: var(--pulse); }
+        :root[data-theme="light"] .path-bar {
+            background-color: #f1f3f7;
+            border-bottom-color: rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .screenshot-area {
+            background-color: #f5f7fb;
+            border-color: rgba(17, 24, 39, 0.10);
+        }
+        :root[data-theme="light"] .screenshot-preview { box-shadow: 0 12px 40px rgba(17, 24, 39, 0.18); }
+        :root[data-theme="light"] .tab-bar {
+            background-color: #f1f3f7;
+            border-color: rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .tab-btn:hover { background-color: rgba(17, 24, 39, 0.05); }
+
+        /* --- terminal / shell (black panel + light mono text in the dark theme) - */
+        :root[data-theme="light"] .shell-container {
+            background-color: #f5f7fb;
+            border-color: rgba(17, 24, 39, 0.10);
+        }
+        :root[data-theme="light"] .shell-header {
+            background-color: rgba(17, 24, 39, 0.03);
+            border-bottom-color: rgba(17, 24, 39, 0.08);
+        }
+        :root[data-theme="light"] .shell-output,
+        :root[data-theme="light"] .shell-result,
+        :root[data-theme="light"] .shell-input { color: #3730a3; }
+        :root[data-theme="light"] .shell-prompt,
+        :root[data-theme="light"] .shell-prompt-char { color: #047857; }
+        :root[data-theme="light"] .shell-error { color: #be123c; }
+        :root[data-theme="light"] .shell-input-row {
+            background-color: rgba(17, 24, 39, 0.03);
+            border-top-color: rgba(17, 24, 39, 0.08);
+        }
+
+        /* --- logcat pane (#0d0d0d + pastel level colours -> light pane + darker levels) */
+        :root[data-theme="light"] .logcat-output {
+            background-color: #f5f7fb;
+            border-color: rgba(17, 24, 39, 0.12);
+            color: #3730a3;
+        }
+        :root[data-theme="light"] .logcat-line { border-bottom-color: rgba(17, 24, 39, 0.05); }
+        :root[data-theme="light"] .logcat-line.verbose { color: #6b7280; }
+        :root[data-theme="light"] .logcat-line.debug { color: #1d4ed8; }
+        :root[data-theme="light"] .logcat-line.info { color: #047857; }
+        :root[data-theme="light"] .logcat-line.warn { color: #b45309; }
+        :root[data-theme="light"] .logcat-line.error { color: #b91c1c; }
+        :root[data-theme="light"] .logcat-line.fatal { color: #991b1b; }
+
+        /* --- form controls ------------------------------------------------------ */
+        :root[data-theme="light"] .form-row select,
+        :root[data-theme="light"] .logcat-input { border-color: rgba(17, 24, 39, 0.16); }
+        :root[data-theme="light"] .form-row select:focus,
+        :root[data-theme="light"] .logcat-input:focus { border-color: var(--pulse); }
+        :root[data-theme="light"] .text-input {
+            background-color: #f8fafc;
+            border-color: rgba(17, 24, 39, 0.16);
+        }
+        :root[data-theme="light"] .text-input:focus { border-color: var(--pulse); }
+        :root[data-theme="light"] .root-toggle { border-color: rgba(17, 24, 39, 0.10); }
+        /* the unchecked track is undefined (transparent) in the dark theme; a white knob needs a visible track on light */
+        :root[data-theme="light"] .toggle-slider { background-color: rgba(17, 24, 39, 0.22); }
+        :root[data-theme="light"] .toggle-slider::after { box-shadow: 0 1px 3px rgba(17, 24, 39, 0.30); }
+
+        /* --- results: boxes, rows, badges, tags --------------------------------- */
+        :root[data-theme="light"] .result-box {
+            background-color: #f5f7fb;
+            box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.06);
+        }
+        :root[data-theme="light"] .file-row,
+        :root[data-theme="light"] .component-item { box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.06); }
+        :root[data-theme="light"] .badge.pass { background-color: rgba(16, 185, 129, 0.14); color: #047857; }
+        :root[data-theme="light"] .badge.fail { background-color: rgba(244, 63, 94, 0.12); color: #be123c; }
+        :root[data-theme="light"] .badge.warning { background-color: rgba(245, 158, 11, 0.16); color: #92400e; }
+        :root[data-theme="light"] .component-type.service { background-color: rgba(168, 85, 247, 0.12); color: #7e22ce; }
+        :root[data-theme="light"] .component-type.receiver,
+        :root[data-theme="light"] .perm-tag { background-color: rgba(245, 158, 11, 0.16); color: #92400e; }
+        :root[data-theme="light"] .component-type.provider { background-color: rgba(244, 63, 94, 0.12); color: #be123c; }
+
+        /* --- overlays: modals, toasts, loading ---------------------------------- */
+        :root[data-theme="light"] .modal-overlay { background-color: rgba(21, 26, 46, 0.45); }
+        :root[data-theme="light"] .modal {
+            border-color: rgba(17, 24, 39, 0.10);
+            box-shadow: 0 24px 80px rgba(17, 24, 39, 0.20);
+        }
+        :root[data-theme="light"] .modal-header { border-bottom-color: rgba(17, 24, 39, 0.08); }
+        :root[data-theme="light"] .modal-footer { border-top-color: rgba(17, 24, 39, 0.08); }
+        :root[data-theme="light"] .modal-close:hover { background-color: rgba(17, 24, 39, 0.06); }
+        :root[data-theme="light"] .modal-hint code {
+            background-color: rgba(17, 24, 39, 0.06);
+            color: #3730a3;
+        }
+        :root[data-theme="light"] .toast {
+            border-color: rgba(17, 24, 39, 0.10);
+            box-shadow: 0 10px 40px rgba(17, 24, 39, 0.16);
+        }
+        :root[data-theme="light"] .toast.warning .toast-icon { color: #d97706; }
+        :root[data-theme="light"] .toast.info .toast-icon { color: #0891b2; }
+        :root[data-theme="light"] .loading-overlay { background-color: rgba(238, 242, 247, 0.94); }
+
+        /* --- JS-generated markup with inline dark styles (js/app.js) ------------
+           !important is required here: inline style attributes beat stylesheet rules. */
+        /* file preview modal (viewStorageFile) is built with element.style.cssText */
+        :root[data-theme="light"] #fileViewModal { background-color: rgba(21, 26, 46, 0.45) !important; }
+        :root[data-theme="light"] #fileViewModal > div {
+            background-color: #ffffff !important;
+            border-color: rgba(17, 24, 39, 0.10) !important;
+            box-shadow: 0 24px 80px rgba(17, 24, 39, 0.20);
+        }
+        :root[data-theme="light"] #fileViewModal > div > div:first-child { border-bottom-color: rgba(17, 24, 39, 0.08) !important; }
+        :root[data-theme="light"] #fileViewModal span:first-child { color: #151a2e !important; }
+        :root[data-theme="light"] #fileViewModal button {
+            background-color: #e8ebf1 !important;
+            color: #151a2e !important;
+        }
+        :root[data-theme="light"] #fileViewModal pre { color: #3730a3 !important; }
+        /* hairline divider and "Error" tile in the app-info / full-scan results */
+        :root[data-theme="light"] [style*="border-top:1px solid rgba(255,255,255,0.06)"] { border-top-color: rgba(17, 24, 39, 0.10) !important; }
+        :root[data-theme="light"] [style*="background:rgba(255,255,255,0.05)"] { background-color: rgba(17, 24, 39, 0.05) !important; }
     </style>
+<script>
+(function(){function apply(t){if(t==='light'||t==='midnight')document.documentElement.setAttribute('data-theme',t);else document.documentElement.removeAttribute('data-theme');}try{apply(window.parent.document.documentElement.getAttribute('data-theme')||'graphite');}catch(e){}window.addEventListener('message',function(e){if(e&&e.data&&e.data.type==='autoar-theme')apply(e.data.theme);});})();
+</script>
 </head>
 <body data-version="5357323032365357">
     <div class="ambient">
