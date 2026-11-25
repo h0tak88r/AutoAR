@@ -4,8 +4,10 @@
 
 **The ultimate bug bounty automation framework. Scan smarter, find more, ship faster.**
 
-[Go](https://golang.org/)
-[License](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/h0tak88r/AutoAR?logo=go&logoColor=white)](https://golang.org/)
+[![License](https://img.shields.io/github/license/h0tak88r/AutoAR?color=green)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/h0tak88r/AutoAR)](https://github.com/h0tak88r/AutoAR/commits/master)
+[![Stars](https://img.shields.io/github/stars/h0tak88r/AutoAR?style=social)](https://github.com/h0tak88r/AutoAR/stargazers)
 
 
 
@@ -17,7 +19,10 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 
 **Public VPS / dashboard:** uses native Go JWT authentication with local PostgreSQL — no Supabase required. See [docs/DASHBOARD_AUTH.md](docs/DASHBOARD_AUTH.md).
 
-![Dashboard](image.png)
+![AutoAR Dashboard](image.png)
+
+> _The AutoAR dashboard — real-time attack-surface overview: domains, subdomains, scans, findings, monitoring and AI usage, all in one place._
+
 ---
 
 ##  Feature Highlights
@@ -45,6 +50,12 @@ Results are automatically uploaded to **Cloudflare R2 storage** and linked direc
 |  **Smart Alerts**    | Rich webhook notifications for zero-findings scans — no more empty files or spam                                                       |
 |  **Web dashboard**  | **v4.3+** — Stats, scans, domains, monitors, R2 browser, Targets, APK/IPA/ADB Auditors, CF-1016 findings. Unified findings table with per-module columns, inline expandable detail panels, severity/chip/multi-field filters            |
 |  **DB-backed Settings** | Configure a running instance from the dashboard — platform accounts (multi-account, editable), provider/subfinder keys (multi-key), webhook, Cloudflare R2, AI keys, scan timeouts. Stored in the database, survives redeploys; env vars become optional seeds |
+
+### Security Lab — browser-first offensive tooling
+
+Backend-driven recon helpers that render instantly from the dashboard (no scan required): **262 search-engine dorks** across Google / GitHub / Shodan / crt.sh / Wayback, **345 SSRF payloads**, an XSS cheat sheet, a JWT analyzer, a regex workbench, dependency-confusion triage, and a subdomain / DNS takeover reference — each queryable for your target and one-click copyable.
+
+![AutoAR Security Lab — Recon Dorks](docs/screenshots/security-lab-dorks.png)
 
 
 ---
