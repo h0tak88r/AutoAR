@@ -194,7 +194,52 @@
     .bg-google{background:#4285f4;color:#fff} .bg-github{background:#2b3137;color:#fff} .bg-shodan{background:#c0392b;color:#fff}
     .bg-wayback{background:#2c3e50;color:#fff} .bg-crtsh{background:#16a085;color:#fff} .bg-censys{background:#8e44ad;color:#fff}
     .bg-urlscan{background:#2980b9;color:#fff} .bg-fofa{background:#d35400;color:#fff} .bg-grep{background:#27ae60;color:#fff} .bg-intx{background:#34495e;color:#fff}
+
+    /* Light theme — mirrors the parent dashboard's light mode (applied when the
+       parent is in light mode; see the theme-sync script below). */
+    :root[data-theme="light"] {
+      --bg: #eef2f7;
+      --card: #ffffff;
+      --muted: #5a6478;
+      --text: #151a2e;
+      --accent: #4f46e5;
+      --border: rgba(17,24,39,.12);
+    }
+    :root[data-theme="light"] input,
+    :root[data-theme="light"] textarea,
+    :root[data-theme="light"] select { background: #ffffff; }
+    :root[data-theme="light"] .tab,
+    :root[data-theme="light"] .btn.ghost,
+    :root[data-theme="light"] .xss-toggle,
+    :root[data-theme="light"] .xss-copy-btn,
+    :root[data-theme="light"] .tref-tab,
+    :root[data-theme="light"] .dork-sev-btn { background: #eef1f8; }
+    :root[data-theme="light"] .tref-table th { background: #eef1f8; }
+    :root[data-theme="light"] .list,
+    :root[data-theme="light"] .tref-stat,
+    :root[data-theme="light"] .dork-card { background: #f5f7fb; }
+    :root[data-theme="light"] .xss-results-box,
+    :root[data-theme="light"] .tref-table-wrap { background: #f8fafc; box-shadow: none; }
+    :root[data-theme="light"] .attack-token-code,
+    :root[data-theme="light"] .fingerprint { background: #f5f7fb; color: #3730a3; }
+    :root[data-theme="light"] .xss-code { color: #3730a3; }
+    :root[data-theme="light"] .dork-copy { background: rgba(17,24,39,.06); }
+    :root[data-theme="light"] .dork-card .dq { color: #475069; }
   </style>
+  <script>
+    /* Sync this iframe's theme with the parent dashboard. Same-origin, so we can
+       read the parent's data-theme on load; the parent also postMessages on toggle. */
+    (function () {
+      function apply(t) {
+        if (t === 'light' || t === 'midnight') document.documentElement.setAttribute('data-theme', t);
+        else document.documentElement.removeAttribute('data-theme'); // graphite / default dark
+      }
+      try { apply(window.parent.document.documentElement.getAttribute('data-theme') || 'graphite'); } catch (e) { /* cross-origin / standalone */ }
+      window.addEventListener('message', function (e) {
+        if (e && e.data && e.data.type === 'autoar-theme') apply(e.data.theme);
+      });
+    })();
+  </script>
   <script src="ssrf-payloads.js"></script>
   <script src="xss-payloads.js"></script>
   <script src="dorks.js"></script>

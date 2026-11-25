@@ -1,6 +1,6 @@
 (() => {
- // Themes: graphite (default, neutral black + brand blue), midnight (the old
- // navy + cyan) and light. The choice persists in localStorage.
+ // Themes: light (default, bright neutral), graphite (neutral black + brand
+ // blue) and midnight (the old navy + cyan). The choice persists in localStorage.
  const THEMES = ['graphite', 'midnight', 'light'];
  function apply(theme) {
  if (theme === 'light' || theme === 'midnight') document.documentElement.setAttribute('data-theme', theme);
@@ -22,10 +22,12 @@
  guard.append(document.createTextNode('*,*::before,*::after{transition:none !important}'));
  document.head.append(guard);
  apply(next);
+ // keep same-origin iframe sub-pages (Security Lab etc.) in sync with the toggle
+ document.querySelectorAll('iframe').forEach(f => { try { f.contentWindow.postMessage({ type: 'autoar-theme', theme: next }, '*'); } catch (e) { /* ignore */ } });
  void document.body.offsetHeight; // force a synchronous style flush
  requestAnimationFrame(() => { requestAnimationFrame(() => guard.remove()); });
  };
- let saved = 'graphite';
- try { saved = localStorage.getItem('autoar_theme') || 'graphite'; } catch (e) { /* ignore */ }
+ let saved = 'light';
+ try { saved = localStorage.getItem('autoar_theme') || 'light'; } catch (e) { /* ignore */ }
  apply(saved);
 })();
