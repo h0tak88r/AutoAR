@@ -70,7 +70,65 @@ Three mobile auditors embedded directly in the dashboard — everything runs in 
 
 ---
 
+##  MCP Integration (Model Context Protocol)
+
+AutoAR speaks **MCP** on both sides of the protocol: it's an MCP **server** your AI assistant can drive, and it ships an MCP **scanner** that hunts exposed MCP servers on your targets.
+
+### Drive AutoAR from your AI assistant
+
+`autoar mcp` starts a Model Context Protocol server over **stdio** (JSON-RPC 2.0, protocol `2024-11-05`, server `autoar-mcp`). Point **Claude Code, Claude Desktop, Cursor**, or any MCP client at it and explore every scan, result file and finding in your AutoAR database in natural language — no REST calls, no digging through result directories.
+
+<details>
+<summary><b>&#128295; The six tools it exposes</b> &mdash; read-only scan exploration</summary>
+
+<br>
+
+| Tool | Required | Optional | Returns |
+| ---- | -------- | -------- | ------- |
+| `list_scans` | &mdash; | `limit` (20), `status` | Recent scans: id, type, target, status, findings count, timestamps |
+| `get_scan` | `scan_id` | &mdash; | Full details for one scan |
+| `list_scan_files` | `scan_id` | &mdash; | Result files: name, size, module, category |
+| `get_file_content` | `scan_id`, `file_name` | `page`, `per_page` (50, max 500) | File content (text/JSON, paginated) |
+| `list_findings` | `scan_id` | `limit` (200, max 1000), `severity` | Parsed findings: vulns, URLs, secrets |
+| `search_findings` | `query` | `limit` (50) | Matching findings across **all** scans |
+
+The server is **read-only** by design &mdash; it explores results, it never launches scans or mutates data. Kick off scans from the CLI, REST API or dashboard; then let the assistant triage what came back.
+
+</details>
+
+<details>
+<summary><b>&#128268; Connect it</b> &mdash; Claude Code / Cursor / Claude Desktop</summary>
+
+<br>
+
+Add AutoAR to your MCP client config and point it at your database:
+
+```json
+{
+  "mcpServers": {
+    "autoar": {
+      "command": "autoar",
+      "args": ["mcp"],
+      "env": { "DB_TYPE": "sqlite", "DB_HOST": "/path/to/bughunt.db" }
+    }
+  }
+}
+```
+
+Then just ask: *"List my last 5 completed scans," "Show the high-severity findings for scan `<id>`," "Search every scan for `s3`."* The assistant calls the tools and reads the results straight back to you.
+
+</details>
+
+### Find exposed MCP servers on your targets
+
+Exposed MCP endpoints are a fast-growing attack surface. AutoAR's **`mcp-discovery`** module &mdash; built into `domain run` and `subdomain run` &mdash; probes live hosts for the common MCP paths (`/mcp`, `/mcp/sse`, `/mcp/message`, `/.well-known/mcp`), fingerprints the transport (SSE / `mcp-session-id` / streamable HTTP), and where a server answers, enumerates its advertised tools via `tools/list` &mdash; writing structured `mcp-server-findings.json` into the scan.
+
+---
+
 ##  Complete Command Reference
+
+<details>
+<summary><b>&#128214; Expand the full CLI reference</b> &mdash; workflows &middot; recon &middot; vuln scanning &middot; DNS takeover &middot; mobile auditors &middot; scope fetching &middot; monitoring</summary>
 
 ### Workflows (Start Here)
 
@@ -326,6 +384,8 @@ autoar monitor updates manage list
 ```
 
 
+</details>
+
 ---
 
 ##  AI-Driven Security Framework
@@ -412,6 +472,9 @@ autoar api                 Start the REST API server + web dashboard
 ---
 
 ##  Installation
+
+<details>
+<summary><b>&#9881;&#65039; Expand installation options</b> &mdash; Docker &middot; Dokploy &middot; manual build &middot; go install</summary>
 
 ### Option 1 — Docker (Primary & Recommended)
 
@@ -503,9 +566,14 @@ go install github.com/h0tak88r/AutoAR/cmd/autoar@latest
 > ```
 
 
+</details>
+
 ---
 
 ##  Configuration
+
+<details>
+<summary><b>&#128296; Expand configuration</b> &mdash; env vars &middot; R2 storage &middot; API keys &middot; scan tuning &middot; dashboard settings</summary>
 
 > **Dashboard-first (recommended).** Most settings below can be set from the web dashboard
 > **Settings** page instead of `.env` — platform accounts, subfinder/recon provider keys, the
@@ -662,6 +730,8 @@ matching env var becomes an optional seed. Tabs:
 Secrets are never returned by the API — inputs render masked and show a "set / not set" badge; submit
 a blank field to keep the stored value or a new value to overwrite.
 
+</details>
+
 ---
 
 ##  Quick Start (Docker)
@@ -735,6 +805,9 @@ See the [CoPaw AutoAR Skill documentation](/blob/main/docs/copaw-skill.md) for f
 
 ##  Docker & Compose Deep Dive
 
+<details>
+<summary><b>&#128051; Expand Docker &amp; Compose deep dive</b> &mdash; architecture &middot; env &middot; profiles &middot; volumes</summary>
+
 ###  Architecture & Internal Structure (v4.1+)
 
 AutoAR follows a strictly decoupled, package-based architecture designed for enterprise scaling and clean dependency management:
@@ -798,9 +871,14 @@ USE_R2_STORAGE=true
 DEEPSEEK_API_KEY=sk-...   # or pick another provider in Settings ▸ AI Providers
 ```
 
+</details>
+
 ---
 
 ##  Database
+
+<details>
+<summary><b>&#128451;&#65039; Expand database setup</b> &mdash; PostgreSQL &middot; Supabase &middot; SQLite &middot; backups</summary>
 
 AutoAR supports two databases:
 
@@ -836,9 +914,14 @@ DB_HOST=./bughunt.db
   On long-running instances, prune old rows periodically (e.g. delete scans older than N months and
   run `VACUUM`/`pg_repack` on Postgres) — 800k+ subdomain rows are normal for active targets.
 
+</details>
+
 ---
 
 ##  Troubleshooting
+
+<details>
+<summary><b>&#128269; Expand troubleshooting</b></summary>
 
 ### No Terminal Logs?
 
@@ -895,6 +978,8 @@ don't clear existing cached programs (last-known-good scope is preserved).
 Scan output files live under `/app/new-results` inside the container. If no volume is mounted
 there, a container rebuild wipes them (DB records and R2 uploads survive). Mount a volume at
 `/app/new-results` to keep files across redeploys — see the Dokploy checklist above.
+
+</details>
 
 ---
 
